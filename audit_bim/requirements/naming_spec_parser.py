@@ -181,9 +181,53 @@ def _extract_zone_and_room_specs(ws) -> tuple[list[ZoneSpec], list[RoomSpec]]:
             out.append(it)
         return out
 
+    zones = _expand_zone_ranges(zones)
+
     return _dedup(zones, lambda z: (z.name, z.type_label)), _dedup(
         rooms, lambda r: (r.name, r.localisation)
     )
+
+
+# Patterns de plage dans les libellés du CCH I3F :
+#   « Zone Logement T3 (T3 à T7) »  → T3, T4, T5, T6, T7
+#   « Zone Logement D2 (D2 à D7) »  → D2, D3, …, D7
+# La maquette utilise le label *individuel* (« Zone Logement T3 ») — on doit
+# donc déplier la plage au parsing pour que la validation reconnaisse chaque
+# valeur de la plage.
+_RANGE_RE = re.compile(
+    r"^(?P<base>.+?)\s+(?P<letter>[A-Z])(?P<start>\d+)\s*"
+    r"\(\s*(?P=letter)(?P=start)\s+à\s+(?P=letter)(?P<end>\d+)\s*\)\s*$"
+)
+
+
+def _expand_zone_ranges(zones: list[ZoneSpec]) -> list[ZoneSpec]:
+    """Déplie les libellés « Zone Logement T3 (T3 à T7) » en valeurs unitaires."""
+    out: list[ZoneSpec] = []
+    for z in zones:
+        if not z.type_label:
+            out.append(z)
+            continue
+        m = _RANGE_RE.match(z.type_label.strip())
+        if not m:
+            out.append(z)
+            continue
+        base = m.group("base").strip()
+        letter = m.group("letter")
+        start = int(m.group("start"))
+        end = int(m.group("end"))
+        if end < start:
+            out.append(z)
+            continue
+        for n in range(start, end + 1):
+            out.append(
+                ZoneSpec(
+                    name=z.name,
+                    type_label=f"{base} {letter}{n}",
+                    localisation=z.localisation,
+                    definition=z.definition,
+                )
+            )
+    return out
 
 
 def parse_naming_spec(
