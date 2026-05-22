@@ -1,0 +1,29 @@
+[project]
+name = "audit-bim-i3f"
+version = "0.1.0"
+description = "MCP d'audit BIM conforme au Cahier des Charges BIM I3F (CCH V3.6)"
+requires-python = ">=3.10"
+authors = [{ name = "Stanislas Limouzi", email = "stanislas@bimdata.io" }]
+dependencies = [
+    "requests>=2.31",
+    "openpyxl>=3.1",
+    "xlsxwriter>=3.2",
+    "pypdf>=4.0",
+    "pdfplumber>=0.11",
+    "python-docx>=1.1",
+    "pydantic>=2.6",
+    "matplotlib>=3.8",
+    "python-dotenv>=1.0",
+    "fastmcp>=0.4",
+]
+
+[project.scripts]
+audit-bim = "audit_bim.cli:main"
+audit-bim-mcp = "audit_bim.mcp.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["audit_bim*"]
