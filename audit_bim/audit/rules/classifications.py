@@ -14,8 +14,8 @@ from ...extraction.normalizer import get_attribute
 from ...requirements.models import BIMPhase, RequirementsCatalog
 from ..findings import ErrorType, Finding, Severity, Theme
 
-# Classes IFC "spatiales / abstraites" qu'on n'audite PAS (pas de
-# classification métier attendue dessus).
+# Classes IFC "spatiales / abstraites / de référence" qu'on n'audite PAS :
+# pas de classification métier (UniFormat/Omniclass/3F) attendue dessus.
 NON_CLASSIFIED_IFC = {
     "IfcProject",
     "IfcSite",
@@ -27,6 +27,11 @@ NON_CLASSIFIED_IFC = {
     "IfcGroup",
     "IfcOpeningElement",
     "IfcSpatialZone",
+    # Éléments de référence / aide à la modélisation (grilles d'axes,
+    # annotations, vides de réservation virtuels) — non classifiables côté MOA.
+    "IfcGrid",
+    "IfcGridAxis",
+    "IfcAnnotation",
 }
 
 
