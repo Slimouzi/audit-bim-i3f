@@ -88,24 +88,37 @@ def extract_snapshot(client: BIMDataClient) -> ModelSnapshot:
     """Récupère le modèle complet depuis BIMData.
 
     Les routes BIMData retournent parfois 404 quand l'aspect n'est pas indexé
-    par le moteur (modèle non finalisé, etc.) ; on tolère silencieusement ces
-    erreurs pour produire un snapshot partiel.
+    par le moteur (modèle non finalisé, etc.) ; on tolère ces erreurs pour
+    produire un snapshot partiel — mais on les *journalise* sur stderr pour
+    qu'un snapshot vide ne soit pas confondu avec un modèle vide.
     """
-    def safe(fn, default):
+    import sys
+
+    errors: list[str] = []
+
+    def safe(label, fn, default):
         try:
             return fn()
-        except Exception:
+        except Exception as e:
+            errors.append(f"{label}: {type(e).__name__}: {e}")
             return default
 
     snap = ModelSnapshot(
-        project=safe(client.get_project, {}),
-        model=safe(client.get_model, {}),
-        sites=safe(client.get_sites, []),
-        buildings=safe(client.get_buildings, []),
-        storeys=safe(client.get_storeys, []),
-        spaces=safe(client.get_spaces, []),
-        zones=safe(client.get_zones, []),
-        elements=safe(client.get_raw_elements, []),
-        structure_tree=safe(client.get_structure_tree, []),
+        project=safe("get_project", client.get_project, {}),
+        model=safe("get_model", client.get_model, {}),
+        sites=safe("get_sites", client.get_sites, []),
+        buildings=safe("get_buildings", client.get_buildings, []),
+        storeys=safe("get_storeys", client.get_storeys, []),
+        spaces=safe("get_spaces", client.get_spaces, []),
+        zones=safe("get_zones", client.get_zones, []),
+        elements=safe("get_raw_elements", client.get_raw_elements, []),
+        structure_tree=safe("get_structure_tree", client.get_structure_tree, []),
     )
+    if errors:
+        print(
+            f"⚠ extract_snapshot: {len(errors)} route(s) BIMData en erreur :",
+            file=sys.stderr,
+        )
+        for msg in errors:
+            print(f"   • {msg}", file=sys.stderr)
     return snap.index()

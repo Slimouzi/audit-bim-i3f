@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- BIMData API ----------------------------------------------------------
-BIMDATA_BASE_URL = os.getenv("BIMDATA_BASE_URL", "https://api.bimdata.io/v1")
+BIMDATA_BASE_URL = os.getenv("BIMDATA_BASE_URL", "https://api.bimdata.io")
 BIMDATA_IAM_URL = os.getenv(
     "BIMDATA_IAM_URL",
     "https://iam.bimdata.io/auth/realms/bimdata/protocol/openid-connect/token",
