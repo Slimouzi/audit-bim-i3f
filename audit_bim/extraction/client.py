@@ -75,8 +75,10 @@ class BIMDataClient:
         resp.raise_for_status()
         return resp.json()
 
-    def _post(self, path: str, json: dict) -> Any:
-        resp = self.session.post(self._url(path), json=json, timeout=self.timeout)
+    def _post(self, path: str, json: dict, timeout: Optional[int] = None) -> Any:
+        resp = self.session.post(
+            self._url(path), json=json, timeout=(timeout or self.timeout)
+        )
         resp.raise_for_status()
         if not resp.content:
             return None
@@ -149,7 +151,13 @@ class BIMDataClient:
                 ``title`` obligatoire, ``viewpoints`` recommandé avec
                 ``components.coloring`` ou ``components.selection``.
         """
-        return self._post(f"/bcf/2.1/projects/{self.project_id}/full-topic", payload)
+        # Timeout généreux : un topic Vue d'ensemble peut compter quelques
+        # milliers d'UUIDs en selection + plusieurs groupes de coloring.
+        return self._post(
+            f"/bcf/2.1/projects/{self.project_id}/full-topic",
+            payload,
+            timeout=240,
+        )
 
 
 def _denormalize_raw_elements(raw: dict) -> list[dict]:

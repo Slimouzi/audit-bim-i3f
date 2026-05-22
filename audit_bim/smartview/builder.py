@@ -152,20 +152,145 @@ def _build_full_topic(
     return payload
 
 
+def _build_overview_topic(
+    by_theme: dict[Theme, list[Finding]],
+    *,
+    phase: str,
+    model_id: Optional[int | str],
+    prefix: str,
+) -> dict:
+    """Topic « Vue d'ensemble » : 1 seul viewpoint avec coloring multi-thèmes.
+
+    Tous les UUIDs en erreur sont sélectionnés. Le coloring contient une
+    entrée par thème (chacune sa couleur de la palette THEME_COLORS), ce qui
+    permet de voir d'un coup la cartographie des anomalies sur la maquette,
+    en ouvrant un seul topic.
+    """
+    # Union ordonnée des UUIDs + index par thème (couleur)
+    all_uuids: list[str] = []
+    seen: set[str] = set()
+    coloring_groups: list[dict] = []
+    total_findings = 0
+
+    # Trie les thèmes par nb décroissant pour stabilité visuelle
+    sorted_themes = sorted(
+        by_theme.items(), key=lambda kv: -len(kv[1])
+    )
+
+    max_sev = Severity.INFO
+    sev_order = {s: i for i, s in enumerate(Severity.ordered())}
+
+    for theme, items in sorted_themes:
+        theme_uuids = []
+        seen_theme: set[str] = set()
+        for f in items:
+            if not f.element_uuid or f.element_uuid in seen_theme:
+                continue
+            seen_theme.add(f.element_uuid)
+            theme_uuids.append(f.element_uuid)
+            if f.element_uuid not in seen:
+                seen.add(f.element_uuid)
+                all_uuids.append(f.element_uuid)
+            if sev_order[f.severity] < sev_order[max_sev]:
+                max_sev = f.severity
+        if not theme_uuids:
+            continue
+        color_bcf = _hex_alpha(THEME_COLORS.get(theme.value, "888888"), alpha=0x99)
+        coloring_groups.append({
+            "color": color_bcf,
+            "components": [
+                {"ifc_guid": u, "originating_system": ORIGINATING_SYSTEM}
+                for u in theme_uuids
+            ],
+        })
+        total_findings += len(items)
+
+    selection = [
+        {"ifc_guid": u, "originating_system": ORIGINATING_SYSTEM} for u in all_uuids
+    ]
+
+    legend_lines = [
+        f"• {theme.value} : {len(items)} anomalie(s)"
+        for theme, items in sorted_themes
+        if items
+    ]
+    description = (
+        f"Audit BIM I3F — Vue d'ensemble (phase {phase}).\n"
+        f"{len(all_uuids)} éléments distincts en erreur, {total_findings} "
+        f"anomalies au total, réparties sur {sum(1 for _, i in sorted_themes if i)} "
+        "thèmes (légende couleur ci-dessous).\n\n"
+        "Légende :\n" + "\n".join(legend_lines) +
+        "\n\nVoir aussi les topics thématiques pour le détail par catégorie."
+    )
+
+    viewpoint = {
+        "originating_system": ORIGINATING_SYSTEM,
+        "components": {
+            "selection": selection,
+            "coloring": coloring_groups,
+        },
+    }
+    if model_id is not None:
+        try:
+            viewpoint["models"] = [int(model_id)]
+        except (TypeError, ValueError):
+            pass
+
+    payload = {
+        "title": f"{prefix}Vue d'ensemble",
+        "description": description,
+        "topic_type": "Audit BIM",
+        "topic_status": "Open",
+        "priority": _BCF_PRIORITY.get(max_sev, "Medium"),
+        "labels": ["I3F", "audit", phase, "vue-ensemble"],
+        "viewpoints": [viewpoint],
+    }
+    if model_id is not None:
+        try:
+            payload["models"] = [int(model_id)]
+        except (TypeError, ValueError):
+            pass
+    return payload
+
+
 def build_smartview_payloads(
     result: AuditResult,
     *,
     prefix: str = "I3F Audit — ",
     model_id: Optional[int | str] = None,
+    include_overview: bool = True,
 ) -> list[dict]:
-    """Produit la liste des payloads BCF FullTopic (1 par thème avec UUIDs)."""
+    """Produit les payloads BCF FullTopic.
+
+    Args:
+        result: résultat d'audit.
+        prefix: préfixe des titres ("I3F Audit — ").
+        model_id: id du modèle à attacher dans chaque viewpoint.
+        include_overview: si ``True`` (défaut), ajoute en tête un topic
+            « Vue d'ensemble » qui sélectionne tous les UUIDs en erreur,
+            colorés par thème — pratique pour avoir la cartographie complète
+            d'un coup, avant de creuser dans chaque topic thématique.
+
+    Returns:
+        Liste de payloads : [overview, theme1, theme2, ...].
+    """
     by_theme: dict[Theme, list[Finding]] = defaultdict(list)
     for f in result.findings:
         if not f.element_uuid:
             continue
         by_theme[f.theme].append(f)
 
-    payloads = []
+    payloads: list[dict] = []
+    if include_overview and by_theme:
+        payloads.append(
+            _build_overview_topic(
+                by_theme,
+                phase=result.phase.value,
+                model_id=model_id,
+                prefix=prefix,
+            )
+        )
+
     for theme, items in by_theme.items():
         if not items:
             continue
