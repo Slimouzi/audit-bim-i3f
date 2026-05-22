@@ -31,7 +31,8 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from ..audit.engine import AuditResult
-from ..audit.findings import Finding, Severity
+from ..audit.findings import Finding, Severity, Theme
+from ..classifier import suggest_for_findings
 from .theming import I3F_BLUE, I3F_GREY, SEVERITY_COLORS, THEME_COLORS
 
 MAX_FINDINGS_PER_THEME = 25  # cap par thème pour garder un rendu équilibré
@@ -173,22 +174,33 @@ def _kpi_table(doc: Document, kpis: list[tuple[str, str]]):
             run.bold = True
 
 
-def _findings_table(doc: Document, items: Iterable[Finding]):
+def _findings_table(
+    doc: Document,
+    items: Iterable[Finding],
+    suggestions_map: dict | None = None,
+):
+    """Tableau Word des findings.
+
+    Si ``suggestions_map`` est fourni (typiquement pour le thème
+    *Classification IFC*), deux colonnes supplémentaires sont ajoutées :
+    *Suggestion* (code + label UniFormat) et *Conf.* (indice de confiance).
+    """
     items = list(items)
     if not items:
         doc.add_paragraph("Aucune anomalie pour ce thème.").italic = True
         return
-    tbl = doc.add_table(rows=1, cols=5)
+    with_sug = suggestions_map is not None
+    ncols = 7 if with_sug else 5
+    tbl = doc.add_table(rows=1, cols=ncols)
     tbl.style = "Light Grid Accent 1"
+    headers = ["Sév.", "Classe IFC", "Élément", "Attendu", "Réel"]
+    if with_sug:
+        headers += ["Suggestion", "Conf."]
     hdr = tbl.rows[0].cells
-    hdr[0].text = "Sév."
-    hdr[1].text = "Classe IFC"
-    hdr[2].text = "Élément"
-    hdr[3].text = "Attendu"
-    hdr[4].text = "Réel"
-    for c in hdr:
-        _shade_cell(c, I3F_BLUE)
-        for p in c.paragraphs:
+    for i, txt in enumerate(headers):
+        hdr[i].text = txt
+        _shade_cell(hdr[i], I3F_BLUE)
+        for p in hdr[i].paragraphs:
             for r in p.runs:
                 r.font.color.rgb = RGBColor(255, 255, 255)
                 r.bold = True
@@ -207,6 +219,16 @@ def _findings_table(doc: Document, items: Iterable[Finding]):
             exp = ", ".join(map(str, exp[:5])) + ("…" if len(exp) > 5 else "")
         row[3].text = str(exp or "")[:80]
         row[4].text = str(f.actual or "")[:60]
+        if with_sug:
+            sug = (
+                suggestions_map.get(f.element_uuid) if f.element_uuid else None
+            )
+            if sug:
+                row[5].text = f"{sug['code']} — {sug['label']}"
+                row[6].text = f"{sug['confidence']:.2f}"
+            else:
+                row[5].text = ""
+                row[6].text = ""
 
 
 def write_word_report(
@@ -382,13 +404,26 @@ def write_word_report(
         )
 
     # Ordre des thèmes : par nombre d'anomalies décroissant
+    # Suggestions de classification pré-calculées une fois pour le thème
+    # 'Classification IFC' (réutilisé dans la table dédiée).
+    sug_list = suggest_for_findings(
+        result.findings, result.snapshot, min_confidence=0.4, top_n=1
+    )
+    suggestions_map: dict[str, dict] = {}
+    for item in sug_list:
+        u = item.get("element_uuid")
+        sugs = item.get("suggestions") or []
+        if u and sugs:
+            suggestions_map[u] = sugs[0]
+
     for theme, items in sorted(
         by_theme_all.items(), key=lambda kv: -len(kv[1])
     ):
         n = len(items)
         label = f"{theme} ({n} anomalie{'s' if n > 1 else ''})"
         _add_heading(doc, label, level=2)
-        _findings_table(doc, items[:MAX_FINDINGS_PER_THEME])
+        smap = suggestions_map if theme == Theme.CLASSIFICATION.value else None
+        _findings_table(doc, items[:MAX_FINDINGS_PER_THEME], suggestions_map=smap)
 
     _section_break(doc)
 

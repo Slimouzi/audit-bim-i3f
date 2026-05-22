@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import xlsxwriter
 
@@ -89,10 +89,24 @@ def _build_formats(wb: xlsxwriter.Workbook) -> dict:
     return fmts
 
 
-def _write_findings_sheet(wb, name: str, findings: list, fmts: dict):
+def _write_findings_sheet(
+    wb,
+    name: str,
+    findings: list,
+    fmts: dict,
+    suggestions_map: Optional[dict] = None,
+):
+    """Écrit un onglet de findings. Si ``suggestions_map`` est fourni, deux
+    colonnes supplémentaires (Classification proposée, Indice de confiance)
+    sont ajoutées en bout de tableau, alimentées pour les findings dont
+    ``element_uuid`` figure dans la map.
+    """
     ws = wb.add_worksheet(name[:31])
     ws.freeze_panes(1, 0)
-    for c, (label, width) in enumerate(COLUMNS):
+    columns = list(COLUMNS)
+    if suggestions_map is not None:
+        columns += [("Classification proposée", 30), ("Indice de confiance", 14)]
+    for c, (label, width) in enumerate(columns):
         ws.set_column(c, c, width)
         ws.write(0, c, label, fmts["header"])
     ws.set_row(0, 28)
@@ -113,10 +127,17 @@ def _write_findings_sheet(wb, name: str, findings: list, fmts: dict):
             f.ref_cch or "",
             f.recommended_action or "",
         ]
+        if suggestions_map is not None:
+            sug = suggestions_map.get(f.element_uuid) if f.element_uuid else None
+            if sug:
+                values.append(f"{sug['code']} — {sug['label']}")
+                values.append(sug["confidence"])
+            else:
+                values.extend(["", ""])
         for c, v in enumerate(values):
             cell_fmt = fmts[f"sev_{f.severity.value}"] if c == 7 else fmt
             ws.write(i, c, v, cell_fmt)
-    ws.autofilter(0, 0, max(0, len(findings)), len(COLUMNS) - 1)
+    ws.autofilter(0, 0, max(0, len(findings)), len(columns) - 1)
 
 
 def _write_synthesis(wb, result: AuditResult, fmts: dict):
@@ -221,7 +242,14 @@ def write_xlsx_annex(result: AuditResult, output_path: str | Path) -> Path:
     fmts = _build_formats(wb)
 
     _write_synthesis(wb, result, fmts)
-    _write_findings_sheet(wb, "Findings (tous)", result.findings, fmts)
+
+    # Pré-calcul des suggestions de classification pour pouvoir les afficher
+    # dans les onglets « Findings (tous) » et « Classification manquante ».
+    suggestions_map = _build_suggestions_map(result)
+
+    _write_findings_sheet(
+        wb, "Findings (tous)", result.findings, fmts, suggestions_map=suggestions_map
+    )
 
     # 1 onglet par type d'erreur (humanisé)
     by_type: dict[str, list] = defaultdict(list)
@@ -245,13 +273,34 @@ def write_xlsx_annex(result: AuditResult, output_path: str | Path) -> Path:
     for et, items in by_type.items():
         if not items:
             continue
-        _write_findings_sheet(wb, label_for.get(et, et), items, fmts)
+        # Les suggestions ne sont pertinentes que pour 'classification_missing'.
+        smap = suggestions_map if et == ErrorType.CLASSIFICATION_MISSING.value else None
+        _write_findings_sheet(wb, label_for.get(et, et), items, fmts, suggestions_map=smap)
 
     _write_referential(wb, result, fmts)
     _write_classification_suggestions(wb, result, fmts)
 
     wb.close()
     return output_path
+
+
+def _build_suggestions_map(result: AuditResult) -> dict:
+    """Retourne ``{element_uuid: {code, label, confidence}}`` pour les findings
+    'classification_missing' — utilisé pour décorer les onglets findings.
+
+    On garde la suggestion *de plus haute confiance* uniquement (top 1).
+    """
+    suggestions = suggest_for_findings(
+        result.findings, result.snapshot, min_confidence=0.4, top_n=1
+    )
+    out: dict[str, dict] = {}
+    for item in suggestions:
+        uuid = item.get("element_uuid")
+        sugs = item.get("suggestions") or []
+        if not uuid or not sugs:
+            continue
+        out[uuid] = sugs[0]
+    return out
 
 
 def _write_classification_suggestions(wb, result: AuditResult, fmts: dict):
