@@ -21,6 +21,7 @@ import xlsxwriter
 
 from ..audit.engine import AuditResult
 from ..audit.findings import ErrorType, Severity
+from ..classifier import suggest_for_findings
 from .theming import I3F_BLUE, I3F_BLUE_LIGHT, SEVERITY_COLORS
 
 COLUMNS = [
@@ -247,6 +248,53 @@ def write_xlsx_annex(result: AuditResult, output_path: str | Path) -> Path:
         _write_findings_sheet(wb, label_for.get(et, et), items, fmts)
 
     _write_referential(wb, result, fmts)
+    _write_classification_suggestions(wb, result, fmts)
 
     wb.close()
     return output_path
+
+
+def _write_classification_suggestions(wb, result: AuditResult, fmts: dict):
+    """Onglet 'Classifications suggérées' : pour chaque élément en
+    classification_missing, propose les 1-3 codes UniFormat II les plus
+    probables avec confiance et signaux d'appui.
+    """
+    suggestions = suggest_for_findings(
+        result.findings, result.snapshot, min_confidence=0.4, top_n=3
+    )
+    ws = wb.add_worksheet("Classifications suggérées")
+    ws.freeze_panes(1, 0)
+    cols = [
+        ("UUID", 38), ("Classe IFC", 22), ("Nom", 32),
+        ("Layers (sample)", 24), ("IsExternal", 10),
+        ("Suggestion 1 — code", 12), ("Sug. 1 — libellé", 28), ("Conf. 1", 8),
+        ("Suggestion 2 — code", 12), ("Sug. 2 — libellé", 28), ("Conf. 2", 8),
+        ("Signaux", 60),
+    ]
+    for c, (lbl, w) in enumerate(cols):
+        ws.set_column(c, c, w)
+        ws.write(0, c, lbl, fmts["header"])
+    ws.set_row(0, 28)
+
+    for i, item in enumerate(suggestions, start=1):
+        fmt = fmts["row_alt"] if i % 2 == 0 else fmts["row"]
+        sugs = item.get("suggestions") or []
+        s1 = sugs[0] if len(sugs) >= 1 else {}
+        s2 = sugs[1] if len(sugs) >= 2 else {}
+        ws.write(i, 0, item.get("element_uuid") or "", fmt)
+        ws.write(i, 1, item.get("ifc_type") or "", fmt)
+        ws.write(i, 2, (item.get("name") or "")[:120], fmt)
+        ws.write(i, 3, ", ".join(item.get("layers") or [])[:120], fmt)
+        ws.write(i, 4, "" if item.get("is_external") is None else ("oui" if item["is_external"] else "non"), fmt)
+        ws.write(i, 5, s1.get("code", ""), fmt)
+        ws.write(i, 6, s1.get("label", ""), fmt)
+        ws.write(i, 7, s1.get("confidence", ""), fmt)
+        ws.write(i, 8, s2.get("code", ""), fmt)
+        ws.write(i, 9, s2.get("label", ""), fmt)
+        ws.write(i, 10, s2.get("confidence", ""), fmt)
+        reasons = []
+        for s in sugs[:2]:
+            reasons.extend(s.get("reasons") or [])
+        ws.write(i, 11, " ; ".join(reasons)[:300], fmt)
+    if suggestions:
+        ws.autofilter(0, 0, len(suggestions), len(cols) - 1)

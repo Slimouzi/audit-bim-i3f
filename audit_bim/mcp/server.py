@@ -20,6 +20,7 @@ from fastmcp import FastMCP
 
 from .. import config
 from ..audit.engine import AuditResult, run_audit
+from ..classifier import suggest_for_findings
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot, extract_snapshot
 from ..reporting.word_report import write_word_report
@@ -273,6 +274,32 @@ def generate_word_report(
         xlsx_annex_path=xlsx_annex_path,
     )
     return {"path": str(written), "size_bytes": written.stat().st_size}
+
+
+@mcp.tool()
+def suggest_classifications(
+    min_confidence: float = 0.4,
+    top_n: int = 3,
+    limit: int = 200,
+) -> list[dict]:
+    """Pour chaque élément avec ``classification_missing``, propose 1-3 codes
+    UniFormat II déduits de la classe IFC, des layers, des attributs, des
+    Pset_*Common (IsExternal…) et des BaseQuantities.
+
+    Args:
+        min_confidence: seuil de confiance (0..1) sous lequel on n'expose pas
+            de suggestion.
+        top_n: nombre maximum de suggestions par élément.
+        limit: cap du nombre d'éléments retournés (pour préserver le canal MCP).
+    """
+    _State.ensure_result()
+    out = suggest_for_findings(
+        _State.result.findings,
+        _State.result.snapshot,
+        min_confidence=min_confidence,
+        top_n=top_n,
+    )
+    return out[:limit]
 
 
 @mcp.tool()
