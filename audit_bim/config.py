@@ -12,7 +12,6 @@ BIMDATA_IAM_URL = os.getenv(
     "BIMDATA_IAM_URL",
     "https://iam.bimdata.io/auth/realms/bimdata/protocol/openid-connect/token",
 )
-BIMDATA_SMARTVIEW_PATH = os.getenv("BIMDATA_SMARTVIEW_PATH", "/smart-view")
 
 API_KEY = os.getenv("BIMDATA_API_KEY") or None
 CLIENT_ID = os.getenv("BIMDATA_CLIENT_ID") or None

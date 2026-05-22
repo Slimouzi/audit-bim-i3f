@@ -133,17 +133,23 @@ class BIMDataClient:
         r.raise_for_status()
         return r.json()
 
-    # Smart Views
-    def create_smart_view(self, payload: dict) -> dict:
-        """Crée une smart view sur le projet.
+    # ── BCF (équivalent BIMData des « Smart Views » côté viewer) ─────────────
+    # Les vues thématiques d'audit sont matérialisées comme des *BCF Topics*
+    # avec un viewpoint qui colore/sélectionne les UUIDs en erreur. C'est le
+    # standard buildingSMART (donc portable hors BIMData) et c'est ce que le
+    # viewer BIMData consomme nativement.
 
-        L'URL est composée à partir de :
-            ``{cloud}/{project}{BIMDATA_SMARTVIEW_PATH}``
-        ce qui permet d'ajuster ``BIMDATA_SMARTVIEW_PATH`` via l'env si la
-        convention diffère sur ton tenant (cf. .env.example).
+    def create_bcf_full_topic(self, payload: dict) -> dict:
+        """Crée un BCF Topic + Viewpoints en une seule requête.
+
+        Endpoint : ``POST /bcf/2.1/projects/{project_id}/full-topic``.
+
+        Args:
+            payload: dict respectant ``FullTopicRequest`` (cf. OpenAPI BIMData) —
+                ``title`` obligatoire, ``viewpoints`` recommandé avec
+                ``components.coloring`` ou ``components.selection``.
         """
-        path = f"{self._project_path()}{config.BIMDATA_SMARTVIEW_PATH}"
-        return self._post(path, payload)
+        return self._post(f"/bcf/2.1/projects/{self.project_id}/full-topic", payload)
 
 
 def _denormalize_raw_elements(raw: dict) -> list[dict]:
