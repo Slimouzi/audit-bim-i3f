@@ -5,6 +5,7 @@ from ...extraction.model_data import ModelSnapshot
 from ...extraction.normalizer import get_attribute, resolve_value
 from ...requirements.models import BIMPhase, RequirementsCatalog
 from ..findings import ErrorType, Finding, Severity, Theme
+from ..ifc_hierarchy import expand_class
 
 
 def _severity_for(spec_kind: str) -> Severity:
@@ -41,9 +42,16 @@ def audit_properties(
         specs = catalog.properties_for(ifc_class, phase)
         if not specs:
             continue
-        elements = snap.of_class(ifc_class)
+        # Hiérarchie IFC : un parent du CCH (IfcWall) couvre aussi les
+        # sous-classes émises par Revit/ArchiCAD (IfcWallStandardCase…).
+        target_classes = expand_class(ifc_class)
+        elements: list[tuple[str, dict]] = []
+        for tc in target_classes:
+            for el in snap.of_class(tc):
+                elements.append((tc, el))
+
         if not elements:
-            # Aucune instance de cette classe → on remonte 1 anomalie projet
+            # Aucune instance ni de la classe parente, ni d'aucune sous-classe
             findings.append(
                 Finding(
                     theme=Theme.PROPERTY_MISSING,
@@ -60,7 +68,7 @@ def audit_properties(
             )
             continue
 
-        for el in elements:
+        for actual_class, el in elements:
             uuid = el.get("uuid")
             nm = get_attribute(el, "Name") or el.get("name")
             for spec in specs:
@@ -68,23 +76,30 @@ def audit_properties(
                     continue
                 value = resolve_value(el, spec.pset_or_attribute, spec.property_name)
                 if _is_empty(value):
+                    # Le finding signale la classe *réelle* (IfcWallStandardCase)
+                    # tout en mentionnant la classe-mère du CCH pour traçabilité.
+                    via = (
+                        f" (exigence définie sur {ifc_class})"
+                        if actual_class != ifc_class
+                        else ""
+                    )
                     findings.append(
                         Finding(
                             theme=Theme.PROPERTY_MISSING,
                             severity=_severity_for(spec.kind),
                             error_type=ErrorType.PROPERTY_MISSING,
                             element_uuid=uuid,
-                            ifc_type=ifc_class,
+                            ifc_type=actual_class,
                             name=nm,
                             expected=(
                                 f"{spec.pset_or_attribute or '(attribut natif)'}"
-                                f" › {spec.property_name}"
+                                f" › {spec.property_name}{via}"
                             ),
                             actual=None,
                             ref_cch=spec.ref_cch,
                             recommended_action=(
                                 f"Renseigner {spec.property_name} sur "
-                                f"{ifc_class} (phase {phase.value})."
+                                f"{actual_class} (phase {phase.value})."
                             ),
                         )
                     )

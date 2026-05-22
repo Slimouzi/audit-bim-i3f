@@ -29,6 +29,7 @@ from typing import Iterator, Optional
 
 import openpyxl
 
+from ..audit.ifc_hierarchy import normalize_catalog_class
 from .models import BIMPhase, PropertySpec
 from ._openpyxl_compat import patch_openpyxl
 
@@ -179,18 +180,24 @@ def parse_data_spec(xlsx_path: str | Path) -> list[PropertySpec]:
             _required_phases(row, phase_cols) if phase_cols else []
         )
 
-        spec = PropertySpec(
-            theme=current_theme or "Générale",
-            objet=current_objet or "",
-            ifc_class=str(current_ifc_class).strip(),
-            property_name=str(prop_name).strip(),
-            pset_or_attribute=str(pset).strip() if pset else None,
-            kind="document" if current_kind == "document" else "property",
-            required_phases=required,
-            comment=str(comment).strip() if comment else None,
-            usage_3f=str(usage).strip() if usage else None,
-            ref_cch="Chap 6.2",
-        )
-        specs.append(spec)
+        # Une ligne du CCH peut référencer plusieurs classes IFC en une
+        # seule cellule (ex: "IfcDuctFittingType\nIfcDuctSegmentType") ou
+        # contenir un suffixe métier (« IfcCovering_CEILING »). On déplie
+        # en une PropertySpec par classe IFC normalisée.
+        for ifc_class in normalize_catalog_class(str(current_ifc_class)):
+            specs.append(
+                PropertySpec(
+                    theme=current_theme or "Générale",
+                    objet=current_objet or "",
+                    ifc_class=ifc_class,
+                    property_name=str(prop_name).strip(),
+                    pset_or_attribute=str(pset).strip() if pset else None,
+                    kind="document" if current_kind == "document" else "property",
+                    required_phases=required,
+                    comment=str(comment).strip() if comment else None,
+                    usage_3f=str(usage).strip() if usage else None,
+                    ref_cch="Chap 6.2",
+                )
+            )
 
     return specs
