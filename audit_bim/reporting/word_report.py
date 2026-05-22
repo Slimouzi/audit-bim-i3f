@@ -25,7 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from docx import Document
 from docx.enum.table import WD_ALIGN_VERTICAL
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -34,7 +34,8 @@ from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity
 from .theming import I3F_BLUE, I3F_GREY, SEVERITY_COLORS, THEME_COLORS
 
-MAX_FINDINGS_DETAIL = 200  # cap pour ne pas exploser le docx
+MAX_FINDINGS_PER_THEME = 25  # cap par thème pour garder un rendu équilibré
+PIE_OTHER_THRESHOLD = 0.02   # tranches < 2 % regroupées en « Autres »
 
 
 def _hex_to_rgb(h: str) -> RGBColor:
@@ -58,24 +59,63 @@ def _add_heading(doc: Document, text: str, level: int = 1):
 
 
 def _pie_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -> io.BytesIO:
-    fig, ax = plt.subplots(figsize=(5.5, 4.5), dpi=140)
-    labels = list(values.keys())
-    sizes = list(values.values())
-    colors = [f"#{colors_map.get(l, '888888')}" for l in labels]
-    if sum(sizes) == 0:
+    """Camembert avec regroupement des tranches < 2 % en « Autres » et légende externe.
+
+    Les labels en bordure se chevauchent dès qu'on a plusieurs tranches < 1 % ;
+    on bascule donc sur une légende latérale pour rester lisible.
+    """
+    fig, ax = plt.subplots(figsize=(7.0, 4.5), dpi=140)
+    total = sum(values.values())
+    if total == 0:
         ax.text(0.5, 0.5, "Aucune anomalie", ha="center", va="center")
         ax.axis("off")
-    else:
-        ax.pie(
-            sizes,
-            labels=labels,
-            colors=colors,
-            autopct="%1.0f%%",
-            startangle=90,
-            textprops={"fontsize": 9},
-        )
-        ax.axis("equal")
+        ax.set_title(title, fontsize=11)
+        buf = io.BytesIO()
+        fig.tight_layout()
+        fig.savefig(buf, format="png", bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+
+    # Trier décroissant + grouper les tranches négligeables
+    items = sorted(values.items(), key=lambda kv: -kv[1])
+    big: list[tuple[str, int]] = []
+    small_sum = 0
+    for k, v in items:
+        if v / total < PIE_OTHER_THRESHOLD:
+            small_sum += v
+        else:
+            big.append((k, v))
+    if small_sum > 0:
+        big.append(("Autres", small_sum))
+
+    labels = [k for k, _ in big]
+    sizes = [v for _, v in big]
+    colors = [f"#{colors_map.get(l, 'BFBFBF')}" for l in labels]
+
+    # Affiche % directement sur les tranches mais pas les labels (légende externe)
+    wedges, _texts, autotexts = ax.pie(
+        sizes,
+        colors=colors,
+        autopct=lambda pct: f"{pct:.0f}%" if pct >= 3 else "",
+        startangle=90,
+        textprops={"fontsize": 9, "color": "white", "weight": "bold"},
+        pctdistance=0.72,
+    )
+    ax.axis("equal")
     ax.set_title(title, fontsize=11)
+
+    # Légende externe avec libellé + valeur absolue
+    legend_labels = [f"{l}  ({s:,})".replace(",", " ") for l, s in zip(labels, sizes)]
+    ax.legend(
+        wedges,
+        legend_labels,
+        loc="center left",
+        bbox_to_anchor=(1.0, 0.5),
+        fontsize=9,
+        frameon=False,
+    )
+
     buf = io.BytesIO()
     fig.tight_layout()
     fig.savefig(buf, format="png", bbox_inches="tight")
@@ -104,7 +144,18 @@ def _bar_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -
 
 
 def _section_break(doc: Document):
-    doc.add_page_break()
+    """Attache un saut de page au dernier paragraphe existant.
+
+    Évite la création d'un paragraphe vide additionnel — qui se rend en marge
+    gauche dans certains visionneurs (Quick Look macOS, par ex.) comme un
+    petit marqueur indésirable.
+    """
+    if doc.paragraphs:
+        last = doc.paragraphs[-1]
+        run = last.add_run()
+        run.add_break(WD_BREAK.PAGE)
+    else:
+        doc.add_page_break()
 
 
 def _kpi_table(doc: Document, kpis: list[tuple[str, str]]):
@@ -183,28 +234,32 @@ def write_word_report(
     project_name = (result.snapshot.project or {}).get("name", "?")
     model_name = (result.snapshot.model or {}).get("name", "?")
 
-    # 1. Page de garde
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run("\n\n\nAUDIT BIM\n")
-    run.bold = True
-    run.font.size = Pt(28)
-    run.font.color.rgb = _hex_to_rgb(I3F_BLUE)
-    run = p.add_run("Cahier des Charges BIM I3F (CCH)\n")
-    run.font.size = Pt(14)
-    run.font.color.rgb = _hex_to_rgb(I3F_BLUE)
-    run = p.add_run(f"Version référentiel : {result.catalog.cch_version or '—'}\n")
-    run.font.size = Pt(11)
+    # 1. Page de garde — un paragraphe par ligne pour un rendu propre (pas
+    # de '\n' dans les runs qui produisent des marqueurs visuels).
+    def _cover_line(text: str, *, size: int, bold: bool = False, color: str = I3F_GREY):
+        para = doc.add_paragraph()
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = para.add_run(text)
+        run.bold = bold
+        run.font.size = Pt(size)
+        run.font.color.rgb = _hex_to_rgb(color)
+        return para
 
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run(f"\n\nProgramme : {project_name}\n")
-    run.bold = True
-    run.font.size = Pt(16)
-    p.add_run(f"Modèle audité : {model_name}\n").font.size = Pt(12)
-    p.add_run(f"Phase BIM : {result.phase.value}\n").font.size = Pt(12)
-    p.add_run(f"Date : {date.today().isoformat()}\n").font.size = Pt(11)
-    p.add_run(f"Auditeur : {auditor}\n").font.size = Pt(11)
+    for _ in range(4):
+        doc.add_paragraph()  # espacement vertical en haut
+    _cover_line("AUDIT BIM", size=32, bold=True, color=I3F_BLUE)
+    _cover_line("Cahier des Charges BIM I3F (CCH)", size=14, color=I3F_BLUE)
+    _cover_line(
+        f"Version référentiel : {result.catalog.cch_version or '—'}",
+        size=11,
+    )
+    doc.add_paragraph()
+    doc.add_paragraph()
+    _cover_line(f"Programme : {project_name}", size=16, bold=True)
+    _cover_line(f"Modèle audité : {model_name}", size=12)
+    _cover_line(f"Phase BIM : {result.phase.value}", size=12)
+    _cover_line(f"Date : {date.today().isoformat()}", size=11)
+    _cover_line(f"Auditeur : {auditor}", size=11)
 
     _section_break(doc)
 
@@ -307,22 +362,33 @@ def write_word_report(
 
     _section_break(doc)
 
-    # 5. Détail par thème
+    # 5. Détail par thème — on cap PAR thème pour qu'on voit un échantillon
+    # de chacun, plutôt que de remplir le quota global avec un seul thème.
     _add_heading(doc, "4. Détail des anomalies par thème", level=1)
-    by_theme_findings: dict[str, list[Finding]] = {}
-    for f in result.findings[:MAX_FINDINGS_DETAIL]:
-        by_theme_findings.setdefault(f.theme.value, []).append(f)
 
-    if len(result.findings) > MAX_FINDINGS_DETAIL:
+    by_theme_all: dict[str, list[Finding]] = {}
+    for f in result.findings:
+        by_theme_all.setdefault(f.theme.value, []).append(f)
+
+    capped_total = sum(
+        min(len(items), MAX_FINDINGS_PER_THEME) for items in by_theme_all.values()
+    )
+    if len(result.findings) > capped_total:
         doc.add_paragraph(
-            f"⚠ Détail limité aux {MAX_FINDINGS_DETAIL} premières anomalies pour "
-            "préserver la lisibilité — l'annexe Excel contient l'exhaustif.",
+            f"⚠ Détail limité aux {MAX_FINDINGS_PER_THEME} anomalies les plus "
+            "sévères par thème pour préserver la lisibilité — l'annexe Excel "
+            "contient l'exhaustif.",
             style="Intense Quote",
         )
 
-    for theme, items in by_theme_findings.items():
-        _add_heading(doc, theme, level=2)
-        _findings_table(doc, items)
+    # Ordre des thèmes : par nombre d'anomalies décroissant
+    for theme, items in sorted(
+        by_theme_all.items(), key=lambda kv: -len(kv[1])
+    ):
+        n = len(items)
+        label = f"{theme} ({n} anomalie{'s' if n > 1 else ''})"
+        _add_heading(doc, label, level=2)
+        _findings_table(doc, items[:MAX_FINDINGS_PER_THEME])
 
     _section_break(doc)
 
