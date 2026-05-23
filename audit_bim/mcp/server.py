@@ -20,6 +20,7 @@ from fastmcp import FastMCP
 
 from .. import config
 from ..audit.engine import AuditResult, run_audit
+from ..bcf.builder import push_bcf_topics
 from ..classifier import suggest_for_findings
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot, extract_snapshot
@@ -303,14 +304,44 @@ def suggest_classifications(
 
 
 @mcp.tool()
+def create_bcf_topics(
+    prefix: str = "I3F Audit — ",
+    dry_run: bool = True,
+) -> dict:
+    """Crée des BCF Topics (panneau *BCF Issues* du viewer) pour chaque thème
+    d'anomalie. Workflow d'issue : ``topic_type``, ``topic_status``,
+    ``priority``, ``description`` riche, ``labels``, sélection + coloration
+    des éléments concernés.
+
+    À utiliser pour le **suivi de résolution** d'anomalies (assignation,
+    commentaires, changement de statut Open → In Progress → Closed).
+
+    En ``dry_run`` (défaut), renvoie les payloads sans POST. Format
+    buildingSMART standard, portable hors BIMData.
+    """
+    _State.ensure_result()
+    _State.ensure_client()
+    out = push_bcf_topics(
+        _State.result, _State.client, prefix=prefix, dry_run=dry_run
+    )
+    return {"n_topics": len(out), "dry_run": dry_run, "topics": out}
+
+
+@mcp.tool()
 def create_smart_views(
     prefix: str = "I3F Audit — ",
     dry_run: bool = True,
 ) -> dict:
-    """Crée (ou simule) 1 Smart View BIMData par thème en erreur.
+    """Crée des Smart Views (panneau *Smart Views* du viewer BIMData) pour
+    chaque thème d'anomalie. Payload minimal : juste un coloring d'éléments
+    par thème, sans workflow d'issue.
 
-    En mode ``dry_run`` (par défaut), renvoie les payloads JSON prêts à
-    pousser, sans appel API. Mettre ``dry_run=False`` pour pousser réellement.
+    À utiliser pour la **navigation 3D rapide** vers un sous-ensemble
+    d'éléments. Pas d'assignation, pas de statut, pas de commentaires —
+    c'est juste une vue colorée.
+
+    En ``dry_run`` (défaut), renvoie les payloads JSON prêts à pousser, sans
+    appel API. Mettre ``dry_run=False`` pour pousser réellement.
     """
     _State.ensure_result()
     _State.ensure_client()
@@ -331,19 +362,59 @@ def full_audit(
     model_id: Optional[str] = None,
     phase: str = "PRO",
     output_dir: Optional[str] = None,
-    push_smart_views_now: bool = False,
+    push_mode: str = "ask",
     access_token: Optional[str] = None,
 ) -> dict:
-    """Orchestrateur : parse documents → extract modèle → audit → reports → smart views.
+    """Orchestrateur : parse documents → extract modèle → audit → reports.
+
+    Pour la *publication des résultats* dans le viewer BIMData, deux régimes
+    distincts sont disponibles via ``push_mode`` :
+
+    - ``"bcf"`` : crée des **BCF Topics** (panneau *BCF Issues*) — workflow
+      d'issue à résoudre avec assignation, statut, commentaires, description
+      riche, sélection + coloration.
+    - ``"smartview"`` : crée des **Smart Views** (panneau dédié) — vues 3D
+      minimales (coloring uniquement) pour navigation rapide.
+    - ``"both"`` : pousse les deux régimes.
+    - ``"none"`` : ne pousse rien (dry-run, payloads conservés en JSON).
+    - ``"ask"`` (défaut) : aucune publication ; renvoie une question à
+      l'utilisateur pour qu'il choisisse — Claude doit demander avant de
+      ré-appeler ``full_audit`` avec une valeur explicite.
 
     Args:
         cloud_id, project_id, model_id: cible BIMData (fallback ``.env``).
         phase: phase BIM auditée.
         output_dir: dossier de sortie (fallback ``AUDIT_OUTPUT_DIR`` env).
-        push_smart_views_now: si ``True``, pousse les smart views réellement,
-            sinon dry-run.
+        push_mode: ``"ask"`` | ``"bcf"`` | ``"smartview"`` | ``"both"`` | ``"none"``.
         access_token: bearer optionnel.
     """
+    mode = (push_mode or "ask").lower()
+    if mode == "ask":
+        return {
+            "status": "needs_user_choice",
+            "question": (
+                "Comment veux-tu publier les résultats de l'audit dans le viewer "
+                "BIMData ?"
+            ),
+            "options": {
+                "bcf": "BCF Topics — workflow d'issues à résoudre (assignation, "
+                       "statut, commentaires) dans le panneau BCF Issues.",
+                "smartview": "Smart Views — vues 3D colorées dans le panneau "
+                             "Smart Views (navigation seulement, pas de workflow).",
+                "both": "Les deux — pratique pour avoir à la fois la navigation "
+                        "rapide (Smart Views) et le suivi de correction (BCF).",
+                "none": "Ne rien publier — les payloads sont sauvegardés en JSON.",
+            },
+            "next_step": (
+                "Re-appeler full_audit avec push_mode=<bcf|smartview|both|none>."
+            ),
+        }
+    if mode not in ("bcf", "smartview", "both", "none"):
+        raise ValueError(
+            f"push_mode invalide : {push_mode!r}. Attendu : "
+            "'ask' | 'bcf' | 'smartview' | 'both' | 'none'."
+        )
+
     # 1. Catalogue
     _State.catalog = build_catalog(
         cch_pdf=_State.cch_pdf,
@@ -373,9 +444,15 @@ def full_audit(
     xlsx_written = write_xlsx_annex(_State.result, xlsx_path)
     word_written = write_word_report(_State.result, word_path, xlsx_annex_path=xlsx_written)
 
-    # 6. Smart views
-    sv = push_smart_views(
-        _State.result, _State.client, dry_run=not push_smart_views_now
+    # 6. Publication selon le mode
+    bcf_result, sv_result = [], []
+    do_push_bcf = mode in ("bcf", "both")
+    do_push_sv = mode in ("smartview", "both")
+    bcf_result = push_bcf_topics(
+        _State.result, _State.client, dry_run=not do_push_bcf
+    )
+    sv_result = push_smart_views(
+        _State.result, _State.client, dry_run=not do_push_sv
     )
 
     # 7. JSON machine
@@ -388,9 +465,14 @@ def full_audit(
         ),
         encoding="utf-8",
     )
+    bcf_json = word_path.with_name(word_path.stem + "_bcf_topics.json")
+    bcf_json.write_text(
+        json.dumps(bcf_result, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
     sv_json = word_path.with_name(word_path.stem + "_smart_views.json")
     sv_json.write_text(
-        json.dumps(sv, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+        json.dumps(sv_result, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )
 
     return {
@@ -399,9 +481,12 @@ def full_audit(
             "word": str(word_written),
             "xlsx": str(xlsx_written),
             "findings_json": str(findings_json),
+            "bcf_topics_json": str(bcf_json),
             "smart_views_json": str(sv_json),
         },
-        "smart_views": {"n": len(sv), "pushed": push_smart_views_now},
+        "push_mode": mode,
+        "bcf_topics": {"n": len(bcf_result), "pushed": do_push_bcf},
+        "smart_views": {"n": len(sv_result), "pushed": do_push_sv},
     }
 
 
