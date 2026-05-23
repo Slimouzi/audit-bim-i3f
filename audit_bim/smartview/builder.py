@@ -23,7 +23,22 @@ from typing import Optional
 from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity, Theme
 from ..extraction.client import BIMDataClient
-from ..reporting.theming import THEME_COLORS
+from ..reporting.theming import SEVERITY_COLORS
+
+# Smart Views = code couleur **sévérité** (rouge / orange / vert), à l'inverse
+# des BCF Topics qui utilisent la palette par thème. Cohérent avec le code
+# couleur demandé : HIGH rouge, MEDIUM orange, LOW vert.
+
+
+def _severity_color(sev: Severity) -> str:
+    """Couleur hex ``#RRGGBB`` correspondant à une sévérité."""
+    return "#" + SEVERITY_COLORS[sev.value]
+
+
+def _max_severity(findings: list[Finding]) -> Severity:
+    """Sévérité maximale (la plus grave) d'une liste de findings."""
+    sev_order = {s: i for i, s in enumerate(Severity.ordered())}
+    return min((f.severity for f in findings), key=lambda s: sev_order[s])
 
 
 def _build_full_topic(
@@ -55,8 +70,9 @@ def _build_full_topic(
         seen.add(f.element_uuid)
         uuids.append(f.element_uuid)
 
-    color_hex = THEME_COLORS.get(theme.value, "888888")
-    color = f"#{color_hex}"
+    # Couleur de la smart view thématique = sévérité maximale du thème.
+    # Le viewer BIMData utilise cette couleur comme « chip » dans la liste.
+    color = _severity_color(_max_severity(items))
 
     mid_int: Optional[int] = None
     if model_id is not None:
@@ -110,22 +126,28 @@ def _build_overview_topic(
     prefix: str,
     element_by_uuid: dict | None = None,
 ) -> dict:
-    """Topic « Vue d'ensemble » : 1 seul viewpoint avec coloring multi-thèmes.
+    """Topic « Vue d'ensemble » : 1 viewpoint avec coloring multi-sévérités.
 
-    Tous les UUIDs en erreur sont sélectionnés. Le coloring contient une
-    entrée par thème (chacune sa couleur de la palette THEME_COLORS), ce qui
-    permet de voir d'un coup la cartographie des anomalies sur la maquette,
-    en ouvrant un seul topic.
+    Plutôt qu'un coloring par *thème*, on regroupe les éléments par
+    **sévérité** maximale rencontrée sur eux (un UUID peut apparaître dans
+    plusieurs thèmes ; on garde la sévérité la plus grave). On obtient donc
+    1 groupe de couleur par sévérité dans la maquette (rouge HIGH, orange
+    MEDIUM, vert LOW…), ce qui donne d'un coup d'œil la cartographie des
+    risques sur le modèle.
     """
-    # Union ordonnée des UUIDs + index par thème (couleur)
-    all_uuids: list[str] = []
-    seen: set[str] = set()
-    coloring_groups: list[dict] = []
+    # On agrège tous les findings, indexés par UUID, en gardant la sévérité
+    # la plus grave de chaque élément.
+    sev_order = {s: i for i, s in enumerate(Severity.ordered())}
+    uuid_max_sev: dict[str, Severity] = {}
+    for items in by_theme.values():
+        for f in items:
+            if not f.element_uuid:
+                continue
+            prev = uuid_max_sev.get(f.element_uuid)
+            if prev is None or sev_order[f.severity] < sev_order[prev]:
+                uuid_max_sev[f.element_uuid] = f.severity
 
-    # Trie les thèmes par nb décroissant pour stabilité visuelle
-    sorted_themes = sorted(
-        by_theme.items(), key=lambda kv: -len(kv[1])
-    )
+    coloring_groups: list[dict] = []
 
     mid_int: Optional[int] = None
     if model_id is not None:
@@ -140,24 +162,14 @@ def _build_overview_topic(
             comp["authoring_tool_id"] = mid_int
         return comp
 
-    for theme, items in sorted_themes:
-        theme_uuids = []
-        seen_theme: set[str] = set()
-        for f in items:
-            if not f.element_uuid or f.element_uuid in seen_theme:
-                continue
-            seen_theme.add(f.element_uuid)
-            theme_uuids.append(f.element_uuid)
-            if f.element_uuid not in seen:
-                seen.add(f.element_uuid)
-                all_uuids.append(f.element_uuid)
-        if not theme_uuids:
+    # Regroupement par sévérité (de la plus grave à la moins grave).
+    for sev in Severity.ordered():
+        bucket = [u for u, s in uuid_max_sev.items() if s == sev]
+        if not bucket:
             continue
-        # Couleur RGB simple (sans alpha) — format observé côté UI : '#RRGGBB'
-        color = "#" + THEME_COLORS.get(theme.value, "888888")
         coloring_groups.append({
-            "color": color,
-            "components": [_component(u) for u in theme_uuids],
+            "color": _severity_color(sev),
+            "components": [_component(u) for u in bucket],
         })
 
     # Payload minimal aligné UI : pas de selection, pas de description,
