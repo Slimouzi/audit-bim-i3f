@@ -1,4 +1,9 @@
 """Classification Suggester : heuristique de classification IFC manquante."""
+from .applier import (
+    apply_classifications,
+    items_from_suggestions,
+    list_project_classifications,
+)
 from .catalog import UNIFORMAT, ClassEntry, entry, normalize_uniformat_level3
 from .signals import ElementSignals, extract_signals
 from .suggester import (
@@ -7,6 +12,7 @@ from .suggester import (
     suggest,
     suggest_for_findings,
 )
+from .xlsx_reader import read_classifications_from_xlsx
 
 __all__ = [
     "ClassEntry",
@@ -14,9 +20,13 @@ __all__ = [
     "Suggestion",
     "UNIFORMAT",
     "accepted_codes_for",
+    "apply_classifications",
     "entry",
     "extract_signals",
+    "items_from_suggestions",
+    "list_project_classifications",
     "normalize_uniformat_level3",
+    "read_classifications_from_xlsx",
     "suggest",
     "suggest_for_findings",
 ]

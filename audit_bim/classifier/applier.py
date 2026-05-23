@@ -1,0 +1,199 @@
+"""Application des classifications IFC aux éléments BIMData.
+
+Deux modes côté MCP :
+
+- **Sans contrôle** (``apply_suggested_classifications``) : on prend
+  automatiquement la *Suggestion top 1* du classifier pour chaque élément
+  ``classification_missing`` dont la confiance dépasse un seuil, et on
+  applique sans intervention humaine. Idéal en première passe ou en CI.
+
+- **Avec contrôle XLSX** (``apply_classifications_from_xlsx``) : l'auditeur
+  télécharge l'annexe XLSX d'audit, édite la colonne « Suggestion 1 — code »
+  de l'onglet *Classifications suggérées* (accepte / corrige / efface), puis
+  re-upload. Seules les lignes avec un code non vide sont appliquées.
+
+Workflow API en deux étapes :
+    1. Créer la classification au niveau projet (cachée par (code, système)).
+    2. Lier la classification à l'élément en bulk via
+       ``POST /classification-element``.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from typing import Iterable
+
+from ..extraction.client import BIMDataClient
+
+
+def list_project_classifications(client: BIMDataClient) -> list[dict]:
+    """Liste les classifications existantes au niveau projet."""
+    return client._get(
+        f"/cloud/{client.cloud_id}/project/{client.project_id}/classification"
+    )
+
+
+def _normalize_system(system: str | None) -> str:
+    """Normalise le nom du système (``UniFormat II`` → ``uniformat``)."""
+    if not system:
+        return "uniformat"
+    s = system.lower()
+    if "uniformat" in s:
+        return "uniformat"
+    if "omniclass" in s:
+        return "omniclass"
+    return s
+
+
+def apply_classifications(
+    client: BIMDataClient,
+    items: Iterable[dict],
+    *,
+    dry_run: bool = True,
+) -> dict:
+    """Applique une liste de classifications à des éléments BIMData.
+
+    Args:
+        client: client BIMData authentifié.
+        items: iterable de dicts ``{uuid, code, label, system}``. ``system``
+            est optionnel (défaut ``"uniformat"``). ``label`` aussi (sinon
+            le code est ré-utilisé comme titre).
+        dry_run: si ``True``, ne fait *aucun* appel POST. Retourne juste un
+            aperçu de ce qui serait fait. Idéal pour validation utilisateur.
+
+    Returns:
+        Résumé : nombre de classifications créées, liens créés, erreurs.
+    """
+    items_list = [
+        it
+        for it in items
+        if it.get("uuid") and it.get("code") and str(it["code"]).strip()
+    ]
+    if not items_list:
+        return {
+            "dry_run": dry_run,
+            "n_items": 0,
+            "message": "Aucune classification à appliquer.",
+        }
+
+    # Regroupement par (code, système, label) → liste d'UUIDs
+    grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    for it in items_list:
+        code = str(it["code"]).strip().upper()
+        system = _normalize_system(it.get("system"))
+        label = str(it.get("label") or code).strip()
+        grouped[(code, system, label)].append(str(it["uuid"]).strip())
+
+    # Cache des classifications existantes (ou créées)
+    cache: dict[tuple[str, str], int] = {}
+    errors: list[str] = []
+
+    if not dry_run:
+        try:
+            for c in list_project_classifications(client):
+                cache[(
+                    (c.get("notation") or "").upper(),
+                    _normalize_system(c.get("name")),
+                )] = c["id"]
+        except Exception as e:  # pragma: no cover
+            errors.append(f"list_project_classifications: {e}")
+
+    # Création des classifications manquantes
+    relations: list[dict] = []
+    n_created = 0
+    n_reused = 0
+    preview = []
+    for (code, system, label), uuids in grouped.items():
+        key = (code, system)
+        cid: int | None = cache.get(key)
+        status = "reused" if cid else ("would_create" if dry_run else "to_create")
+        if cid is None and not dry_run:
+            try:
+                resp = client._post(
+                    f"/cloud/{client.cloud_id}/project/{client.project_id}/classification",
+                    {"name": system, "notation": code, "title": label},
+                )
+                cid = int(resp["id"])
+                cache[key] = cid
+                n_created += 1
+                status = "created"
+            except Exception as e:
+                errors.append(f"create {system}/{code}: {e}")
+                continue
+        # En dry_run, le cid réel n'existe pas encore — on utilise un
+        # placeholder négatif pour le comptage des liens à créer.
+        cid_for_link = cid if cid is not None else -1
+        for u in uuids:
+            relations.append(
+                {"element_uuid": u, "classification_id": cid_for_link}
+            )
+        if status == "reused":
+            n_reused += 1
+        preview.append(
+            {
+                "code": code,
+                "system": system,
+                "label": label,
+                "classification_id": cid,
+                "n_uuids": len(uuids),
+                "status": status,
+            }
+        )
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "n_items": len(items_list),
+            "n_classifications_distinct": len(grouped),
+            "n_links_planned": len(relations),
+            "n_reused": n_reused,
+            "preview": preview,
+        }
+
+    # Liaison en bulk
+    n_linked = 0
+    if relations:
+        try:
+            client._post(
+                f"/cloud/{client.cloud_id}/project/{client.project_id}"
+                f"/model/{client.model_id}/classification-element",
+                relations,
+            )
+            n_linked = len(relations)
+        except Exception as e:
+            errors.append(f"bulk link {len(relations)} relations: {e}")
+
+    return {
+        "dry_run": False,
+        "n_items": len(items_list),
+        "n_classifications_created": n_created,
+        "n_classifications_reused": n_reused,
+        "n_links_created": n_linked,
+        "errors": errors,
+        "preview": preview,
+    }
+
+
+def items_from_suggestions(
+    suggestions: list[dict], *, min_confidence: float = 0.5
+) -> list[dict]:
+    """Convertit la sortie de ``suggest_for_findings`` en items pour ``apply_classifications``.
+
+    Filtre par seuil de confiance sur la suggestion top.
+    """
+    out: list[dict] = []
+    for s in suggestions:
+        sugs = s.get("suggestions") or []
+        if not sugs:
+            continue
+        top = sugs[0]
+        if (top.get("confidence") or 0) < min_confidence:
+            continue
+        out.append(
+            {
+                "uuid": s.get("element_uuid"),
+                "code": top.get("code"),
+                "label": top.get("label"),
+                "system": top.get("system") or "UniFormat II",
+            }
+        )
+    return out

@@ -21,7 +21,12 @@ from fastmcp import FastMCP
 from .. import config
 from ..audit.engine import AuditResult, run_audit
 from ..bcf.builder import push_bcf_topics
-from ..classifier import suggest_for_findings
+from ..classifier import (
+    apply_classifications,
+    items_from_suggestions,
+    read_classifications_from_xlsx,
+    suggest_for_findings,
+)
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot, extract_snapshot
 from ..reporting.word_report import write_word_report
@@ -301,6 +306,76 @@ def suggest_classifications(
         top_n=top_n,
     )
     return out[:limit]
+
+
+@mcp.tool()
+def apply_suggested_classifications(
+    min_confidence: float = 0.5,
+    dry_run: bool = True,
+) -> dict:
+    """Applique automatiquement (mode **sans contrôle**) les classifications
+    proposées par le suggester aux éléments en ``classification_missing``.
+
+    Workflow :
+    1. Récupère la suggestion top de chaque élément non classifié dont la
+       confiance ≥ ``min_confidence``.
+    2. Crée les classifications nécessaires au niveau projet BIMData
+       (dédupliquées par code+système).
+    3. Lie en bulk les classifications aux éléments via
+       ``POST /classification-element``.
+
+    Args:
+        min_confidence: seuil de confiance minimum (0..1) pour appliquer une
+            suggestion. Plus le seuil est haut, moins on prend de risques.
+        dry_run: si ``True`` (défaut), simule sans appel POST — renvoie un
+            aperçu détaillé. Mettre ``False`` pour pousser réellement.
+
+    Returns:
+        Résumé : nombre d'éléments traités, classifications créées vs
+        réutilisées, liens créés, erreurs éventuelles.
+    """
+    _State.ensure_result()
+    _State.ensure_client()
+    suggestions = suggest_for_findings(
+        _State.result.findings,
+        _State.result.snapshot,
+        min_confidence=min_confidence,
+        top_n=1,
+    )
+    items = items_from_suggestions(suggestions, min_confidence=min_confidence)
+    return apply_classifications(_State.client, items, dry_run=dry_run)
+
+
+@mcp.tool()
+def apply_classifications_from_xlsx(
+    xlsx_path: str,
+    dry_run: bool = True,
+) -> dict:
+    """Applique les classifications **validées par l'auditeur** dans un XLSX
+    d'audit potentiellement modifié.
+
+    L'auditeur télécharge l'annexe ``audit_*_annexes.xlsx`` (générée par
+    ``generate_xlsx_annex`` / ``full_audit``), édite l'onglet
+    *Classifications suggérées* en colonne « Suggestion 1 — code » :
+
+    - laisser la valeur suggérée → la classification sera appliquée ;
+    - modifier le code → on applique le code corrigé (ex: ``B2010`` → ``C1010``) ;
+    - effacer la cellule → ligne ignorée (refus de la suggestion).
+
+    Args:
+        xlsx_path: chemin absolu vers l'annexe XLSX éventuellement modifiée.
+        dry_run: si ``True`` (défaut), simule sans appel POST.
+
+    Returns:
+        Résumé identique à ``apply_suggested_classifications``, avec en plus
+        ``n_items_read_from_xlsx`` pour traçabilité.
+    """
+    _State.ensure_client()
+    items = read_classifications_from_xlsx(xlsx_path)
+    result = apply_classifications(_State.client, items, dry_run=dry_run)
+    result["n_items_read_from_xlsx"] = len(items)
+    result["xlsx_path"] = xlsx_path
+    return result
 
 
 @mcp.tool()
