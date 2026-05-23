@@ -166,14 +166,38 @@ def audit_naming(
             )
 
     # ── IfcZone (Name + ObjectType) ─────────────────────────────────────────
+    # Le CCH I3F (chap 6.3.2) distingue deux régimes :
+    #  - Parties Privatives (PP) : zones logement → Name doit suivre le
+    #    pattern XXXXL-YYYY (ex: 7427L-1103).
+    #  - Parties Communes (PC) : PARKINGS, PARTIE COMMUNE 01, TECHNIQUE,
+    #    TOITURE TERRASSE, etc. → pas de format imposé sur le Name.
+    # On détermine la localisation depuis l'ObjectType, qui doit nommer
+    # explicitement la typologie (« Zone Logement T3 », « Zone Parkings »…).
     rule_zone_name = catalog.naming_rule_for("IfcZone", "Name")
     rule_zone_type = catalog.naming_rule_for("IfcZone", "ObjectType")
     allowed_zone_types = {
         z.type_label.strip() for z in catalog.zone_specs if z.type_label
     }
+    # ObjectType → PP/PC depuis le catalogue
+    loc_by_type = {
+        z.type_label.strip(): z.localisation
+        for z in catalog.zone_specs
+        if z.type_label
+    }
+
+    def _is_dwelling_zone(object_type: str | None) -> bool:
+        """Vrai si l'ObjectType de la zone est une partie privative logement."""
+        if not object_type:
+            return False
+        ot_lower = str(object_type).strip().lower()
+        # « Zone Logement T2 », « Zone Lgt autre propr. », etc.
+        return "logement" in ot_lower or "lgt" in ot_lower
+
     for z in snap.of_class("IfcZone"):
         nm = get_attribute(z, "Name") or z.get("name")
         ot = get_attribute(z, "ObjectType") or z.get("object_type")
+        is_dwelling = _is_dwelling_zone(ot)
+
         if not nm:
             findings.append(
                 Finding(
@@ -188,19 +212,19 @@ def audit_naming(
                     recommended_action="Renseigner IfcZone/Name.",
                 )
             )
-        elif (
+        elif is_dwelling and (
             rule_zone_name
             and rule_zone_name.pattern
             and not re.fullmatch(rule_zone_name.pattern, str(nm))
         ):
-            # On *prévient* (LOW) : le nom peut être un usage non-logement
-            # (BUREAUX, COMMERCES…). Pour ces zones, le pattern ne s'applique
-            # pas → on regarde le type_label avant de remonter en MEDIUM.
-            severity = Severity.MEDIUM if (ot and "logement" in str(ot).lower()) else Severity.LOW
+            # Pattern XXXXL-YYYY exigé uniquement pour les zones logement (PP).
+            # Pour les Parties Communes (PARKINGS, PARTIE COMMUNE 01,
+            # TECHNIQUE, TOITURE TERRASSE…), aucun format de Name n'est
+            # imposé par le CCH → on ne signale rien.
             findings.append(
                 Finding(
                     theme=Theme.NAMING_ZONE,
-                    severity=severity,
+                    severity=Severity.MEDIUM,
                     error_type=ErrorType.NAMING_INVALID_FORMAT,
                     element_uuid=z.get("uuid"),
                     ifc_type="IfcZone",
