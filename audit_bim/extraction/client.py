@@ -146,10 +146,17 @@ class BIMDataClient:
 
         Endpoint : ``POST /bcf/2.1/projects/{project_id}/full-topic``.
 
+        Pour qu'un topic apparaisse dans le panneau *Smart Views* du viewer
+        BIMData (plutôt que dans les issues BCF classiques), inclure
+        ``"format": "bimdata-smartview"`` dans le body — c'est ce que fait
+        l'appelant (cf. ``smartview/builder.py``). Sans ce champ, le topic
+        est créé avec ``format: "standard"``.
+
         Args:
             payload: dict respectant ``FullTopicRequest`` (cf. OpenAPI BIMData) —
                 ``title`` obligatoire, ``viewpoints`` recommandé avec
-                ``components.coloring`` ou ``components.selection``.
+                ``components.coloring`` ou ``components.selection``,
+                ``format: "bimdata-smartview"`` pour cibler le panneau Smart Views.
         """
         # Timeout généreux : un topic Vue d'ensemble peut compter quelques
         # milliers d'UUIDs en selection + plusieurs groupes de coloring.

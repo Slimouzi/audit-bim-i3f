@@ -143,6 +143,9 @@ def _build_full_topic(
         "priority": priority,
         "labels": ["I3F", "audit", phase, _slug(theme.value)],
         "viewpoints": [viewpoint],
+        # 'bimdata-smartview' range le topic dans le panneau « Smart Views »
+        # du viewer BIMData (au lieu du panneau BCF Issues classique).
+        "format": "bimdata-smartview",
     }
     if model_id is not None:
         try:
@@ -244,6 +247,7 @@ def _build_overview_topic(
         "priority": _BCF_PRIORITY.get(max_sev, "Medium"),
         "labels": ["I3F", "audit", phase, "vue-ensemble"],
         "viewpoints": [viewpoint],
+        "format": "bimdata-smartview",
     }
     if model_id is not None:
         try:
