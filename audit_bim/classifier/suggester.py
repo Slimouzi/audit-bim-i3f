@@ -47,6 +47,44 @@ W_QUANTITY = 0.05   # BaseQuantities cohérentes
 
 # ── Heuristiques layer (regex insensibles à la casse, recherche partielle) ──
 
+# Famille de codes UniFormat acceptables pour une classe IFC ambigüe.
+# Le suggester propose le code « le plus probable » (top 1) mais reconnaît
+# que d'autres codes de la même famille sont aussi valides — utilisé pour la
+# vérification de *cohérence* d'une classification existante (audit niveau 3).
+IFC_ACCEPTED_CODES: dict[str, list[str]] = {
+    # Mobilier : Fixed ou Movable, indifféremment plausibles
+    "IfcFurnishingElement": ["E2010", "E2020"],
+    # Revêtements intérieurs : sol, mur ou plafond selon PredefinedType
+    "IfcCovering": ["C3010", "C3020", "C3030"],
+    # Murs : intérieur ou extérieur selon IsExternal
+    "IfcWall": ["B2010", "C1010"],
+    "IfcWallStandardCase": ["B2010", "C1010"],
+    "IfcWallElementedCase": ["B2010", "C1010"],
+    # Portes : intérieures ou extérieures selon IsExternal
+    "IfcDoor": ["B2030", "C1020"],
+    "IfcDoorStandardCase": ["B2030", "C1020"],
+    # Dalles : sol ou toiture selon PredefinedType
+    "IfcSlab": ["B1010", "B1020"],
+    "IfcSlabStandardCase": ["B1010", "B1020"],
+    # IfcFlowTerminal très polyvalent (sanitaire, HVAC, lighting)
+    "IfcFlowTerminal": ["D2010", "D3050", "D5020"],
+}
+
+
+def accepted_codes_for(ifc_class: str, top_code: Optional[str]) -> set[str]:
+    """Famille de codes acceptés pour juger la cohérence d'une classification.
+
+    Réunit le top suggéré + les alternatives définies dans
+    ``IFC_ACCEPTED_CODES``. Tous normalisés (déjà au niveau 3).
+    """
+    out: set[str] = set()
+    if top_code:
+        out.add(top_code.upper())
+    for code in IFC_ACCEPTED_CODES.get(ifc_class, []):
+        out.add(code.upper())
+    return out
+
+
 _LAYER_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(mur[_\- ]?ext|exterior[_\- ]?wall|facade|fa[çc]ade)\b", re.I), "B2010"),
     (re.compile(r"\b(mur[_\- ]?int|partition|cloison|interior[_\- ]?wall)\b", re.I), "C1010"),

@@ -72,3 +72,29 @@ UNIFORMAT: dict[str, str] = {
 def entry(code: str) -> ClassEntry:
     """Construit une ClassEntry depuis le code UniFormat."""
     return ClassEntry(code=code, label=UNIFORMAT.get(code, code))
+
+
+def normalize_uniformat_level3(code: str) -> str:
+    """Réduit un code UniFormat au niveau 3 (5 caractères : <Lettre><4 chiffres>).
+
+    UniFormat II structure :
+    - Niveau 1 = lettre (A, B, C, D, E)
+    - Niveau 2 = lettre + chiffre (A1, B2, C3…)
+    - Niveau 3 = 5 caractères (B2010, C1010, E2020…)
+    - Niveau 4+ = 6+ caractères, raffinements internes (E2020200…)
+
+    Les classifications de maquette dépassent fréquemment le niveau 3 ; pour
+    juger la *cohérence métier*, on compare uniquement les 5 premiers
+    caractères. Tolérant aux séparateurs (« E2020.200 » → « E2020 »).
+
+    Returns:
+        Le code normalisé en majuscules, tronqué à 5 caractères. Chaîne vide
+        si l'entrée n'est pas exploitable.
+    """
+    if not code:
+        return ""
+    s = str(code).strip().upper()
+    # Retire séparateurs courants ("-", ".", " ", "_") pour ne garder que
+    # les caractères significatifs.
+    cleaned = "".join(ch for ch in s if ch.isalnum())
+    return cleaned[:5]

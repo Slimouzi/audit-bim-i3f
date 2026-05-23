@@ -9,10 +9,30 @@ Les classifications I3F (UniFormat, Omniclass, ou table interne 3F) doivent
 """
 from __future__ import annotations
 
+import re
+
+from ...classifier import accepted_codes_for, normalize_uniformat_level3, suggest
 from ...extraction.model_data import ModelSnapshot
 from ...extraction.normalizer import get_attribute
 from ...requirements.models import BIMPhase, RequirementsCatalog
 from ..findings import ErrorType, Finding, Severity, Theme
+
+# Seuil de confiance min pour qu'une suggestion soit utilisée comme argument
+# de cohérence (en dessous, on ne signale pas — l'heuristique est trop incertaine).
+SUGGESTION_CONFIDENCE_THRESHOLD = 0.5
+
+# Un code UniFormat II : lettre A-E + au moins 4 chiffres (E2020, B2010100…).
+# Sert à auto-détecter qu'une classification *sans source explicite* est
+# probablement UniFormat — courant dans les exports Revit.
+_UNIFORMAT_CODE_RE = re.compile(r"^[A-E]\d{4,}$")
+
+
+def _looks_uniformat(code: str, source: str | None) -> bool:
+    """Vrai si on doit traiter ``code`` comme du UniFormat (juger cohérence)."""
+    if source and "uniformat" in str(source).lower():
+        return True
+    cleaned = "".join(ch for ch in str(code or "").upper() if ch.isalnum())
+    return bool(_UNIFORMAT_CODE_RE.match(cleaned))
 
 # Classes IFC "spatiales / abstraites / de référence" qu'on n'audite PAS :
 # pas de classification métier (UniFormat/Omniclass/3F) attendue dessus.
@@ -72,6 +92,8 @@ def audit_classifications(
                     )
                 )
                 continue
+            # Complétude par classification + cohérence métier niveau 3
+            existing_level3: set[str] = set()
             for c in classifs:
                 code = c.get("notation") or c.get("name")
                 source = c.get("source") or (c.get("system") or {}).get("name")
@@ -93,4 +115,50 @@ def audit_classifications(
                             ),
                         )
                     )
+                    continue
+                # Cohérence niveau 3 : on traite le code comme UniFormat si
+                # la source l'indique OU si le code en a la forme (lettre A-E
+                # + chiffres) — courant quand l'export Revit oublie la source.
+                if _looks_uniformat(code, source):
+                    existing_level3.add(normalize_uniformat_level3(code))
+
+            # Cohérence : la classification niveau 3 existante doit appartenir
+            # à la *famille* de codes plausibles pour la classe IFC (top
+            # suggéré + alternatives connues — ex: IfcFurnishingElement accepte
+            # E2010 Fixed et E2020 Movable). On ne signale que si la suggestion
+            # est suffisamment confiante.
+            if existing_level3:
+                sugs = suggest(el)
+                if sugs and sugs[0].confidence >= SUGGESTION_CONFIDENCE_THRESHOLD:
+                    top = sugs[0]
+                    accepted = accepted_codes_for(ifc_class, top.classification.code)
+                    # Si AUCUN code existant ne fait partie de la famille → erreur
+                    if accepted and not (existing_level3 & accepted):
+                        findings.append(
+                            Finding(
+                                theme=Theme.CLASSIFICATION,
+                                severity=Severity.MEDIUM,
+                                error_type=ErrorType.CLASSIFICATION_INVALID,
+                                element_uuid=uuid,
+                                ifc_type=ifc_class,
+                                name=nm,
+                                expected=(
+                                    f"Classification niveau 3 cohérente avec "
+                                    f"{ifc_class} — codes acceptés : "
+                                    f"{sorted(accepted)} "
+                                    f"(suggestion top : {top.classification.code} "
+                                    f"— {top.classification.label}, conf. "
+                                    f"{top.confidence:.2f})"
+                                ),
+                                actual=sorted(existing_level3),
+                                ref_cch="Chap 6.2",
+                                recommended_action=(
+                                    f"Vérifier que la classification métier "
+                                    f"appartient bien à {sorted(accepted)}. Si "
+                                    "le modèle utilise un code raffiné "
+                                    "(niveau 4+), son préfixe niveau 3 doit "
+                                    "rester dans cette famille."
+                                ),
+                            )
+                        )
     return findings
