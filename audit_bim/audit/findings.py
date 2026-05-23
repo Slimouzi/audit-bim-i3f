@@ -90,11 +90,12 @@ class Finding(BaseModel):
 
 
 def severity_color(sev: Severity) -> str:
-    """Code couleur hex (sans #) par sévérité — utilisé par les reporters."""
-    return {
-        Severity.CRITICAL: "B22222",
-        Severity.HIGH: "D2691E",
-        Severity.MEDIUM: "DAA520",
-        Severity.LOW: "6B8E23",
-        Severity.INFO: "4682B4",
-    }[sev]
+    """Code couleur hex (sans #) par sévérité.
+
+    Délègue à ``audit_bim.reporting.theming.SEVERITY_COLORS`` — single source
+    of truth. Palette feux tricolores : CRITICAL rouge foncé, HIGH rouge,
+    MEDIUM orange, LOW vert, INFO bleu.
+    """
+    from ..reporting.theming import SEVERITY_COLORS
+
+    return SEVERITY_COLORS[sev.value]

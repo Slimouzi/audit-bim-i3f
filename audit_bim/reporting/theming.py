@@ -9,12 +9,14 @@ I3F_GREY_LIGHT = "BFBFBF"  # bordures
 WHITE = "FFFFFF"
 BLACK = "000000"
 
+# Palette feux tricolores standard (single source of truth — voir aussi
+# audit_bim.audit.findings.severity_color qui ré-exporte ces valeurs).
 SEVERITY_COLORS = {
-    "CRITICAL": "B22222",
-    "HIGH": "D2691E",
-    "MEDIUM": "DAA520",
-    "LOW": "6B8E23",
-    "INFO": "4682B4",
+    "CRITICAL": "8B0000",  # rouge très foncé (dark red)
+    "HIGH":     "DC3545",  # rouge
+    "MEDIUM":   "FF8C00",  # orange (dark orange)
+    "LOW":      "28A745",  # vert
+    "INFO":     "4682B4",  # bleu (steel blue) — pas de gravité
 }
 
 THEME_COLORS = {
