@@ -1,4 +1,5 @@
 """Chargement de la configuration depuis l'environnement (`.env` + os.environ)."""
+
 import os
 from pathlib import Path
 

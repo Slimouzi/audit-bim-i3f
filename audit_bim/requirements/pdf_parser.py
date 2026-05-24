@@ -12,6 +12,7 @@ L'extraction est volontairement *défensive* : si pypdf échoue ou que le PDF
 n'expose pas le texte (scan), on renvoie un catalogue vide et l'audit fonctionne
 quand même avec les exigences extraites des xlsx.
 """
+
 from __future__ import annotations
 
 import re
@@ -91,9 +92,7 @@ def parse_pdf(pdf_path: str | Path) -> dict:
         s = line.strip()
         if ZONE_TYPE_RE.fullmatch(s) and s not in zone_seen:
             zone_seen.append(s)
-    result["zone_specs"] = [
-        ZoneSpec(name=None, type_label=z, localisation="PP") for z in zone_seen
-    ]
+    result["zone_specs"] = [ZoneSpec(name=None, type_label=z, localisation="PP") for z in zone_seen]
 
     room_seen: list[tuple[str, str, str]] = []
     for line in full_text.splitlines():

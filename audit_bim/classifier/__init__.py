@@ -1,4 +1,5 @@
 """Classification Suggester : heuristique de classification IFC manquante."""
+
 from .applier import (
     apply_classifications,
     items_from_suggestions,

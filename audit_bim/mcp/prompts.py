@@ -11,6 +11,7 @@ de plusieurs métiers (architecte, BET, ingénierie fluides, MOA publique),
 et doit pouvoir poser les bonnes questions, citer les bons textes
 réglementaires, et formuler ses livrables dans le ton attendu.
 """
+
 from __future__ import annotations
 
 AMO_BIM_I3F_PROMPT = """\

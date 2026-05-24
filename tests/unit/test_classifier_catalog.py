@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.classifier.catalog``."""
+
 from __future__ import annotations
 
 import pytest
@@ -20,18 +21,21 @@ class TestEntry:
 
 
 class TestNormalizeUniformatLevel3:
-    @pytest.mark.parametrize("raw,expected", [
-        ("E2020200", "E2020"),
-        ("E2020", "E2020"),
-        ("B 2010", "B2010"),
-        ("B-2010-100", "B2010"),
-        ("C.3030.50", "C3030"),
-        ("e2020.200", "E2020"),
-        ("", ""),
-        (None, ""),
-        ("B", "B"),
-        ("B20", "B20"),
-    ])
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("E2020200", "E2020"),
+            ("E2020", "E2020"),
+            ("B 2010", "B2010"),
+            ("B-2010-100", "B2010"),
+            ("C.3030.50", "C3030"),
+            ("e2020.200", "E2020"),
+            ("", ""),
+            (None, ""),
+            ("B", "B"),
+            ("B20", "B20"),
+        ],
+    )
     def test_normalization(self, raw, expected):
         assert normalize_uniformat_level3(raw) == expected
 

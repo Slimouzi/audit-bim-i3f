@@ -21,6 +21,7 @@ Trois axes de classification :
 - ``Theme``    — domaine fonctionnel (1 onglet xlsx + 1 vue par thème)
 - ``ErrorType`` — type fin pour le reporting (1 onglet xlsx par type)
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -121,9 +122,7 @@ class Finding(BaseModel):
     element_uuid: str | None = Field(
         None, description="UUID/GlobalId IFC de l'objet en erreur (None si erreur projet)."
     )
-    ifc_type: str | None = Field(
-        None, description="Classe IFC (IfcSpace, IfcBuilding, …)."
-    )
+    ifc_type: str | None = Field(None, description="Classe IFC (IfcSpace, IfcBuilding, …).")
     name: str | None = None
     storey: str | None = Field(None, description="Étage de rattachement si connu.")
     zone: str | None = Field(None, description="Zone (logement) de rattachement si connue.")

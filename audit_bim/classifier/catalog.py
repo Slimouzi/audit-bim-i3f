@@ -8,6 +8,7 @@ Cette table est volontairement **simple et bornée** — niveau 3 maximum.
 Pour la personnaliser à votre table 3F interne, modifier ``ClassEntry`` ou
 remplacer l'ensemble via le constructeur de ``ClassificationCatalog``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

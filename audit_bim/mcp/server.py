@@ -9,6 +9,7 @@ Le serveur conserve un *état de session* léger en mémoire :
 Chaque outil MCP travaille sur cet état et renvoie des structures
 sérialisables (dict / list) compatibles avec FastMCP.
 """
+
 from __future__ import annotations
 
 import json
@@ -74,16 +75,12 @@ class _State:
     @classmethod
     def ensure_client(cls):
         if cls.client is None:
-            raise RuntimeError(
-                "Aucune cible BIMData configurée — appelez `set_active_model`."
-            )
+            raise RuntimeError("Aucune cible BIMData configurée — appelez `set_active_model`.")
 
     @classmethod
     def ensure_snapshot(cls):
         if cls.snapshot is None:
-            raise RuntimeError(
-                "Aucun snapshot — appelez `extract_model_snapshot`."
-            )
+            raise RuntimeError("Aucun snapshot — appelez `extract_model_snapshot`.")
 
     @classmethod
     def ensure_result(cls):
@@ -131,60 +128,70 @@ def project_context_questions() -> dict:
 
     if _State.phase is None:
         missing.append("phase")
-        questions.append({
-            "key": "phase",
-            "question": (
-                "À quelle phase projet correspond cette maquette ? "
-                "APS, AVP, PRO, DCE, EXE, DOE ou GESTION ?"
-            ),
-            "suggestion": "PRO (cas le plus fréquent en cours de conception).",
-        })
+        questions.append(
+            {
+                "key": "phase",
+                "question": (
+                    "À quelle phase projet correspond cette maquette ? "
+                    "APS, AVP, PRO, DCE, EXE, DOE ou GESTION ?"
+                ),
+                "suggestion": "PRO (cas le plus fréquent en cours de conception).",
+            }
+        )
     if _State.catalog is None and not (
         _State.cch_pdf or _State.data_spec_xlsx or _State.naming_spec_xlsx
     ):
         missing.append("cch")
-        questions.append({
-            "key": "cch",
-            "question": (
-                "Quel cahier des charges BIM dois-je appliquer ? Le CCH I3F "
-                "V3.6 par défaut, ou un référentiel projet spécifique ?"
-            ),
-            "suggestion": (
-                "CCH I3F V3.6 (chemins par défaut dans .env) — sinon "
-                "appelle set_owner_documents avec les chemins du référentiel."
-            ),
-        })
+        questions.append(
+            {
+                "key": "cch",
+                "question": (
+                    "Quel cahier des charges BIM dois-je appliquer ? Le CCH I3F "
+                    "V3.6 par défaut, ou un référentiel projet spécifique ?"
+                ),
+                "suggestion": (
+                    "CCH I3F V3.6 (chemins par défaut dans .env) — sinon "
+                    "appelle set_owner_documents avec les chemins du référentiel."
+                ),
+            }
+        )
     if _State.classification_system == "UniFormat II":
         # Pas vraiment manquant mais on précise le défaut au cas où
-        questions.append({
-            "key": "classification_system",
-            "question": (
-                "Quel référentiel de classification utiliser ? UniFormat II "
-                "(défaut), Omniclass, CCS, ou table 3F interne ?"
-            ),
-            "suggestion": "UniFormat II convient pour la majorité des projets I3F.",
-            "optional": True,
-        })
+        questions.append(
+            {
+                "key": "classification_system",
+                "question": (
+                    "Quel référentiel de classification utiliser ? UniFormat II "
+                    "(défaut), Omniclass, CCS, ou table 3F interne ?"
+                ),
+                "suggestion": "UniFormat II convient pour la majorité des projets I3F.",
+                "optional": True,
+            }
+        )
     if _State.phase in (BIMPhase.DOE, BIMPhase.GESTION) and _State.doe_available is None:
         missing.append("doe_available")
-        questions.append({
-            "key": "doe_available",
-            "question": (
-                "Phase DOE/GESTION : disposez-vous de données DOE (Excel, "
-                "PDF, ERP/GMAO) pour enrichir la maquette ?"
-            ),
-            "suggestion": "Si oui, l'agent DOE → IFC pourra compléter les Psets.",
-        })
+        questions.append(
+            {
+                "key": "doe_available",
+                "question": (
+                    "Phase DOE/GESTION : disposez-vous de données DOE (Excel, "
+                    "PDF, ERP/GMAO) pour enrichir la maquette ?"
+                ),
+                "suggestion": "Si oui, l'agent DOE → IFC pourra compléter les Psets.",
+            }
+        )
     if _State.client is None:
         missing.append("bimdata_target")
-        questions.append({
-            "key": "bimdata_target",
-            "question": (
-                "Quelle maquette BIMData auditer ? (cloud_id, project_id, "
-                "model_id — ou utiliser les valeurs du .env)"
-            ),
-            "suggestion": "Appelle set_active_model avec les bons IDs.",
-        })
+        questions.append(
+            {
+                "key": "bimdata_target",
+                "question": (
+                    "Quelle maquette BIMData auditer ? (cloud_id, project_id, "
+                    "model_id — ou utiliser les valeurs du .env)"
+                ),
+                "suggestion": "Appelle set_active_model avec les bons IDs.",
+            }
+        )
 
     return {
         "ready": len([q for q in questions if not q.get("optional")]) == 0,
@@ -221,7 +228,11 @@ def set_owner_documents(
     def stat(p: Path | None):
         if not p:
             return None
-        return {"path": str(p), "exists": p.exists(), "size_bytes": (p.stat().st_size if p.exists() else None)}
+        return {
+            "path": str(p),
+            "exists": p.exists(),
+            "size_bytes": (p.stat().st_size if p.exists() else None),
+        }
 
     return {
         "cch_pdf": stat(_State.cch_pdf),
@@ -370,7 +381,7 @@ def _default_output_paths() -> tuple[Path, Path]:
     project_name = project_name or _State.project_id or "projet"
     safe = "".join(c for c in str(project_name) if c not in r'\/:*?"<>|').strip()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    phase = (_State.phase.value if _State.phase else "PRO")
+    phase = _State.phase.value if _State.phase else "PRO"
     base = config.AUDIT_OUTPUT_DIR / f"audit_{safe}_{phase}_{ts}"
     return Path(f"{base}.docx"), Path(f"{base}_annexes.xlsx")
 
@@ -533,13 +544,9 @@ def doe_enrich_model(
     _State.ensure_client()
     _State.ensure_snapshot()
     records = parse_doe_excel(xlsx_path)
-    matches = match_doe_records(
-        records, _State.snapshot, name_min_score=name_min_score
-    )
+    matches = match_doe_records(records, _State.snapshot, name_min_score=name_min_score)
     summary = summarize_matches(matches)
-    application = apply_matches_to_model(
-        _State.client, matches, dry_run=dry_run
-    )
+    application = apply_matches_to_model(_State.client, matches, dry_run=dry_run)
     return {
         "source": xlsx_path,
         "summary": summary,
@@ -559,9 +566,7 @@ def doe_match_only(
     """
     _State.ensure_snapshot()
     records = parse_doe_excel(xlsx_path)
-    matches = match_doe_records(
-        records, _State.snapshot, name_min_score=name_min_score
-    )
+    matches = match_doe_records(records, _State.snapshot, name_min_score=name_min_score)
     summary = summarize_matches(matches)
     sample = [m.model_dump(mode="json") for m in matches[:limit]]
     return {
@@ -590,9 +595,7 @@ def create_bcf_topics(
     """
     _State.ensure_result()
     _State.ensure_client()
-    out = push_bcf_topics(
-        _State.result, _State.client, prefix=prefix, dry_run=dry_run
-    )
+    out = push_bcf_topics(_State.result, _State.client, prefix=prefix, dry_run=dry_run)
     return {"n_topics": len(out), "dry_run": dry_run, "topics": out}
 
 
@@ -614,9 +617,7 @@ def create_smart_views(
     """
     _State.ensure_result()
     _State.ensure_client()
-    out = push_smart_views(
-        _State.result, _State.client, prefix=prefix, dry_run=dry_run
-    )
+    out = push_smart_views(_State.result, _State.client, prefix=prefix, dry_run=dry_run)
     return {
         "n_views": len(out),
         "dry_run": dry_run,
@@ -662,21 +663,18 @@ def full_audit(
         return {
             "status": "needs_user_choice",
             "question": (
-                "Comment veux-tu publier les résultats de l'audit dans le viewer "
-                "BIMData ?"
+                "Comment veux-tu publier les résultats de l'audit dans le viewer BIMData ?"
             ),
             "options": {
                 "bcf": "BCF Topics — workflow d'issues à résoudre (assignation, "
-                       "statut, commentaires) dans le panneau BCF Issues.",
+                "statut, commentaires) dans le panneau BCF Issues.",
                 "smartview": "Smart Views — vues 3D colorées dans le panneau "
-                             "Smart Views (navigation seulement, pas de workflow).",
+                "Smart Views (navigation seulement, pas de workflow).",
                 "both": "Les deux — pratique pour avoir à la fois la navigation "
-                        "rapide (Smart Views) et le suivi de correction (BCF).",
+                "rapide (Smart Views) et le suivi de correction (BCF).",
                 "none": "Ne rien publier — les payloads sont sauvegardés en JSON.",
             },
-            "next_step": (
-                "Re-appeler full_audit avec push_mode=<bcf|smartview|both|none>."
-            ),
+            "next_step": ("Re-appeler full_audit avec push_mode=<bcf|smartview|both|none>."),
         }
     if mode not in ("bcf", "smartview", "both", "none"):
         raise ValueError(
@@ -717,12 +715,8 @@ def full_audit(
     bcf_result, sv_result = [], []
     do_push_bcf = mode in ("bcf", "both")
     do_push_sv = mode in ("smartview", "both")
-    bcf_result = push_bcf_topics(
-        _State.result, _State.client, dry_run=not do_push_bcf
-    )
-    sv_result = push_smart_views(
-        _State.result, _State.client, dry_run=not do_push_sv
-    )
+    bcf_result = push_bcf_topics(_State.result, _State.client, dry_run=not do_push_bcf)
+    sv_result = push_smart_views(_State.result, _State.client, dry_run=not do_push_sv)
 
     # 7. JSON machine
     findings_json = word_path.with_name(word_path.stem + "_findings.json")

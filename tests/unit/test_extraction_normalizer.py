@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.extraction.normalizer``."""
+
 from __future__ import annotations
 
 from audit_bim.extraction.normalizer import (

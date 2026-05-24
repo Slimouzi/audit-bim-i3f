@@ -5,6 +5,7 @@ Extrait des données de Dossier des Ouvrages Exécutés (Excel pour V1, PDF/OCR
 en cascade (GUID, Tag, Nom fuzzy, Localisation), et enrichit la maquette
 avec les propriétés extraites.
 """
+
 from .enricher import apply_matches_to_model
 from .extractors.excel import parse_doe_excel
 from .matcher import match_doe_records

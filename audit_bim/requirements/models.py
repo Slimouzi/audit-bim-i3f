@@ -7,6 +7,7 @@ Vocabulaire CCH BIM I3F :
   attribut natif (`Name`, `LongName`, `ObjectType`, `Latitude`…).
 - *Phase BIM* : niveau de livraison (APS, AVP, PRO, DCE, EXE, DOE, GESTION).
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -56,12 +57,8 @@ class PropertySpec(BaseModel):
         description="Phases BIM où la donnée est exigée.",
     )
     comment: str | None = None
-    usage_3f: str | None = Field(
-        None, description="Précision usage 3F (colonne O de l'annexe)."
-    )
-    ref_cch: str | None = Field(
-        None, description="Référence CCH (ex: 'Chap 6.2')."
-    )
+    usage_3f: str | None = Field(None, description="Précision usage 3F (colonne O de l'annexe).")
+    ref_cch: str | None = Field(None, description="Référence CCH (ex: 'Chap 6.2').")
 
     def required_at(self, phase: BIMPhase) -> bool:
         """Indique si l'exigence s'applique à la phase donnée."""
@@ -78,9 +75,7 @@ class NamingRule(BaseModel):
 
     objet: str
     ifc_class: str
-    ifc_attribute: str = Field(
-        ..., description="Attribut IFC ciblé (Name, LongName, ObjectType…)."
-    )
+    ifc_attribute: str = Field(..., description="Attribut IFC ciblé (Name, LongName, ObjectType…).")
     pattern: str | None = Field(
         None,
         description="Regex Python à respecter (None si pas de contrainte).",
@@ -137,9 +132,7 @@ class RequirementsCatalog(BaseModel):
     zone_specs: list[ZoneSpec] = Field(default_factory=list)
     room_specs: list[RoomSpec] = Field(default_factory=list)
 
-    def properties_for(
-        self, ifc_class: str, phase: BIMPhase
-    ) -> list[PropertySpec]:
+    def properties_for(self, ifc_class: str, phase: BIMPhase) -> list[PropertySpec]:
         """Renvoie les exigences applicables à une classe IFC à une phase donnée."""
         return [
             p
@@ -147,9 +140,7 @@ class RequirementsCatalog(BaseModel):
             if p.ifc_class.lower() == ifc_class.lower() and p.required_at(phase)
         ]
 
-    def naming_rule_for(
-        self, ifc_class: str, attribute: str
-    ) -> NamingRule | None:
+    def naming_rule_for(self, ifc_class: str, attribute: str) -> NamingRule | None:
         """Cherche la règle de nommage pour `(classe IFC, attribut)`."""
         for r in self.naming_rules:
             if (

@@ -3,6 +3,7 @@
 Évite la dépendance réseau (BIMData API, IAM Keycloak) : tout est mocké
 ou construit à partir de structures Python pures.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -153,7 +154,9 @@ def property_specs() -> list[PropertySpec]:
 
 
 @pytest.fixture
-def catalog(storey_names, zone_specs, room_specs, naming_rules, property_specs) -> RequirementsCatalog:
+def catalog(
+    storey_names, zone_specs, room_specs, naming_rules, property_specs
+) -> RequirementsCatalog:
     """Catalogue d'exigences complet (sources fictives)."""
     return RequirementsCatalog(
         cch_version="3.6",
@@ -230,9 +233,7 @@ def snapshot_with_walls() -> ModelSnapshot:
                 "uuid": "W2",
                 "type": "IfcWallStandardCase",
                 "name": "Cloison interne",
-                "classifications": [
-                    {"notation": "C1010", "source": "UniFormat"}
-                ],
+                "classifications": [{"notation": "C1010", "source": "UniFormat"}],
                 "property_sets": [],
             },
         ],

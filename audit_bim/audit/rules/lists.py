@@ -9,6 +9,7 @@ Exemples remontés :
   du CCH sont absents → moins fréquent, donc INFO uniquement.
 - Une zone du référentiel I3F est totalement absente (info pour le MOA).
 """
+
 from __future__ import annotations
 
 from ...extraction.model_data import ModelSnapshot
@@ -32,9 +33,7 @@ def audit_lists(
             for z in snap.of_class("IfcZone")
         }
         zone_types_required_pc = {
-            z.type_label
-            for z in catalog.zone_specs
-            if z.localisation == "PC" and z.type_label
+            z.type_label for z in catalog.zone_specs if z.localisation == "PC" and z.type_label
         }
         missing_pc = zone_types_required_pc - zone_types_in_model
         for z in sorted(missing_pc):

@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.audit.engine``."""
+
 from __future__ import annotations
 
 from audit_bim.audit.engine import AuditResult, run_audit
@@ -17,34 +18,66 @@ class TestAuditResult:
 
     def test_count_by_severity(self, snapshot_minimal, catalog):
         findings = [
-            Finding(theme=Theme.NAMING_SPACE, severity=Severity.HIGH,
-                    error_type=ErrorType.NAMING_MISSING, ifc_type="IfcSpace"),
-            Finding(theme=Theme.NAMING_SPACE, severity=Severity.LOW,
-                    error_type=ErrorType.NAMING_TOO_LONG, ifc_type="IfcSpace"),
-            Finding(theme=Theme.CLASSIFICATION, severity=Severity.HIGH,
-                    error_type=ErrorType.CLASSIFICATION_MISSING, ifc_type="IfcDoor"),
+            Finding(
+                theme=Theme.NAMING_SPACE,
+                severity=Severity.HIGH,
+                error_type=ErrorType.NAMING_MISSING,
+                ifc_type="IfcSpace",
+            ),
+            Finding(
+                theme=Theme.NAMING_SPACE,
+                severity=Severity.LOW,
+                error_type=ErrorType.NAMING_TOO_LONG,
+                ifc_type="IfcSpace",
+            ),
+            Finding(
+                theme=Theme.CLASSIFICATION,
+                severity=Severity.HIGH,
+                error_type=ErrorType.CLASSIFICATION_MISSING,
+                ifc_type="IfcDoor",
+            ),
         ]
         r = self._build(snapshot_minimal, catalog, findings)
         assert r.count_by_severity() == {"HIGH": 2, "LOW": 1}
 
     def test_count_by_theme(self, snapshot_minimal, catalog):
         findings = [
-            Finding(theme=Theme.NAMING_SPACE, severity=Severity.LOW,
-                    error_type=ErrorType.NAMING_MISSING, ifc_type="IfcSpace"),
-            Finding(theme=Theme.NAMING_SPACE, severity=Severity.LOW,
-                    error_type=ErrorType.NAMING_MISSING, ifc_type="IfcSpace"),
-            Finding(theme=Theme.CLASSIFICATION, severity=Severity.LOW,
-                    error_type=ErrorType.CLASSIFICATION_MISSING, ifc_type="IfcDoor"),
+            Finding(
+                theme=Theme.NAMING_SPACE,
+                severity=Severity.LOW,
+                error_type=ErrorType.NAMING_MISSING,
+                ifc_type="IfcSpace",
+            ),
+            Finding(
+                theme=Theme.NAMING_SPACE,
+                severity=Severity.LOW,
+                error_type=ErrorType.NAMING_MISSING,
+                ifc_type="IfcSpace",
+            ),
+            Finding(
+                theme=Theme.CLASSIFICATION,
+                severity=Severity.LOW,
+                error_type=ErrorType.CLASSIFICATION_MISSING,
+                ifc_type="IfcDoor",
+            ),
         ]
         r = self._build(snapshot_minimal, catalog, findings)
         assert r.count_by_theme() == {"Nommage Pièce": 2, "Classification IFC": 1}
 
     def test_filter_by_severity(self, snapshot_minimal, catalog):
         findings = [
-            Finding(theme=Theme.NAMING_SPACE, severity=Severity.HIGH,
-                    error_type=ErrorType.NAMING_MISSING, ifc_type="IfcSpace"),
-            Finding(theme=Theme.NAMING_SPACE, severity=Severity.LOW,
-                    error_type=ErrorType.NAMING_TOO_LONG, ifc_type="IfcSpace"),
+            Finding(
+                theme=Theme.NAMING_SPACE,
+                severity=Severity.HIGH,
+                error_type=ErrorType.NAMING_MISSING,
+                ifc_type="IfcSpace",
+            ),
+            Finding(
+                theme=Theme.NAMING_SPACE,
+                severity=Severity.LOW,
+                error_type=ErrorType.NAMING_TOO_LONG,
+                ifc_type="IfcSpace",
+            ),
         ]
         r = self._build(snapshot_minimal, catalog, findings)
         high = r.filter(severity="HIGH")
@@ -53,10 +86,18 @@ class TestAuditResult:
 
     def test_filter_multiple_criteria(self, snapshot_minimal, catalog):
         findings = [
-            Finding(theme=Theme.NAMING_SPACE, severity=Severity.HIGH,
-                    error_type=ErrorType.NAMING_MISSING, ifc_type="IfcSpace"),
-            Finding(theme=Theme.CLASSIFICATION, severity=Severity.HIGH,
-                    error_type=ErrorType.CLASSIFICATION_MISSING, ifc_type="IfcDoor"),
+            Finding(
+                theme=Theme.NAMING_SPACE,
+                severity=Severity.HIGH,
+                error_type=ErrorType.NAMING_MISSING,
+                ifc_type="IfcSpace",
+            ),
+            Finding(
+                theme=Theme.CLASSIFICATION,
+                severity=Severity.HIGH,
+                error_type=ErrorType.CLASSIFICATION_MISSING,
+                ifc_type="IfcDoor",
+            ),
         ]
         r = self._build(snapshot_minimal, catalog, findings)
         filtered = r.filter(severity="HIGH", theme="Classification IFC")
@@ -65,8 +106,12 @@ class TestAuditResult:
 
     def test_conformity_rate_in_zero_one(self, snapshot_minimal, catalog):
         findings = [
-            Finding(theme=Theme.NAMING_SPACE, severity=Severity.MEDIUM,
-                    error_type=ErrorType.NAMING_MISSING, ifc_type="IfcSpace")
+            Finding(
+                theme=Theme.NAMING_SPACE,
+                severity=Severity.MEDIUM,
+                error_type=ErrorType.NAMING_MISSING,
+                ifc_type="IfcSpace",
+            )
             for _ in range(5)
         ]
         r = self._build(snapshot_minimal, catalog, findings)

@@ -3,6 +3,7 @@
 Permet de lancer un audit complet sans démarrer le serveur MCP — utile pour
 batch / CI / scripts d'investigation.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -76,8 +77,7 @@ def main() -> int:
         "--access-token",
         default=None,
         help=(
-            "Bearer token BIMData déjà acquis (sinon API key / OAuth "
-            "client_credentials via .env)."
+            "Bearer token BIMData déjà acquis (sinon API key / OAuth client_credentials via .env)."
         ),
     )
     # Rétrocompat : ancien flag --push-smart-views
@@ -141,8 +141,7 @@ def main() -> int:
     do_sv = push_mode in ("smartview", "both")
 
     print(
-        f">> Publication : BCF Topics (dry_run={not do_bcf}) — "
-        f"Smart Views (dry_run={not do_sv})",
+        f">> Publication : BCF Topics (dry_run={not do_bcf}) — Smart Views (dry_run={not do_sv})",
         file=sys.stderr,
     )
     bcf_res = push_bcf_topics(result, client, dry_run=not do_bcf)

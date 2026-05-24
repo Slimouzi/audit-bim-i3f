@@ -3,6 +3,7 @@
 L'audit n'exige qu'une vision *par classe IFC* + hiérarchie spatiale + Psets ;
 on encapsule tout dans une structure ``ModelSnapshot`` immuable.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict

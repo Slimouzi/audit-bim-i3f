@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.classifier.systems``."""
+
 from __future__ import annotations
 
 import pytest
@@ -8,16 +9,19 @@ from audit_bim.classifier.systems import SYSTEMS, get_system, translate
 
 
 class TestGetSystem:
-    @pytest.mark.parametrize("alias,expected_label", [
-        ("UniFormat II", "UniFormat II"),
-        ("uniformat", "UniFormat II"),
-        ("uf", "UniFormat II"),
-        ("uf ii", "UniFormat II"),
-        ("Omniclass", "Omniclass Table 22 (Work Results)"),
-        ("omniclass", "Omniclass Table 22 (Work Results)"),
-        ("CCS", "CCS (Cuneco Classification System)"),
-        ("3F", "Table 3F interne"),
-    ])
+    @pytest.mark.parametrize(
+        "alias,expected_label",
+        [
+            ("UniFormat II", "UniFormat II"),
+            ("uniformat", "UniFormat II"),
+            ("uf", "UniFormat II"),
+            ("uf ii", "UniFormat II"),
+            ("Omniclass", "Omniclass Table 22 (Work Results)"),
+            ("omniclass", "Omniclass Table 22 (Work Results)"),
+            ("CCS", "CCS (Cuneco Classification System)"),
+            ("3F", "Table 3F interne"),
+        ],
+    )
     def test_resolves_aliases(self, alias, expected_label):
         assert get_system(alias).label == expected_label
 

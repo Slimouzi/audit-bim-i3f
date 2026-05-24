@@ -1,4 +1,5 @@
 """Audit de la hiérarchie spatiale et des quantités requises (SHAB / SU)."""
+
 from __future__ import annotations
 
 from ...extraction.model_data import ModelSnapshot
@@ -68,9 +69,7 @@ def audit_spatial(
                 expected=f"≥ 1 IfcSpace en phase {phase.value}",
                 actual=0,
                 ref_cch="Chap 6.3.2",
-                recommended_action=(
-                    "Modéliser les pièces (IfcSpace) du programme."
-                ),
+                recommended_action=("Modéliser les pièces (IfcSpace) du programme."),
             )
         )
 

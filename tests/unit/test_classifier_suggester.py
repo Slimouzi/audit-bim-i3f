@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.classifier.suggester``."""
+
 from __future__ import annotations
 
 from audit_bim.classifier.suggester import accepted_codes_for, suggest
@@ -36,13 +37,17 @@ def _make_element(ifc_class: str, **kwargs) -> dict:
     }
     if "is_external" in kwargs:
         base = _BASE_CLASS_FOR_PSET.get(ifc_class, ifc_class[3:])
-        el["property_sets"].append({
-            "name": f"Pset_{base}Common",
-            "properties": [{
-                "definition": {"name": "IsExternal", "value_type": "boolean"},
-                "value": kwargs["is_external"],
-            }],
-        })
+        el["property_sets"].append(
+            {
+                "name": f"Pset_{base}Common",
+                "properties": [
+                    {
+                        "definition": {"name": "IsExternal", "value_type": "boolean"},
+                        "value": kwargs["is_external"],
+                    }
+                ],
+            }
+        )
     if "layer" in kwargs:
         el["layers"] = [{"name": kwargs["layer"]}]
     return el

@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.audit.findings``."""
+
 from __future__ import annotations
 
 from audit_bim.audit.findings import (

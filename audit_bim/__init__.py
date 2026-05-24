@@ -9,4 +9,5 @@ Package exposant :
 - le builder de *Smart Views* BIMData,
 - un serveur *MCP* (FastMCP) pour piloter le tout depuis Claude.
 """
+
 __version__ = "0.1.0"

@@ -13,6 +13,7 @@ graphiques). On extrait :
 - les *listes fermées* (StoreyName, ZoneSpec, RoomSpec) qui servent de
   référentiel de validation lors de l'audit.
 """
+
 from __future__ import annotations
 
 import re
@@ -80,7 +81,9 @@ def _extract_storey_names(ws) -> list[StoreyName]:
             pattern=(
                 r"^TOITURE(\s+\d{1,2})?$"
                 if n == "TOITURE"
-                else r"^ENTRESOL(\s+\d{1,2})?$" if n == "ENTRESOL" else None
+                else r"^ENTRESOL(\s+\d{1,2})?$"
+                if n == "ENTRESOL"
+                else None
             ),
         )
         for n in seen

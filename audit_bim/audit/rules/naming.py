@@ -1,4 +1,5 @@
 """Audit du nommage IFC selon CCH I3F V3.x — chap 6.3.1 / 6.3.2."""
+
 from __future__ import annotations
 
 import re
@@ -34,9 +35,7 @@ def _check_room_name(name: str | None, allowed: set[str]) -> bool:
     return base in allowed
 
 
-def audit_naming(
-    snap: ModelSnapshot, catalog: RequirementsCatalog
-) -> list[Finding]:
+def audit_naming(snap: ModelSnapshot, catalog: RequirementsCatalog) -> list[Finding]:
     """Audit IfcProject/Site/Building/Storey + IfcZone + IfcSpace."""
     findings: list[Finding] = []
 
@@ -174,9 +173,7 @@ def audit_naming(
     # On détermine la localisation depuis l'ObjectType, qui doit nommer
     # explicitement la typologie (« Zone Logement T3 », « Zone Parkings »…).
     rule_zone_name = catalog.naming_rule_for("IfcZone", "Name")
-    allowed_zone_types = {
-        z.type_label.strip() for z in catalog.zone_specs if z.type_label
-    }
+    allowed_zone_types = {z.type_label.strip() for z in catalog.zone_specs if z.type_label}
 
     def _is_dwelling_zone(object_type: str | None) -> bool:
         """Vrai si l'ObjectType de la zone est une partie privative logement."""

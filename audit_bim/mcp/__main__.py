@@ -8,6 +8,7 @@ Transports supportés par FastMCP 3.x :
   apps métier BIM, intégrations custom.
 - ``sse`` — Server-Sent Events pour clients web temps réel.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,8 +50,7 @@ def main() -> int:
         kwargs["host"] = args.host
         kwargs["port"] = args.port
         print(
-            f"audit-bim-i3f MCP — transport={args.transport} sur "
-            f"http://{args.host}:{args.port}",
+            f"audit-bim-i3f MCP — transport={args.transport} sur http://{args.host}:{args.port}",
             file=sys.stderr,
         )
 

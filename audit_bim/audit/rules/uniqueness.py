@@ -14,6 +14,7 @@ Critères de présence de l'identifiant, par ordre de priorité :
 La règle ne s'applique **qu'à partir de la phase DCE** (cohérent avec le
 CCH) — avant, les équipements peuvent encore être génériques.
 """
+
 from __future__ import annotations
 
 from collections import Counter
@@ -27,31 +28,54 @@ from ..findings import ErrorType, Finding, Severity, Theme
 # les *terminaux* et *équipements*, pas les éléments constructifs continus
 # (murs, dalles) qui n'ont pas besoin d'identifiant individuel en gestion.
 _EQUIPMENT_CLASSES = {
-    "IfcDoor", "IfcDoorStandardCase",
-    "IfcWindow", "IfcWindowStandardCase",
+    "IfcDoor",
+    "IfcDoorStandardCase",
+    "IfcWindow",
+    "IfcWindowStandardCase",
     "IfcFurnishingElement",
     "IfcFlowTerminal",
-    "IfcSanitaryTerminal", "IfcSanitaryTerminalType",
-    "IfcAirTerminal", "IfcAirTerminalType",
-    "IfcWasteTerminal", "IfcWasteTerminalType",
-    "IfcFireSuppressionTerminal", "IfcFireSuppressionTerminalType",
-    "IfcLamp", "IfcLampType",
-    "IfcOutlet", "IfcOutletType",
-    "IfcSwitchingDevice", "IfcSwitchingDeviceType",
-    "IfcSensor", "IfcSensorType",
-    "IfcController", "IfcControllerType",
-    "IfcAlarm", "IfcAlarmType",
-    "IfcValve", "IfcValveType",
-    "IfcPump", "IfcPumpType",
-    "IfcFan", "IfcFanType",
-    "IfcDamper", "IfcDamperType",
-    "IfcBoiler", "IfcBoilerType",
-    "IfcUnitaryEquipment", "IfcUnitaryEquipmentType",
-    "IfcElectricAppliance", "IfcElectricApplianceType",
-    "IfcCableSegment", "IfcCableSegmentType",
-    "IfcCableCarrierSegment", "IfcCableCarrierSegmentType",
-    "IfcPipeSegment", "IfcPipeSegmentType",
-    "IfcDuctSegment", "IfcDuctSegmentType",
+    "IfcSanitaryTerminal",
+    "IfcSanitaryTerminalType",
+    "IfcAirTerminal",
+    "IfcAirTerminalType",
+    "IfcWasteTerminal",
+    "IfcWasteTerminalType",
+    "IfcFireSuppressionTerminal",
+    "IfcFireSuppressionTerminalType",
+    "IfcLamp",
+    "IfcLampType",
+    "IfcOutlet",
+    "IfcOutletType",
+    "IfcSwitchingDevice",
+    "IfcSwitchingDeviceType",
+    "IfcSensor",
+    "IfcSensorType",
+    "IfcController",
+    "IfcControllerType",
+    "IfcAlarm",
+    "IfcAlarmType",
+    "IfcValve",
+    "IfcValveType",
+    "IfcPump",
+    "IfcPumpType",
+    "IfcFan",
+    "IfcFanType",
+    "IfcDamper",
+    "IfcDamperType",
+    "IfcBoiler",
+    "IfcBoilerType",
+    "IfcUnitaryEquipment",
+    "IfcUnitaryEquipmentType",
+    "IfcElectricAppliance",
+    "IfcElectricApplianceType",
+    "IfcCableSegment",
+    "IfcCableSegmentType",
+    "IfcCableCarrierSegment",
+    "IfcCableCarrierSegmentType",
+    "IfcPipeSegment",
+    "IfcPipeSegmentType",
+    "IfcDuctSegment",
+    "IfcDuctSegmentType",
 }
 
 
@@ -66,7 +90,7 @@ def _equipment_identifier(element: dict) -> str | None:
             return str(v).strip()
     # Pset_*Common générique (tag/mark sur tout équipement)
     for pset in element.get("property_sets") or []:
-        pname = (pset.get("name") or "")
+        pname = pset.get("name") or ""
         if "Common" not in pname:
             continue
         for prop in pset.get("properties") or []:
@@ -118,8 +142,7 @@ def audit_uniqueness(
                         ifc_type=ifc_class,
                         name=get_attribute(el, "Name") or el.get("name"),
                         expected=(
-                            "Identifiant équipement (Tag ou Mark) renseigné "
-                            "dans Pset_*Common"
+                            "Identifiant équipement (Tag ou Mark) renseigné dans Pset_*Common"
                         ),
                         actual=None,
                         ref_cch="Chap 6.2 — équipements identifiables",
@@ -145,14 +168,11 @@ def audit_uniqueness(
                             element_uuid=el.get("uuid"),
                             ifc_type=ifc_class,
                             name=get_attribute(el, "Name") or el.get("name"),
-                            expected=(
-                                f"Identifiant unique parmi les {ifc_class}"
-                            ),
+                            expected=(f"Identifiant unique parmi les {ifc_class}"),
                             actual=f"{ident!r} réutilisé {counts[ident]} fois",
                             ref_cch="Chap 6.2",
                             recommended_action=(
-                                f"Renommer ou suffixer le Tag « {ident} » pour le "
-                                "rendre unique."
+                                f"Renommer ou suffixer le Tag « {ident} » pour le rendre unique."
                             ),
                         )
                     )

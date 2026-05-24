@@ -10,6 +10,7 @@ L'auditeur télécharge l'annexe ``audit_*_annexes.xlsx``, édite l'onglet
 Le reader extrait la liste des items ``{uuid, code, label, system}`` à
 appliquer en aval via ``apply_classifications``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -53,6 +54,7 @@ def read_classifications_from_xlsx(xlsx_path: str | Path) -> list[dict]:
         ws = wb[SHEET_NAME]
 
         header = [c.value for c in next(ws.iter_rows(max_row=1))]
+
         # En-têtes attendues (cf. xlsx_annex._write_classification_suggestions)
         def _idx(label: str) -> int:
             try:
@@ -87,9 +89,7 @@ def read_classifications_from_xlsx(xlsx_path: str | Path) -> list[dict]:
                     "code": code_str,
                     "label": (str(row[i_label]).strip() if row[i_label] else code_str),
                     "system": "UniFormat II",
-                    "confidence": (
-                        float(row[i_conf]) if row[i_conf] is not None else None
-                    ),
+                    "confidence": (float(row[i_conf]) if row[i_conf] is not None else None),
                 }
             )
         return items

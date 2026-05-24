@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.audit.validators``."""
+
 from __future__ import annotations
 
 import pytest
@@ -7,21 +8,27 @@ from audit_bim.audit.validators import validate_property_value as v
 
 
 class TestNumericPositive:
-    @pytest.mark.parametrize("value,prop", [
-        (2.5, "Surface"),
-        (10, "NetSideArea"),
-        (0.5, "Height"),
-        (100, "Power"),
-        (3.14, "Volume"),
-    ])
+    @pytest.mark.parametrize(
+        "value,prop",
+        [
+            (2.5, "Surface"),
+            (10, "NetSideArea"),
+            (0.5, "Height"),
+            (100, "Power"),
+            (3.14, "Volume"),
+        ],
+    )
     def test_valid_positive(self, value, prop):
         assert v(value, property_name=prop) is None
 
-    @pytest.mark.parametrize("value,prop", [
-        (-1.5, "Surface"),
-        (-0.001, "NetSideArea"),
-        (-10, "Volume"),
-    ])
+    @pytest.mark.parametrize(
+        "value,prop",
+        [
+            (-1.5, "Surface"),
+            (-0.001, "NetSideArea"),
+            (-10, "Volume"),
+        ],
+    )
     def test_invalid_negative(self, value, prop):
         result = v(value, property_name=prop)
         assert result is not None
@@ -39,7 +46,9 @@ class TestNumericPositive:
 
 
 class TestBoolean:
-    @pytest.mark.parametrize("value", [True, False, "V", "F", "OUI", "NON", "0", "1", "VRAI", "FAUX"])
+    @pytest.mark.parametrize(
+        "value", [True, False, "V", "F", "OUI", "NON", "0", "1", "VRAI", "FAUX"]
+    )
     def test_valid_bool_representations(self, value):
         assert v(value, property_name="IsExternal") is None
 

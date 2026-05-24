@@ -22,6 +22,7 @@ forward-fill ces colonnes pour reconstituer le thème/objet courant.
 Les sous-en-têtes « Documents », « Propriétés » réinitialisent la *catégorie*
 de la ligne suivante (document attendu vs propriété IFC).
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -78,9 +79,7 @@ def _detect_phase_columns(row: tuple) -> dict[BIMPhase, int] | None:
 
     L'ordre peut varier selon versions ; on remappe sur les labels.
     """
-    cells = {
-        i: str(c).strip().upper() if c is not None else "" for i, c in enumerate(row)
-    }
+    cells = {i: str(c).strip().upper() if c is not None else "" for i, c in enumerate(row)}
     mapping: dict[BIMPhase, int] = {}
     for phase in PHASE_ORDER:
         token_main = phase.value
@@ -175,9 +174,7 @@ def parse_data_spec(xlsx_path: str | Path) -> list[PropertySpec]:
             # Ligne d'intro / commentaire générique
             continue
 
-        required = (
-            _required_phases(row, phase_cols) if phase_cols else []
-        )
+        required = _required_phases(row, phase_cols) if phase_cols else []
 
         # Une ligne du CCH peut référencer plusieurs classes IFC en une
         # seule cellule (ex: "IfcDuctFittingType\nIfcDuctSegmentType") ou

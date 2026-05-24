@@ -15,6 +15,7 @@ FullTopic* avec :
 Apparaît dans le panneau **BCF Issues** du viewer (au lieu des Smart
 Views). Format buildingSMART standard ; portable hors BIMData.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -98,9 +99,7 @@ def _build_bcf_topic(
     max_sev = _max_severity(items)
     priority = _BCF_PRIORITY.get(max_sev, "Medium")
 
-    components_list = [
-        {"ifc_guid": u, "originating_system": ORIGINATING_SYSTEM} for u in uuids
-    ]
+    components_list = [{"ifc_guid": u, "originating_system": ORIGINATING_SYSTEM} for u in uuids]
 
     # Note : on omet ``viewpoint.guid`` (DRF rejette les ``None``) et
     # ``components.visibility`` (qui exige ``view_setup_hints`` si présent).
@@ -168,23 +167,20 @@ def _build_overview_bcf_topic(
         if not theme_uuids:
             continue
         color_bcf = _hex_alpha(THEME_COLORS.get(theme.value, "888888"), alpha=0x99)
-        coloring_groups.append({
-            "color": color_bcf,
-            "components": [
-                {"ifc_guid": u, "originating_system": ORIGINATING_SYSTEM}
-                for u in theme_uuids
-            ],
-        })
+        coloring_groups.append(
+            {
+                "color": color_bcf,
+                "components": [
+                    {"ifc_guid": u, "originating_system": ORIGINATING_SYSTEM} for u in theme_uuids
+                ],
+            }
+        )
         total_findings += len(items)
 
-    selection = [
-        {"ifc_guid": u, "originating_system": ORIGINATING_SYSTEM} for u in all_uuids
-    ]
+    selection = [{"ifc_guid": u, "originating_system": ORIGINATING_SYSTEM} for u in all_uuids]
 
     legend_lines = [
-        f"• {theme.value} : {len(items)} anomalie(s)"
-        for theme, items in sorted_themes
-        if items
+        f"• {theme.value} : {len(items)} anomalie(s)" for theme, items in sorted_themes if items
     ]
     description = (
         f"Audit BIM I3F — Vue d'ensemble (phase {phase}).\n"

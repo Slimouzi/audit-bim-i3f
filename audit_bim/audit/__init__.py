@@ -1,4 +1,5 @@
 """Moteur d'audit BIM I3F : règles + agrégation."""
+
 from .engine import AuditResult, run_audit
 from .findings import ErrorType, Finding, Severity, Theme, severity_color
 

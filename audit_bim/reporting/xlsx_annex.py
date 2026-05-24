@@ -11,6 +11,7 @@ Chaque ligne d'erreur a la même structure de colonnes :
 ``UUID | Classe IFC | Nom | Étage | Zone | Thème | Type erreur | Sévérité |
 Attendu | Réel | Référence CCH | Action recommandée``
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -62,9 +63,7 @@ def _build_formats(wb: xlsxwriter.Workbook) -> dict:
                 "align": "left",
             }
         ),
-        "h2": wb.add_format(
-            {"bold": True, "font_size": 12, "font_color": I3F_BLUE}
-        ),
+        "h2": wb.add_format({"bold": True, "font_size": 12, "font_color": I3F_BLUE}),
         "header": wb.add_format(
             {
                 "bold": True,
@@ -76,7 +75,9 @@ def _build_formats(wb: xlsxwriter.Workbook) -> dict:
                 "text_wrap": True,
             }
         ),
-        "row_alt": wb.add_format({"bg_color": I3F_BLUE_LIGHT, "border": 1, "text_wrap": True, "valign": "top"}),
+        "row_alt": wb.add_format(
+            {"bg_color": I3F_BLUE_LIGHT, "border": 1, "text_wrap": True, "valign": "top"}
+        ),
         "row": wb.add_format({"border": 1, "text_wrap": True, "valign": "top"}),
         "kpi_key": wb.add_format({"bold": True, "bg_color": I3F_BLUE_LIGHT, "border": 1}),
         "kpi_val": wb.add_format({"border": 1, "align": "right"}),
@@ -84,7 +85,13 @@ def _build_formats(wb: xlsxwriter.Workbook) -> dict:
     }
     for sev, color in SEVERITY_COLORS.items():
         fmts[f"sev_{sev}"] = wb.add_format(
-            {"bg_color": color, "font_color": "FFFFFF", "border": 1, "bold": True, "align": "center"}
+            {
+                "bg_color": color,
+                "font_color": "FFFFFF",
+                "border": 1,
+                "bold": True,
+                "align": "center",
+            }
         )
     return fmts
 
@@ -161,7 +168,7 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
     ws.write("A8", "KPI global", fmts["h2"])
     kpis = [
         ("Anomalies totales", len(result.findings)),
-        ("Taux de conformité (pondéré)", f"{result.conformity_rate()*100:.1f} %"),
+        ("Taux de conformité (pondéré)", f"{result.conformity_rate() * 100:.1f} %"),
         ("Éléments dans le modèle", len(result.snapshot.element_by_uuid)),
         ("Pièces (IfcSpace)", len(result.snapshot.spaces)),
         ("Zones (IfcZone)", len(result.snapshot.zones)),
@@ -180,13 +187,17 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
 
     # Détail par thème
     ws.write("A18", "Anomalies par thème", fmts["h2"])
-    for i, (theme, count) in enumerate(sorted(result.count_by_theme().items(), key=lambda x: -x[1])):
+    for i, (theme, count) in enumerate(
+        sorted(result.count_by_theme().items(), key=lambda x: -x[1])
+    ):
         ws.write(18 + i, 0, theme, fmts["kpi_key"])
         ws.write(18 + i, 1, count, fmts["kpi_val"])
 
     # Détail par type d'erreur
     ws.write("D18", "Anomalies par type d'erreur", fmts["h2"])
-    for i, (et, count) in enumerate(sorted(result.count_by_error_type().items(), key=lambda x: -x[1])):
+    for i, (et, count) in enumerate(
+        sorted(result.count_by_error_type().items(), key=lambda x: -x[1])
+    ):
         ws.write(18 + i, 3, et, fmts["kpi_key"])
         ws.write(18 + i, 4, count, fmts["kpi_val"])
 
@@ -314,10 +325,17 @@ def _write_classification_suggestions(wb, result: AuditResult, fmts: dict):
     ws = wb.add_worksheet("Classifications suggérées")
     ws.freeze_panes(1, 0)
     cols = [
-        ("UUID", 38), ("Classe IFC", 22), ("Nom", 32),
-        ("Layers (sample)", 24), ("IsExternal", 10),
-        ("Suggestion 1 — code", 12), ("Sug. 1 — libellé", 28), ("Conf. 1", 8),
-        ("Suggestion 2 — code", 12), ("Sug. 2 — libellé", 28), ("Conf. 2", 8),
+        ("UUID", 38),
+        ("Classe IFC", 22),
+        ("Nom", 32),
+        ("Layers (sample)", 24),
+        ("IsExternal", 10),
+        ("Suggestion 1 — code", 12),
+        ("Sug. 1 — libellé", 28),
+        ("Conf. 1", 8),
+        ("Suggestion 2 — code", 12),
+        ("Sug. 2 — libellé", 28),
+        ("Conf. 2", 8),
         ("Signaux", 60),
     ]
     for c, (lbl, w) in enumerate(cols):
@@ -334,7 +352,12 @@ def _write_classification_suggestions(wb, result: AuditResult, fmts: dict):
         ws.write(i, 1, item.get("ifc_type") or "", fmt)
         ws.write(i, 2, (item.get("name") or "")[:120], fmt)
         ws.write(i, 3, ", ".join(item.get("layers") or [])[:120], fmt)
-        ws.write(i, 4, "" if item.get("is_external") is None else ("oui" if item["is_external"] else "non"), fmt)
+        ws.write(
+            i,
+            4,
+            "" if item.get("is_external") is None else ("oui" if item["is_external"] else "non"),
+            fmt,
+        )
         ws.write(i, 5, s1.get("code", ""), fmt)
         ws.write(i, 6, s1.get("label", ""), fmt)
         ws.write(i, 7, s1.get("confidence", ""), fmt)

@@ -9,6 +9,7 @@ ML / un référentiel projet), mais de pré-mâcher le travail de l'AMO BIM :
 proposer les 1-3 codes les plus probables, et signaler quand la maquette
 fournit assez d'indices pour décider seul.
 """
+
 from __future__ import annotations
 
 import re
@@ -50,10 +51,10 @@ class Suggestion:
 
 # Pondérations des signaux
 W_IFC_CLASS = 0.50  # mapping de base par classe IFC
-W_LAYER = 0.20      # match du nom de calque
+W_LAYER = 0.20  # match du nom de calque
 W_ATTRIBUTE = 0.15  # ObjectType / Name keyword
-W_PSET = 0.10       # IsExternal / LoadBearing / PredefinedType
-W_QUANTITY = 0.05   # BaseQuantities cohérentes
+W_PSET = 0.10  # IsExternal / LoadBearing / PredefinedType
+W_QUANTITY = 0.05  # BaseQuantities cohérentes
 
 
 # ── Heuristiques layer (regex insensibles à la casse, recherche partielle) ──
@@ -196,31 +197,56 @@ def _ifc_base_code(s: ElementSignals) -> str | None:
         return "D3050"
     if c in ("IfcLight", "IfcLamp", "IfcLampType"):
         return "D5020"
-    if c in ("IfcCableSegment", "IfcCableSegmentType",
-             "IfcCableCarrierSegment", "IfcCableCarrierSegmentType",
-             "IfcCableCarrierFitting", "IfcCableCarrierFittingType"):
+    if c in (
+        "IfcCableSegment",
+        "IfcCableSegmentType",
+        "IfcCableCarrierSegment",
+        "IfcCableCarrierSegmentType",
+        "IfcCableCarrierFitting",
+        "IfcCableCarrierFittingType",
+    ):
         return "D5020"
     if c in ("IfcOutlet", "IfcOutletType"):
         return "D5020"
     if c in ("IfcSwitchingDevice", "IfcSwitchingDeviceType"):
         return "D5020"
-    if c in ("IfcDuctSegment", "IfcDuctSegmentType",
-             "IfcDuctFitting", "IfcDuctFittingType",
-             "IfcDuctSilencer", "IfcDuctSilencerType",
-             "IfcFan", "IfcFanType",
-             "IfcDamper", "IfcDamperType"):
+    if c in (
+        "IfcDuctSegment",
+        "IfcDuctSegmentType",
+        "IfcDuctFitting",
+        "IfcDuctFittingType",
+        "IfcDuctSilencer",
+        "IfcDuctSilencerType",
+        "IfcFan",
+        "IfcFanType",
+        "IfcDamper",
+        "IfcDamperType",
+    ):
         return "D3040"
-    if c in ("IfcPipeSegment", "IfcPipeSegmentType",
-             "IfcPipeFitting", "IfcPipeFittingType",
-             "IfcValve", "IfcValveType",
-             "IfcPump", "IfcPumpType"):
+    if c in (
+        "IfcPipeSegment",
+        "IfcPipeSegmentType",
+        "IfcPipeFitting",
+        "IfcPipeFittingType",
+        "IfcValve",
+        "IfcValveType",
+        "IfcPump",
+        "IfcPumpType",
+    ):
         return "D2020"
-    if c in ("IfcBoiler", "IfcBoilerType",
-             "IfcCoil", "IfcCoilType",
-             "IfcHeatExchanger", "IfcHeatExchangeType",
-             "IfcSpaceHeater", "IfcSpaceHeaterType",
-             "IfcElectricHeater", "IfcElectricHeaterType",
-             "IfcUnitaryEquipmentType"):
+    if c in (
+        "IfcBoiler",
+        "IfcBoilerType",
+        "IfcCoil",
+        "IfcCoilType",
+        "IfcHeatExchanger",
+        "IfcHeatExchangeType",
+        "IfcSpaceHeater",
+        "IfcSpaceHeaterType",
+        "IfcElectricHeater",
+        "IfcElectricHeaterType",
+        "IfcUnitaryEquipmentType",
+    ):
         return "D3020"
     return None
 
@@ -279,6 +305,7 @@ def suggest(element: dict, signals: ElementSignals | None = None) -> list[Sugges
     """
     if signals is None:
         from .signals import extract_signals
+
         signals = extract_signals(element)
 
     suggestions: dict[str, Suggestion] = {}
@@ -322,9 +349,7 @@ def suggest(element: dict, signals: ElementSignals | None = None) -> list[Sugges
         if qty_reason:
             add(base, W_QUANTITY, qty_reason)
 
-    return sorted(
-        suggestions.values(), key=lambda s: -s.confidence
-    )
+    return sorted(suggestions.values(), key=lambda s: -s.confidence)
 
 
 def suggest_for_findings(
@@ -371,13 +396,15 @@ def suggest_for_findings(
         sugs = [s for s in sugs if s.confidence >= min_confidence][:top_n]
         if not sugs:
             continue
-        out.append({
-            "element_uuid": f.element_uuid,
-            "ifc_type": f.ifc_type,
-            "name": f.name,
-            "layers": signals.layers,
-            "materials": signals.materials,
-            "is_external": signals.is_external,
-            "suggestions": [s.as_dict() for s in sugs],
-        })
+        out.append(
+            {
+                "element_uuid": f.element_uuid,
+                "ifc_type": f.ifc_type,
+                "name": f.name,
+                "layers": signals.layers,
+                "materials": signals.materials,
+                "is_external": signals.is_external,
+                "suggestions": [s.as_dict() for s in sugs],
+            }
+        )
     return out

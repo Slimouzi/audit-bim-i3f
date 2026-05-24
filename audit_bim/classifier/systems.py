@@ -12,6 +12,7 @@ listés comme « disponibles » (le suggester continue à utiliser UF II pour
 ses heuristiques) — pour les passer en production, fournir la table de
 correspondance via ``CUSTOM_MAPPERS``.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -24,8 +25,8 @@ from .catalog import ClassEntry
 class ClassificationSystem:
     """Référentiel disponible pour l'audit / la suggestion."""
 
-    name: str           # nom court (transmis à l'API BIMData)
-    label: str          # libellé humain
+    name: str  # nom court (transmis à l'API BIMData)
+    label: str  # libellé humain
     description: str
     map_from_uniformat: Callable[[ClassEntry], ClassEntry] | None = None
 
@@ -111,8 +112,7 @@ def get_system(name: str | None) -> ClassificationSystem:
         ):
             return s
     raise ValueError(
-        f"Système de classification inconnu : {name!r}. "
-        f"Disponibles : {list(SYSTEMS.keys())}."
+        f"Système de classification inconnu : {name!r}. Disponibles : {list(SYSTEMS.keys())}."
     )
 
 

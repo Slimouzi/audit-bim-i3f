@@ -12,6 +12,7 @@ Structure du document :
 
 Les graphes sont générés via matplotlib et insérés en PNG.
 """
+
 from __future__ import annotations
 
 import io
@@ -35,7 +36,7 @@ from ..classifier import suggest_for_findings
 from .theming import I3F_BLUE, I3F_GREY, SEVERITY_COLORS, THEME_COLORS
 
 MAX_FINDINGS_PER_THEME = 25  # cap par thème pour garder un rendu équilibré
-PIE_OTHER_THRESHOLD = 0.02   # tranches < 2 % regroupées en « Autres »
+PIE_OTHER_THRESHOLD = 0.02  # tranches < 2 % regroupées en « Autres »
 
 
 def _hex_to_rgb(h: str) -> RGBColor:
@@ -107,8 +108,7 @@ def _pie_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -
 
     # Légende externe avec libellé + valeur absolue
     legend_labels = [
-        f"{lbl}  ({s:,})".replace(",", " ")
-        for lbl, s in zip(labels, sizes, strict=True)
+        f"{lbl}  ({s:,})".replace(",", " ") for lbl, s in zip(labels, sizes, strict=True)
     ]
     ax.legend(
         wedges,
@@ -222,9 +222,7 @@ def _findings_table(
         row[3].text = str(exp or "")[:80]
         row[4].text = str(f.actual or "")[:60]
         if with_sug:
-            sug = (
-                suggestions_map.get(f.element_uuid) if f.element_uuid else None
-            )
+            sug = suggestions_map.get(f.element_uuid) if f.element_uuid else None
             if sug:
                 row[5].text = f"{sug['code']} — {sug['label']}"
                 row[6].text = f"{sug['confidence']:.2f}"
@@ -294,25 +292,30 @@ def write_word_report(
 
     conf = result.conformity_rate() * 100
     verdict = (
-        "Conforme avec réserves légères" if conf >= 90 else
-        "Non conforme — corrections nécessaires" if conf >= 70 else
-        "Non conforme — anomalies majeures"
+        "Conforme avec réserves légères"
+        if conf >= 90
+        else "Non conforme — corrections nécessaires"
+        if conf >= 70
+        else "Non conforme — anomalies majeures"
     )
 
-    _kpi_table(doc, [
-        ("Phase auditée", result.phase.value),
-        ("Programme", project_name),
-        ("Modèle", model_name),
-        ("Référentiel", f"CCH BIM I3F V{result.catalog.cch_version or '?'}"),
-        ("Nombre d'anomalies", str(len(result.findings))),
-        ("Taux de conformité (pondéré)", f"{conf:.1f} %"),
-        ("Verdict", verdict),
-        ("CRITICAL", str(by_sev.get("CRITICAL", 0))),
-        ("HIGH", str(by_sev.get("HIGH", 0))),
-        ("MEDIUM", str(by_sev.get("MEDIUM", 0))),
-        ("LOW", str(by_sev.get("LOW", 0))),
-        ("INFO", str(by_sev.get("INFO", 0))),
-    ])
+    _kpi_table(
+        doc,
+        [
+            ("Phase auditée", result.phase.value),
+            ("Programme", project_name),
+            ("Modèle", model_name),
+            ("Référentiel", f"CCH BIM I3F V{result.catalog.cch_version or '?'}"),
+            ("Nombre d'anomalies", str(len(result.findings))),
+            ("Taux de conformité (pondéré)", f"{conf:.1f} %"),
+            ("Verdict", verdict),
+            ("CRITICAL", str(by_sev.get("CRITICAL", 0))),
+            ("HIGH", str(by_sev.get("HIGH", 0))),
+            ("MEDIUM", str(by_sev.get("MEDIUM", 0))),
+            ("LOW", str(by_sev.get("LOW", 0))),
+            ("INFO", str(by_sev.get("INFO", 0))),
+        ],
+    )
 
     doc.add_paragraph()
     doc.add_picture(
@@ -394,9 +397,7 @@ def write_word_report(
     for f in result.findings:
         by_theme_all.setdefault(f.theme.value, []).append(f)
 
-    capped_total = sum(
-        min(len(items), MAX_FINDINGS_PER_THEME) for items in by_theme_all.values()
-    )
+    capped_total = sum(min(len(items), MAX_FINDINGS_PER_THEME) for items in by_theme_all.values())
     if len(result.findings) > capped_total:
         doc.add_paragraph(
             f"⚠ Détail limité aux {MAX_FINDINGS_PER_THEME} anomalies les plus "
@@ -408,9 +409,7 @@ def write_word_report(
     # Ordre des thèmes : par nombre d'anomalies décroissant
     # Suggestions de classification pré-calculées une fois pour le thème
     # 'Classification IFC' (réutilisé dans la table dédiée).
-    sug_list = suggest_for_findings(
-        result.findings, result.snapshot, min_confidence=0.4, top_n=1
-    )
+    sug_list = suggest_for_findings(result.findings, result.snapshot, min_confidence=0.4, top_n=1)
     suggestions_map: dict[str, dict] = {}
     for item in sug_list:
         u = item.get("element_uuid")
@@ -418,9 +417,7 @@ def write_word_report(
         if u and sugs:
             suggestions_map[u] = sugs[0]
 
-    for theme, items in sorted(
-        by_theme_all.items(), key=lambda kv: -len(kv[1])
-    ):
+    for theme, items in sorted(by_theme_all.items(), key=lambda kv: -len(kv[1])):
         n = len(items)
         label = f"{theme} ({n} anomalie{'s' if n > 1 else ''})"
         _add_heading(doc, label, level=2)
@@ -433,9 +430,7 @@ def write_word_report(
     _add_heading(doc, "5. Recommandations", level=1)
     recs = _generate_recommendations(result)
     if not recs:
-        doc.add_paragraph(
-            "Aucune action corrective majeure ne semble nécessaire à ce stade."
-        )
+        doc.add_paragraph("Aucune action corrective majeure ne semble nécessaire à ce stade.")
     else:
         for r in recs:
             doc.add_paragraph(r, style="List Bullet")

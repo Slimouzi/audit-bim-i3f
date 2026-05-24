@@ -12,6 +12,7 @@ La première stratégie qui *retient un candidat unique* gagne. En cas
 d'ambiguïté (plusieurs candidats à confiance proche), on remplit la liste
 ``candidates`` du Match pour que l'auditeur tranche.
 """
+
 from __future__ import annotations
 
 from rapidfuzz import fuzz, process
@@ -30,7 +31,7 @@ LOCALISATION_CONFIDENCE = 0.55
 def _element_tag(el: dict) -> str | None:
     """Récupère le Tag/Mark d'un élément (cf. règle uniqueness)."""
     for pset in el.get("property_sets") or []:
-        pn = (pset.get("name") or "")
+        pn = pset.get("name") or ""
         if "Common" not in pn:
             continue
         for prop in pset.get("properties") or []:
@@ -159,9 +160,7 @@ def match_doe_records(
             # best = [(matched_name, score, index), ...]
             if best and best[0][1] >= name_min_score:
                 # On filtre éventuellement par type IFC pour réduire les faux positifs
-                candidates = [
-                    (name_index[i][1], score) for _name, score, i in best
-                ]
+                candidates = [(name_index[i][1], score) for _name, score, i in best]
                 if rec.type_hint:
                     candidates = _filter_by_type(candidates, rec.type_hint) or candidates
                 el, score = candidates[0]
@@ -200,13 +199,7 @@ def match_doe_records(
     return matches
 
 
-def _filter_by_type(
-    candidates: list[tuple[dict, int]], type_hint: str
-) -> list[tuple[dict, int]]:
+def _filter_by_type(candidates: list[tuple[dict, int]], type_hint: str) -> list[tuple[dict, int]]:
     """Filtre les candidats dont la classe IFC contient le type_hint."""
     th = type_hint.lower()
-    return [
-        (el, sc)
-        for el, sc in candidates
-        if th in (el.get("type") or "").lower()
-    ]
+    return [(el, sc) for el, sc in candidates if th in (el.get("type") or "").lower()]

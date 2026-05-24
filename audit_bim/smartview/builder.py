@@ -15,6 +15,7 @@ disparaître la Smart View du panneau dédié.
 Pour des *issues à résoudre* avec workflow (assignation, statut,
 commentaires, description), préférer l'agent ``audit_bim.bcf``.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -109,12 +110,7 @@ def _element_name(element_by_uuid: dict | None, uuid: str) -> str:
     if not element_by_uuid:
         return ""
     el = element_by_uuid.get(uuid) or {}
-    return (
-        el.get("name")
-        or el.get("object_type")
-        or el.get("longname")
-        or ""
-    )
+    return el.get("name") or el.get("object_type") or el.get("longname") or ""
 
 
 def _build_overview_topic(
@@ -166,10 +162,12 @@ def _build_overview_topic(
         bucket = [u for u, s in uuid_max_sev.items() if s == sev]
         if not bucket:
             continue
-        coloring_groups.append({
-            "color": _severity_color(sev),
-            "components": [_component(u) for u in bucket],
-        })
+        coloring_groups.append(
+            {
+                "color": _severity_color(sev),
+                "components": [_component(u) for u in bucket],
+            }
+        )
 
     # Payload minimal aligné UI : pas de selection, pas de description,
     # pas de labels, pas de viewpoint.originating_system.

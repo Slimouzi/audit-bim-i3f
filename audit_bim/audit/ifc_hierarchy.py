@@ -12,6 +12,7 @@ Pset_3F…), ce qui sous-évalue gravement les écarts au CCH.
 La table reste **explicite et bornée** : on ne descend pas toute la hiérarchie
 IFC, seulement les sous-classes effectivement émises par les outils CAO.
 """
+
 from __future__ import annotations
 
 # (parent IFC du CCH) → (sous-classes à inclure dans l'audit du parent)

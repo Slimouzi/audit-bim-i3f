@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.audit.ifc_hierarchy``."""
+
 from __future__ import annotations
 
 from audit_bim.audit.ifc_hierarchy import IFC_SUBCLASSES, expand_class, normalize_catalog_class
@@ -39,9 +40,7 @@ class TestNormalizeCatalogClass:
         assert normalize_catalog_class("ifcSlab") == ["IfcSlab"]
 
     def test_a_defaut_fallback_extracted(self):
-        result = normalize_catalog_class(
-            "IfcTendon\nà défaut IfcBuildingElementProxy"
-        )
+        result = normalize_catalog_class("IfcTendon\nà défaut IfcBuildingElementProxy")
         assert "IfcTendon" in result
         # Le fallback aussi (ordre non garanti)
         assert "IfcBuildingElementProxy" in result

@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.doe.models``."""
+
 from __future__ import annotations
 
 from audit_bim.doe.models import DoeRecord, Match

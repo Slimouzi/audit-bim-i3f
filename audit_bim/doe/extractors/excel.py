@@ -9,6 +9,7 @@ Convention de propriété : si l'en-tête contient `.` ou `/`, le Pset est
 extrait (ex: « Pset_3F.Fabricant » → Pset=`Pset_3F`, prop=`Fabricant`).
 Sinon, la propriété va dans `Pset_DOE` par défaut.
 """
+
 from __future__ import annotations
 
 import re
@@ -148,11 +149,7 @@ def parse_doe_excel(xlsx_path: str | Path) -> list[DoeRecord]:
                         pset, prop = pset_prop
                         rec.properties.setdefault(pset, {})[prop] = val
                 # Ne garde que les lignes avec au moins un indice + une property
-                if (
-                    rec.uuid_hint
-                    or rec.tag_hint
-                    or rec.name_hint
-                ) and rec.properties:
+                if (rec.uuid_hint or rec.tag_hint or rec.name_hint) and rec.properties:
                     records.append(rec)
     finally:
         wb.close()

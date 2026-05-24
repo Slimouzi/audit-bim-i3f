@@ -12,6 +12,7 @@ Pour ajouter une nouvelle règle :
 3. L'ajouter à ``run_audit`` dans ce fichier (ordre logique : spatial →
    nommage → classifs → propriétés → unicité → listes).
 """
+
 from __future__ import annotations
 
 from collections import Counter

@@ -5,6 +5,7 @@ Politique de fusion :
 - Le **PDF** sert de complément (version du CCH, listes manquantes si une
   annexe n'a pas été fournie par le MOA).
 """
+
 from __future__ import annotations
 
 from pathlib import Path

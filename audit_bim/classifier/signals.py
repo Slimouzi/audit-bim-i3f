@@ -4,6 +4,7 @@ Les signaux fournissent du contexte pour heurister la classification quand
 elle est manquante : nom de calque, attributs natifs, propriétés Pset, base
 quantities, matériaux.
 """
+
 from __future__ import annotations
 
 import re
@@ -77,7 +78,7 @@ def _base_quantities(element: dict) -> dict[str, float]:
     """Extrait les BaseQuantities (Pset 'BaseQuantities' ou 'Qto_*' ou 'Quantités_*')."""
     out: dict[str, float] = {}
     for pset in element.get("property_sets") or []:
-        pn = (pset.get("name") or "")
+        pn = pset.get("name") or ""
         if not re.match(r"^(BaseQuantities|Qto_|Quantit)", pn, re.IGNORECASE):
             continue
         for prop in pset.get("properties") or []:

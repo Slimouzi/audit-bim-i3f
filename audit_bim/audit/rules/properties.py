@@ -1,4 +1,5 @@
 """Audit de présence et de validité des propriétés requises au CCH."""
+
 from __future__ import annotations
 
 from ...extraction.model_data import ModelSnapshot
@@ -76,11 +77,7 @@ def audit_properties(
                 if spec.kind != "property":
                     continue
                 value = resolve_value(el, spec.pset_or_attribute, spec.property_name)
-                via = (
-                    f" (exigence définie sur {ifc_class})"
-                    if actual_class != ifc_class
-                    else ""
-                )
+                via = f" (exigence définie sur {ifc_class})" if actual_class != ifc_class else ""
                 if _is_empty(value):
                     findings.append(
                         Finding(
@@ -128,8 +125,7 @@ def audit_properties(
                             actual=f"{value!r} — {reason}",
                             ref_cch=spec.ref_cch,
                             recommended_action=(
-                                f"Corriger {spec.property_name} sur "
-                                f"{actual_class} — {reason}."
+                                f"Corriger {spec.property_name} sur {actual_class} — {reason}."
                             ),
                         )
                     )

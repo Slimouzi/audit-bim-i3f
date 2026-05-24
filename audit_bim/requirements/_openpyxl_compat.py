@@ -9,6 +9,7 @@ On patche le descripteur ``CustomFilter.val`` pour qu'il accepte n'importe
 quelle chaîne — ce qui n'a pas d'incidence pour nous puisqu'on n'utilise pas
 les filtres, on lit juste les cellules.
 """
+
 from __future__ import annotations
 
 _PATCHED = False

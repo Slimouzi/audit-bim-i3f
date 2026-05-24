@@ -9,6 +9,7 @@ Body : ``PropertySetRequest`` avec ``name`` + ``properties[*]{definition,value}`
 
 Mode ``dry_run`` (défaut) : on calcule juste les payloads, on ne POST rien.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -90,10 +91,7 @@ def apply_matches_to_model(
     errors: list[str] = []
     preview: list[dict] = []
 
-    base = (
-        f"/cloud/{client.cloud_id}/project/{client.project_id}"
-        f"/model/{client.model_id}/element"
-    )
+    base = f"/cloud/{client.cloud_id}/project/{client.project_id}/model/{client.model_id}/element"
 
     for m in matched:
         for pset_name, props in (m.record.properties or {}).items():
@@ -119,9 +117,7 @@ def apply_matches_to_model(
                 client._post(f"{base}/{m.ifc_uuid}/propertyset", payload)
                 n_pushed += 1
             except Exception as e:
-                errors.append(
-                    f"element {m.ifc_uuid} pset {pset_name}: {e}"
-                )
+                errors.append(f"element {m.ifc_uuid} pset {pset_name}: {e}")
 
     return {
         "dry_run": dry_run,

@@ -17,6 +17,7 @@ Workflow API en deux étapes :
     2. Lier la classification à l'élément en bulk via
        ``POST /classification-element``.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -38,9 +39,7 @@ def list_project_classifications(client: BIMDataClient) -> list[dict]:
     Returns:
         Liste de dicts ``{id, name, notation, title}``.
     """
-    return client._get(
-        f"/cloud/{client.cloud_id}/project/{client.project_id}/classification"
-    )
+    return client._get(f"/cloud/{client.cloud_id}/project/{client.project_id}/classification")
 
 
 def _normalize_system(system: str | None) -> str:
@@ -88,9 +87,7 @@ def apply_classifications(
         Résumé : nombre de classifications créées, liens créés, erreurs.
     """
     items_list = [
-        it
-        for it in items
-        if it.get("uuid") and it.get("code") and str(it["code"]).strip()
+        it for it in items if it.get("uuid") and it.get("code") and str(it["code"]).strip()
     ]
     if not items_list:
         return {
@@ -114,10 +111,12 @@ def apply_classifications(
     if not dry_run:
         try:
             for c in list_project_classifications(client):
-                cache[(
-                    (c.get("notation") or "").upper(),
-                    _normalize_system(c.get("name")),
-                )] = c["id"]
+                cache[
+                    (
+                        (c.get("notation") or "").upper(),
+                        _normalize_system(c.get("name")),
+                    )
+                ] = c["id"]
         except Exception as e:  # pragma: no cover
             errors.append(f"list_project_classifications: {e}")
 
@@ -147,9 +146,7 @@ def apply_classifications(
         # placeholder négatif pour le comptage des liens à créer.
         cid_for_link = cid if cid is not None else -1
         for u in uuids:
-            relations.append(
-                {"element_uuid": u, "classification_id": cid_for_link}
-            )
+            relations.append({"element_uuid": u, "classification_id": cid_for_link})
         if status == "reused":
             n_reused += 1
         preview.append(
@@ -197,9 +194,7 @@ def apply_classifications(
     }
 
 
-def items_from_suggestions(
-    suggestions: list[dict], *, min_confidence: float = 0.5
-) -> list[dict]:
+def items_from_suggestions(suggestions: list[dict], *, min_confidence: float = 0.5) -> list[dict]:
     """Convertit la sortie de ``suggest_for_findings`` en items pour ``apply_classifications``.
 
     Filtre par seuil de confiance sur la suggestion top (top 1

@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.doe.extractors.excel``."""
+
 from __future__ import annotations
 
 import pytest

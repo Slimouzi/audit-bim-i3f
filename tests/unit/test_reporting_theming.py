@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.reporting.theming``."""
+
 from __future__ import annotations
 
 import re

@@ -11,32 +11,67 @@ commentaire de la spec CCH (ex: « Champs : V / F » → booléen attendu).
 Renvoie ``None`` si la valeur est valide, sinon une chaîne courte décrivant
 le motif de l'invalidité (utilisée dans le finding).
 """
+
 from __future__ import annotations
 
 import re
 
 # Noms (substrings, insensibles à la casse) suggérant une valeur numérique > 0.
 _NUMERIC_POSITIVE_KEYS = (
-    "surface", "area", "volume", "height", "width", "length", "depth",
-    "thickness", "diameter", "épaisseur", "épaisseurs",
-    "débit", "débits", "flowrate", "airflow",
-    "puissance", "power", "wattage",
-    "transmittance", "u-value", "u_value", "uvalue",
-    "rating", "isolation", "resistance",
+    "surface",
+    "area",
+    "volume",
+    "height",
+    "width",
+    "length",
+    "depth",
+    "thickness",
+    "diameter",
+    "épaisseur",
+    "épaisseurs",
+    "débit",
+    "débits",
+    "flowrate",
+    "airflow",
+    "puissance",
+    "power",
+    "wattage",
+    "transmittance",
+    "u-value",
+    "u_value",
+    "uvalue",
+    "rating",
+    "isolation",
+    "resistance",
 )
 
 # Noms suggérant un booléen (V/F dans la spec CCH).
 _BOOL_KEYS = (
-    "isexternal", "loadbearing", "combustible", "compartimentage",
-    "habitable", "annexe", "accessible", "extérieur",
+    "isexternal",
+    "loadbearing",
+    "combustible",
+    "compartimentage",
+    "habitable",
+    "annexe",
+    "accessible",
+    "extérieur",
     "porteur",
 )
 
 # Noms suggérant une chaîne non vide obligatoire (référence commerciale,
 # fabricant, modèle, marque, code de gestion).
 _ALPHANUM_REQUIRED_KEYS = (
-    "reference", "référence", "fabricant", "manufacturer",
-    "marque", "brand", "modèle", "model", "code", "tag", "mark",
+    "reference",
+    "référence",
+    "fabricant",
+    "manufacturer",
+    "marque",
+    "brand",
+    "modèle",
+    "model",
+    "code",
+    "tag",
+    "mark",
 )
 
 # Bool admis en représentation chaîne (français + anglais)

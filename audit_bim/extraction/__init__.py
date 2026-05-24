@@ -1,4 +1,5 @@
 """Extraction des données depuis BIMData."""
+
 from .client import BIMDataClient
 from .model_data import ModelSnapshot, extract_snapshot
 from .normalizer import (

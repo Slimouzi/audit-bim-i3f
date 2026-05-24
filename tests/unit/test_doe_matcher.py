@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.doe.matcher``."""
+
 from __future__ import annotations
 
 import pytest
@@ -28,7 +29,10 @@ def snapshot_with_equipment() -> ModelSnapshot:
                     {
                         "name": "Pset_DoorCommon",
                         "properties": [
-                            {"definition": {"name": "Tag", "value_type": "string"}, "value": "P-001"},
+                            {
+                                "definition": {"name": "Tag", "value_type": "string"},
+                                "value": "P-001",
+                            },
                         ],
                     }
                 ],

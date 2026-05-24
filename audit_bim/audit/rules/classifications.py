@@ -7,6 +7,7 @@ Les classifications I3F (UniFormat, Omniclass, ou table interne 3F) doivent
 - la *cohérence* du couple (Code, Source) : si une classification est attachée,
   elle doit avoir une notation/code non vide.
 """
+
 from __future__ import annotations
 
 import re
@@ -33,6 +34,7 @@ def _looks_uniformat(code: str, source: str | None) -> bool:
         return True
     cleaned = "".join(ch for ch in str(code or "").upper() if ch.isalnum())
     return bool(_UNIFORMAT_CODE_RE.match(cleaned))
+
 
 # Classes IFC "spatiales / abstraites / de référence" qu'on n'audite PAS :
 # pas de classification métier (UniFormat/Omniclass/3F) attendue dessus.

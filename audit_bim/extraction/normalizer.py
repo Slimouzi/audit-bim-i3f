@@ -3,6 +3,7 @@
 Les Psets BIMData ont une forme inlinée — on expose des accesseurs utilitaires
 qui gomment les variantes (clé absente, valeur ``None``, casse différente…).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -42,7 +43,7 @@ def get_attribute(element: dict, attr_name: str) -> Any | None:
         if v not in (None, ""):
             return v
     attrs_pset = element.get("attributes") or {}
-    for prop in (attrs_pset.get("properties") or []):
+    for prop in attrs_pset.get("properties") or []:
         nm = (prop.get("definition") or {}).get("name") or ""
         if nm.lower() == key_lower:
             return prop.get("value")
@@ -53,9 +54,7 @@ def get_attribute(element: dict, attr_name: str) -> Any | None:
     return None
 
 
-def get_property(
-    element: dict, pset_name: str, property_name: str
-) -> Any | None:
+def get_property(element: dict, pset_name: str, property_name: str) -> Any | None:
     """Récupère la valeur d'une propriété ``Pset.PropertyName`` d'un élément.
 
     Args:
@@ -87,9 +86,7 @@ def classification_codes(element: dict) -> list[str]:
     return [c.get("notation") or c.get("name") for c in (element.get("classifications") or [])]
 
 
-def resolve_value(
-    element: dict, pset_or_attribute: str | None, property_name: str
-) -> Any | None:
+def resolve_value(element: dict, pset_or_attribute: str | None, property_name: str) -> Any | None:
     """Tente plusieurs heuristiques pour retrouver une valeur attendue.
 
     Les annexes I3F mélangent dans la même colonne :
@@ -111,10 +108,10 @@ def resolve_value(
     # 1. Cas attribut natif
     if src_lower in NATIVE_IFC_ATTRIBUTES:
         return get_attribute(element, src)
-    if (
-        src_lower in ("relatif à la classe ifcname", "relatif à la classe ifcdescription")
-        or src_lower.startswith("relatif à la classe ")
-    ):
+    if src_lower in (
+        "relatif à la classe ifcname",
+        "relatif à la classe ifcdescription",
+    ) or src_lower.startswith("relatif à la classe "):
         # « Relatif à la classe IfcXxx » → on tente le nom de la propriété
         # comme attribut natif (Name, Description…).
         return get_attribute(element, property_name)

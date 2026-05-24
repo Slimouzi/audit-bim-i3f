@@ -6,6 +6,7 @@ Authentification — ordre de précédence :
 2. ``BIMDATA_API_KEY`` (header ``Authorization: ApiKey …``),
 3. flow OAuth2 ``client_credentials`` (``BIMDATA_CLIENT_ID`` + ``…SECRET``).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -179,9 +180,7 @@ class BIMDataClient:
             requests.HTTPError: Si le statut est 4xx/5xx (le body est
                 disponible via ``e.response.text`` côté appelant).
         """
-        resp = self.session.post(
-            self._url(path), json=json, timeout=(timeout or self.timeout)
-        )
+        resp = self.session.post(self._url(path), json=json, timeout=(timeout or self.timeout))
         resp.raise_for_status()
         if not resp.content:
             return None
@@ -394,9 +393,7 @@ def _denormalize_raw_elements(raw: dict) -> list[dict]:
         }
 
     def by_index(table, indices):
-        return [
-            table[i] for i in (indices or []) if isinstance(i, int) and 0 <= i < len(table)
-        ]
+        return [table[i] for i in (indices or []) if isinstance(i, int) and 0 <= i < len(table)]
 
     out = []
     for el in raw.get("elements") or []:
@@ -408,9 +405,7 @@ def _denormalize_raw_elements(raw: dict) -> list[dict]:
                 if nm:
                     attr_lookup[nm] = prop.get("value")
 
-        psets_inlined = [
-            p for p in (expand_pset(i) for i in (el.get("psets") or [])) if p
-        ]
+        psets_inlined = [p for p in (expand_pset(i) for i in (el.get("psets") or [])) if p]
         material_list = [
             {"material": {"name": materials_table[i].get("name")}}
             for i in (el.get("material_list") or [])

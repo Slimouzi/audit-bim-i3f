@@ -1,4 +1,5 @@
 """Tests du module ``audit_bim.doe.reporter``."""
+
 from __future__ import annotations
 
 from audit_bim.doe.models import DoeRecord, Match
@@ -50,10 +51,10 @@ def test_ventilation_by_strategy():
 
 def test_confidence_bands():
     matches = [
-        _make_match("guid", 1.0),       # ≥0.9
-        _make_match("name", 0.8),       # 0.75-0.9
-        _make_match("name", 0.65),      # 0.6-0.75
-        _make_match("loc", 0.55),       # <0.6
+        _make_match("guid", 1.0),  # ≥0.9
+        _make_match("name", 0.8),  # 0.75-0.9
+        _make_match("name", 0.65),  # 0.6-0.75
+        _make_match("loc", 0.55),  # <0.6
     ]
     s = summarize_matches(matches)
     assert s["by_confidence_band"]["≥0.9"] == 1
