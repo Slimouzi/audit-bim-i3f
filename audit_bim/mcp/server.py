@@ -30,7 +30,7 @@ from ..classifier import (
 from ..doe import (
     apply_matches_to_model,
     match_doe_records,
-    parse_doe_excel,
+    parse_doe,
     summarize_matches,
 )
 from ..extraction.client import BIMDataClient
@@ -511,44 +511,51 @@ def apply_classifications_from_xlsx(
 
 @mcp.tool()
 def doe_enrich_model(
-    xlsx_path: str,
+    doe_path: str,
     dry_run: bool = True,
     name_min_score: int = 75,
+    ocr_fallback: bool = True,
+    ocr_lang: str = "fra",
 ) -> dict:
-    """Agent DOE → IFC : lit un fichier DOE Excel, rapproche les
-    équipements aux éléments IFC du modèle, et enrichit la maquette
-    BIMData avec les propriétés extraites.
+    """Agent DOE → IFC : lit un fichier DOE (Excel, PDF natif ou scanné),
+    rapproche les équipements aux éléments IFC du modèle, et enrichit la
+    maquette BIMData avec les propriétés extraites.
 
     Workflow en 3 étapes :
-    1. **Extraction** — parse les lignes Excel en ``DoeRecord``.
-    2. **Matching** — 4 stratégies en cascade (GUID, Tag/Mark, Nom fuzzy
-       via rapidfuzz, Localisation) ; renvoie un ``Match`` par DoeRecord.
-    3. **Enrichissement** — pour chaque match, crée un Pset
-       ``Pset_DOE`` (ou Pset nommé dans la colonne ``Pset.Propriete``)
-       sur l'élément IFC via l'API BIMData.
 
-    Conventions Excel attendues :
-    - En-tête identifiants : ``UUID`` / ``Tag`` / ``Mark`` / ``Nom`` /
-      ``Type`` / ``Étage`` / ``Zone`` (sensible aux accents, casse libre).
-    - En-tête propriétés : ``Pset_3F.Fabricant`` ou ``Pset_3F/Fabricant``
+    1. **Extraction** — auto-détection du format (xlsx / pdf), avec
+       fallback OCR Tesseract pour les PDF scannés.
+    2. **Matching** — 4 stratégies en cascade (GUID, Tag/Mark, Nom
+       fuzzy via rapidfuzz, Localisation).
+    3. **Enrichissement** — crée un Pset (``Pset_DOE`` par défaut) sur
+       chaque élément IFC matché via l'API BIMData.
+
+    Conventions de colonnes (mêmes pour Excel et PDF) :
+
+    - **Identifiants** : ``UUID`` / ``Tag`` / ``Mark`` / ``Nom`` /
+      ``Type`` / ``Étage`` / ``Zone`` (insensible casse + accents).
+    - **Propriétés** : ``Pset_3F.Fabricant`` ou ``Pset_3F/Fabricant``
       pour cibler un Pset précis, sinon ``Pset_DOE`` par défaut.
 
     Args:
-        xlsx_path: chemin du fichier DOE Excel.
-        dry_run: si ``True`` (défaut), aucun POST — renvoie payloads et
-            résumé. Mettre ``False`` pour pousser réellement.
-        name_min_score: seuil fuzzy (0..100) sous lequel un match par nom
-            n'est pas retenu. Défaut 75 — augmenter pour réduire les faux
-            positifs.
+        doe_path: Chemin du fichier DOE (.xlsx / .xlsm / .pdf).
+        dry_run: ``True`` (défaut) → simule sans POST. Renvoie payloads
+            et résumé. ``False`` pour pousser réellement les Psets.
+        name_min_score: Seuil fuzzy 0–100 pour le matching par nom
+            (défaut 75). Monter à 85+ pour réduire les faux positifs.
+        ocr_fallback: PDF scanné détecté → OCR Tesseract (défaut
+            ``True``). Nécessite ``pip install audit-bim-i3f[ocr]`` +
+            binaire Tesseract installé.
+        ocr_lang: Langue Tesseract (défaut ``"fra"``).
     """
     _State.ensure_client()
     _State.ensure_snapshot()
-    records = parse_doe_excel(xlsx_path)
+    records = parse_doe(doe_path, ocr_fallback=ocr_fallback, ocr_lang=ocr_lang)
     matches = match_doe_records(records, _State.snapshot, name_min_score=name_min_score)
     summary = summarize_matches(matches)
     application = apply_matches_to_model(_State.client, matches, dry_run=dry_run)
     return {
-        "source": xlsx_path,
+        "source": doe_path,
         "summary": summary,
         "application": application,
     }
@@ -556,21 +563,32 @@ def doe_enrich_model(
 
 @mcp.tool()
 def doe_match_only(
-    xlsx_path: str,
+    doe_path: str,
     name_min_score: int = 75,
     limit: int = 50,
+    ocr_fallback: bool = True,
+    ocr_lang: str = "fra",
 ) -> dict:
-    """Variante read-only de ``doe_enrich_model`` : parse + matche mais
-    n'enrichit *jamais* la maquette (utile pour valider la qualité des
-    matches avant d'appliquer).
+    """Variante read-only de ``doe_enrich_model``.
+
+    Parse + matche mais n'enrichit *jamais* la maquette. Utile pour
+    valider la qualité des matches avant d'appliquer.
+
+    Args:
+        doe_path: Chemin du fichier DOE (.xlsx / .xlsm / .pdf).
+        name_min_score: Seuil fuzzy 0–100 pour le matching par nom.
+        limit: Nombre max de matches échantillonnés dans la réponse
+            (les stats globales couvrent l'intégralité).
+        ocr_fallback: OCR sur PDF scanné (défaut ``True``).
+        ocr_lang: Langue Tesseract (défaut ``"fra"``).
     """
     _State.ensure_snapshot()
-    records = parse_doe_excel(xlsx_path)
+    records = parse_doe(doe_path, ocr_fallback=ocr_fallback, ocr_lang=ocr_lang)
     matches = match_doe_records(records, _State.snapshot, name_min_score=name_min_score)
     summary = summarize_matches(matches)
     sample = [m.model_dump(mode="json") for m in matches[:limit]]
     return {
-        "source": xlsx_path,
+        "source": doe_path,
         "n_records": len(records),
         "summary": summary,
         "sample_matches": sample,

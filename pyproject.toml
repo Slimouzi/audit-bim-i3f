@@ -63,10 +63,17 @@ dev = [
     "ruff>=0.5",
     "build>=1.2",
     "twine>=5.0",
+    "reportlab>=4.0",  # génération de PDF de test
 ]
 test = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
+    "reportlab>=4.0",
+]
+ocr = [
+    "pytesseract>=0.3",
+    "pdf2image>=1.16",
+    "Pillow>=10",
 ]
 
 [project.urls]
