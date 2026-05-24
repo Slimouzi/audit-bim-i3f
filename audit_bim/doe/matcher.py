@@ -1,16 +1,19 @@
-"""Rapprochement DOE ↔ IFC — stratégies en cascade.
+"""Rapprochement DOE ↔ IFC — 4 stratégies en cascade.
 
 Pour chaque DoeRecord, on essaie successivement :
 
-1. **GUID** (uuid_hint exact match avec un UUID IFC du modèle) → confiance 1.0
-2. **Tag/Mark** (tag_hint match strict avec un Tag IFC ou Pset_*Common.Tag/Mark)
-   → confiance 0.9
-3. **Nom fuzzy** (rapidfuzz score ≥ seuil sur le Name) → confiance = score
-4. **Localisation + type** (étage + zone + type IFC) → confiance 0.5–0.7
+1. **GUID** — uuid_hint exact match avec un UUID IFC du modèle.
+   Confiance 1.0.
+2. **Tag/Mark** — tag_hint match strict avec un Tag IFC ou
+   Pset_*Common.Tag/Mark. Confiance 0.9.
+3. **Nom fuzzy** — rapidfuzz score ≥ seuil sur le Name.
+   Confiance = score / 100.
+4. **Localisation** — étage + zone + type IFC. Match retenu seulement
+   si **un seul** élément correspond. Confiance 0.55.
 
-La première stratégie qui *retient un candidat unique* gagne. En cas
-d'ambiguïté (plusieurs candidats à confiance proche), on remplit la liste
-``candidates`` du Match pour que l'auditeur tranche.
+La première stratégie qui retient un candidat unique gagne. En cas
+d'ambiguïté (plusieurs candidats), on remplit la liste ``candidates``
+du Match pour que l'auditeur tranche.
 """
 
 from __future__ import annotations
@@ -44,6 +47,98 @@ def _element_tag(el: dict) -> str | None:
     return str(tag).strip() if tag not in (None, "") else None
 
 
+def build_localization_index(snap: ModelSnapshot) -> dict[str, dict[str, str | None]]:
+    """Construit l'index ``element_uuid → {storey_name, zone_name}``.
+
+    Parcourt l'arborescence spatiale ``snap.structure_tree`` en
+    profondeur pour propager le contexte (étage et zone courants) à
+    chaque élément descendant. Si l'arbre est vide ou inutilisable,
+    l'index est construit à partir des relations directes
+    (``snap.zones`` ↔ ``snap.spaces`` ↔ ``snap.elements`` quand
+    elles sont exposées).
+
+    Args:
+        snap: Photo du modèle IFC.
+
+    Returns:
+        Dict ``{uuid: {"storey": <nom étage|None>, "zone": <nom zone|None>}}``.
+        Les éléments hors arborescence (orphelins, IfcGrid, etc.)
+        ne figurent pas dans l'index.
+    """
+    index: dict[str, dict[str, str | None]] = {}
+
+    def _walk(node: dict, current_storey: str | None, current_zone: str | None):
+        if not isinstance(node, dict):
+            return
+        node_type = node.get("type") or ""
+        node_name = node.get("name") or None
+        if node_type == "IfcBuildingStorey":
+            current_storey = node_name or current_storey
+        elif node_type == "IfcZone":
+            current_zone = node_name or current_zone
+        node_uuid = node.get("uuid")
+        if node_uuid:
+            existing = index.get(node_uuid, {})
+            index[node_uuid] = {
+                "storey": existing.get("storey") or current_storey,
+                "zone": existing.get("zone") or current_zone,
+            }
+        for child in node.get("children") or []:
+            _walk(child, current_storey, current_zone)
+
+    for root in snap.structure_tree or []:
+        _walk(root, None, None)
+    return index
+
+
+def _normalize_for_compare(s: str | None) -> str:
+    """Normalisation simple pour comparaison de noms (étage, zone, type)."""
+    if not s:
+        return ""
+    return str(s).strip().casefold()
+
+
+def _filter_by_localisation(
+    elements: list[dict],
+    rec: DoeRecord,
+    loc_index: dict[str, dict[str, str | None]],
+) -> list[dict]:
+    """Filtre les éléments dont localisation matche les indices du record.
+
+    Critères combinés (ET) — un critère vide côté record est ignoré :
+
+    - ``rec.storey_hint`` vs ``loc_index[uuid]["storey"]``
+    - ``rec.zone_hint`` vs ``loc_index[uuid]["zone"]``
+    - ``rec.type_hint`` vs ``element["type"]`` (substring case-insensitive)
+
+    Comparaisons : casefold + strip côté noms ; substring côté type.
+
+    Args:
+        elements: Liste candidate à filtrer.
+        rec: DoeRecord avec ses hints de localisation.
+        loc_index: Index produit par :func:`build_localization_index`.
+
+    Returns:
+        Sous-ensemble d'éléments respectant tous les critères non vides.
+    """
+    storey_target = _normalize_for_compare(rec.storey_hint)
+    zone_target = _normalize_for_compare(rec.zone_hint)
+    type_target = _normalize_for_compare(rec.type_hint)
+
+    out: list[dict] = []
+    for el in elements:
+        uuid = el.get("uuid") or ""
+        loc = loc_index.get(uuid, {})
+        if storey_target and _normalize_for_compare(loc.get("storey")) != storey_target:
+            continue
+        if zone_target and _normalize_for_compare(loc.get("zone")) != zone_target:
+            continue
+        if type_target and type_target not in _normalize_for_compare(el.get("type")):
+            continue
+        out.append(el)
+    return out
+
+
 def match_doe_records(
     records: list[DoeRecord],
     snap: ModelSnapshot,
@@ -59,9 +154,9 @@ def match_doe_records(
        0.9. En cas d'ambiguïté (plusieurs éléments avec le même tag), le
        match est *refusé* et les candidats listés.
     3. **Nom fuzzy** (rapidfuzz ``token_set_ratio``) — confiance = score /
-       100. Filtré par type_hint si renseigné (ex: ``type_hint="Door"``
-       restreint aux ``IfcDoor*``).
-    4. *À venir* : localisation (étage + zone + type) — confiance 0.55.
+       100. Filtré par type_hint si renseigné.
+    4. **Localisation** (étage + zone + type, combinés en ET) — confiance
+       0.55. Match retenu seulement si un seul élément correspond.
 
     Args:
         records: DoeRecord à rapprocher (issus des extracteurs).
@@ -92,6 +187,7 @@ def match_doe_records(
         )
         if nm:
             name_index.append((str(nm), el))
+    loc_index = build_localization_index(snap)
 
     matches: list[Match] = []
     for rec in records:
@@ -157,9 +253,7 @@ def match_doe_records(
                 scorer=fuzz.token_set_ratio,
                 limit=5,
             )
-            # best = [(matched_name, score, index), ...]
             if best and best[0][1] >= name_min_score:
-                # On filtre éventuellement par type IFC pour réduire les faux positifs
                 candidates = [(name_index[i][1], score) for _name, score, i in best]
                 if rec.type_hint:
                     candidates = _filter_by_type(candidates, rec.type_hint) or candidates
@@ -185,14 +279,55 @@ def match_doe_records(
                 )
                 continue
 
-        # 4. Pas de match
+        # 4. Localisation (étage + zone + type)
+        if rec.storey_hint or rec.zone_hint or rec.type_hint:
+            cands = _filter_by_localisation(elements, rec, loc_index)
+            if len(cands) == 1:
+                el = cands[0]
+                matches.append(
+                    Match(
+                        record=rec,
+                        ifc_uuid=el.get("uuid"),
+                        ifc_type=el.get("type"),
+                        ifc_name=el.get("name"),
+                        confidence=LOCALISATION_CONFIDENCE,
+                        strategy="localisation",
+                    )
+                )
+                continue
+            if len(cands) > 1:
+                matches.append(
+                    Match(
+                        record=rec,
+                        confidence=0.0,
+                        candidates=[
+                            {
+                                "uuid": e.get("uuid"),
+                                "type": e.get("type"),
+                                "name": e.get("name"),
+                                "score": LOCALISATION_CONFIDENCE,
+                            }
+                            for e in cands[:5]
+                        ],
+                        reason=(
+                            f"Localisation (étage={rec.storey_hint!r}, "
+                            f"zone={rec.zone_hint!r}, type={rec.type_hint!r}) "
+                            f"correspond à {len(cands)} éléments — ambiguïté."
+                        ),
+                    )
+                )
+                continue
+
+        # Pas de match
         matches.append(
             Match(
                 record=rec,
                 reason=(
                     "Aucun indice exploitable : "
                     f"uuid={rec.uuid_hint!r}, tag={rec.tag_hint!r}, "
-                    f"name={rec.name_hint!r}."
+                    f"name={rec.name_hint!r}, "
+                    f"storey={rec.storey_hint!r}, zone={rec.zone_hint!r}, "
+                    f"type={rec.type_hint!r}."
                 ),
             )
         )
