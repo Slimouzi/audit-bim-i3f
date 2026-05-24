@@ -1,0 +1,119 @@
+"""Fixtures pour les tests d'intégration HTTP.
+
+Démarre un vrai serveur MCP en sous-processus (transport
+``streamable-http``) sur un port libre, attend qu'il accepte les
+connexions, puis le termine en fin de session.
+
+Les tests d'intégration n'ont **pas besoin** de BIMData credentials :
+on teste les tools sans dépendance externe (``list_tools``,
+``project_context_questions``, ``list_classification_systems``).
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import time
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+import requests
+
+
+def _find_free_port() -> int:
+    """Réserve un port TCP libre éphémère et le renvoie."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _wait_for_http(url: str, timeout_s: float = 15.0) -> None:
+    """Attend qu'une URL HTTP réponde (n'importe quel code < 600).
+
+    Args:
+        url: URL à interroger.
+        timeout_s: Timeout maximum cumulé en secondes.
+
+    Raises:
+        TimeoutError: Si le serveur n'a pas répondu dans les délais.
+    """
+    deadline = time.time() + timeout_s
+    last_exc: Exception | None = None
+    while time.time() < deadline:
+        try:
+            r = requests.get(url, timeout=1.0)
+            # Tout code valide (même 406 / 404) signifie que le serveur écoute.
+            if 100 <= r.status_code < 600:
+                return
+        except Exception as e:
+            last_exc = e
+        time.sleep(0.25)
+    raise TimeoutError(f"Serveur {url} non démarré après {timeout_s}s ({last_exc!r})")
+
+
+@pytest.fixture(scope="session")
+def mcp_http_server() -> Iterator[dict]:
+    """Démarre le serveur MCP en streamable-http pour la session de tests.
+
+    Yields:
+        Dict ``{url, host, port, mcp_endpoint}`` pour les tests.
+    """
+    port = _find_free_port()
+    host = "127.0.0.1"
+    url = f"http://{host}:{port}"
+    mcp_endpoint = f"{url}/mcp"
+
+    repo_root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    # Empêche les tests d'écraser le .env utilisateur — la lecture du
+    # snapshot n'est pas testée ici (pas besoin d'IDs BIMData valides).
+    env.setdefault("BIMDATA_API_KEY", "dummy-for-integration-tests")
+
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "audit_bim.mcp",
+            "--transport",
+            "streamable-http",
+            "--host",
+            host,
+            "--port",
+            str(port),
+        ],
+        cwd=str(repo_root),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        _wait_for_http(mcp_endpoint, timeout_s=20.0)
+    except Exception as exc:
+        # Récupère la sortie pour débug
+        proc.terminate()
+        out, err = proc.communicate(timeout=5)
+        raise RuntimeError(
+            f"Serveur MCP non démarré.\n"
+            f"stdout: {out.decode(errors='ignore')[:2000]}\n"
+            f"stderr: {err.decode(errors='ignore')[:2000]}"
+        ) from exc
+
+    yield {"url": url, "host": host, "port": port, "mcp_endpoint": mcp_endpoint}
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skipe les tests d'intégration si ``python`` introuvable."""
+    if not shutil.which(sys.executable):
+        skip = pytest.mark.skip(reason=f"Python introuvable : {sys.executable}")
+        for item in items:
+            item.add_marker(skip)

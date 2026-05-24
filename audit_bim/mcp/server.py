@@ -19,6 +19,7 @@ from pathlib import Path
 from fastmcp import FastMCP
 
 from .. import config
+from ..audit.comparator import compare_audits_from_files
 from ..audit.engine import AuditResult, run_audit
 from ..bcf.builder import push_bcf_topics
 from ..classifier import (
@@ -35,6 +36,7 @@ from ..doe import (
 )
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot, extract_snapshot
+from ..extraction.snapshot_cache import cached_extract_snapshot
 from ..reporting.word_report import write_word_report
 from ..reporting.xlsx_annex import write_xlsx_annex
 from ..requirements.catalog import build_catalog
@@ -342,11 +344,73 @@ def list_classification_systems() -> list[dict]:
 
 
 @mcp.tool()
-def extract_model_snapshot() -> dict:
-    """Récupère le snapshot du modèle (espaces, zones, éléments…) depuis BIMData."""
+def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cache") -> dict:
+    """Récupère le snapshot du modèle (espaces, zones, éléments…) depuis BIMData.
+
+    Args:
+        use_cache: Si ``True`` (défaut), utilise le cache local : un
+            ``get_model()`` léger sert à comparer ``modified_date`` ;
+            si le cache matche, lecture instantanée du fichier. Sinon
+            extraction complète (5-10s) + écriture du cache.
+        cache_dir: Dossier du cache local. Défaut ``.audit_cache``
+            (relatif au cwd).
+
+    Returns:
+        Résumé du snapshot enrichi de ``from_cache: bool``.
+    """
     _State.ensure_client()
-    _State.snapshot = extract_snapshot(_State.client)
-    return _State.snapshot.summary()
+    if use_cache:
+        _State.snapshot, hit = cached_extract_snapshot(
+            _State.client, cache_dir=cache_dir, use_cache=True
+        )
+    else:
+        _State.snapshot = extract_snapshot(_State.client)
+        hit = False
+    summary = _State.snapshot.summary()
+    summary["from_cache"] = hit
+    return summary
+
+
+@mcp.tool()
+def compare_with_previous_audit(
+    previous_findings_json: str,
+    current_findings_json: str | None = None,
+) -> dict:
+    """Compare l'audit courant (ou un fichier JSON) avec une version précédente.
+
+    Compare 2 jeux de findings ``audit_*_findings.json`` (généré par
+    ``full_audit`` ou ``cli``). Renvoie le bilan d'évolution : anomalies
+    résolues, nouvelles, persistantes, ventilation par sévérité/thème,
+    et un *progress score* entre -1 et +1.
+
+    Args:
+        previous_findings_json: Chemin du fichier JSON de la version
+            précédente (livraison MOE n-1, audit du mois passé, etc.).
+        current_findings_json: Chemin du fichier JSON de la version
+            actuelle. Si ``None``, on utilise l'audit en cours (doit
+            avoir tourné via ``run_audit_tool`` ou ``full_audit``).
+
+    Returns:
+        Dict ``{old_source, new_source, summary, entries_sample,
+        n_old_findings, n_new_findings}``.
+    """
+    if current_findings_json is None:
+        _State.ensure_result()
+        # Persiste l'audit courant dans un fichier temporaire pour
+        # réutiliser compare_audits_from_files.
+        import json as _json
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix="_findings.json", delete=False, encoding="utf-8"
+        ) as tmp:
+            _json.dump(
+                [f.model_dump(mode="json") for f in _State.result.findings],
+                tmp,
+                ensure_ascii=False,
+            )
+            current_findings_json = tmp.name
+    return compare_audits_from_files(previous_findings_json, current_findings_json)
 
 
 @mcp.tool()

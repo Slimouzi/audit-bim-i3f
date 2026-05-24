@@ -104,8 +104,8 @@ addopts = [
     "--strict-config",
 ]
 markers = [
-    "integration: tests requiring network or BIMData API",
-    "slow: tests that take more than 1 second",
+    "integration: tests d'intégration (démarrent un vrai serveur)",
+    "slow: tests qui prennent plus d'1 seconde",
 ]
 
 [tool.coverage.run]
