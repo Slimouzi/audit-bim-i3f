@@ -13,8 +13,24 @@ from pydantic import BaseModel, Field
 
 
 class DoeRecord(BaseModel):
-    """Un enregistrement DOE (typiquement une ligne d'un tableau Excel ou
-    PDF) décrivant un équipement avec ses propriétés.
+    """Un enregistrement DOE (une ligne tabulaire = un équipement).
+
+    Sert de point pivot entre les extracteurs (Excel, PDF, GED) et le
+    matcher. Au moins un des champs ``uuid_hint`` / ``tag_hint`` /
+    ``name_hint`` doit être renseigné pour permettre un rapprochement IFC.
+
+    Attributes:
+        source: Chemin du fichier source (debug / traçabilité).
+        row_index: Numéro de ligne (Excel) ou page (PDF), 1-indexé.
+        uuid_hint: GlobalId IFC si déjà connu (matching exact, conf=1.0).
+        tag_hint: Tag / Mark / numéro équipement (matching exact, conf=0.9).
+        name_hint: Libellé équipement (matching fuzzy via rapidfuzz).
+        type_hint: Type métier (« CTA », « Pompe », « Porte coupe-feu »)
+            — filtre les candidats fuzzy.
+        storey_hint: Étage de localisation (ex: ``"1ER ETAGE"``).
+        zone_hint: Zone / local (ex: ``"7427L-1101"``).
+        properties: Propriétés à appliquer, structurées par Pset.
+        raw_row: Ligne brute du document (utile pour debug et reporting).
     """
 
     source: str = Field(..., description="Chemin du fichier source.")
@@ -58,7 +74,25 @@ class DoeRecord(BaseModel):
 
 
 class Match(BaseModel):
-    """Résultat du matching d'un ``DoeRecord`` à un élément IFC."""
+    """Résultat du rapprochement d'un ``DoeRecord`` à un élément IFC.
+
+    Si ``ifc_uuid`` est ``None``, le record n'a pas pu être rapproché —
+    soit aucun candidat trouvé (``reason`` documente la cause), soit
+    ambiguïté (``candidates`` liste les pistes pour décision humaine).
+
+    Attributes:
+        record: Le DoeRecord d'origine (référence forte).
+        ifc_uuid: GlobalId IFC matché. ``None`` si aucun match retenu.
+        ifc_type: Classe IFC du match (ex: ``"IfcWallStandardCase"``).
+        ifc_name: Nom IFC du match (debug / reporting).
+        confidence: Score 0..1 du match. 1.0 = GUID exact, 0.9 = tag,
+            0.75–1.0 = nom fuzzy, 0.55 = localisation seule.
+        strategy: Stratégie ayant produit le match (``"guid"`` /
+            ``"tag"`` / ``"name"`` / ``"localisation"``).
+        candidates: Pistes alternatives (en cas d'ambiguïté tag par
+            exemple). Format ``[{uuid, type, name, score}]``.
+        reason: Explication du non-match (None si match réussi).
+    """
 
     record: DoeRecord
     ifc_uuid: Optional[str] = Field(
@@ -85,4 +119,10 @@ class Match(BaseModel):
     )
 
     def is_matched(self) -> bool:
+        """Indique si le record a été rapproché à un élément IFC.
+
+        Returns:
+            True si ``ifc_uuid`` est défini (donc enrichissement
+            possible). False si non match ou ambiguïté non levée.
+        """
         return self.ifc_uuid is not None

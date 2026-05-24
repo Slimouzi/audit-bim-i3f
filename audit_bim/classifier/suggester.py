@@ -21,13 +21,25 @@ from .signals import ElementSignals
 
 @dataclass
 class Suggestion:
-    """Une suggestion de classification avec sa traçabilité."""
+    """Une suggestion de classification avec sa traçabilité.
+
+    Attributes:
+        classification: Code + label + système (ClassEntry).
+        confidence: Score 0..1 cumulé sur les signaux qui ont contribué.
+        reasons: Liste lisible des signaux ayant pesé dans le score
+            (exposée dans l'onglet xlsx ``Classifications suggérées``).
+    """
 
     classification: ClassEntry
-    confidence: float  # 0..1
-    reasons: list[str]  # signaux qui ont contribué
+    confidence: float
+    reasons: list[str]
 
     def as_dict(self) -> dict:
+        """Sérialise la suggestion en dict JSON-compatible pour le MCP.
+
+        Returns:
+            Dict ``{code, label, system, confidence, reasons}``.
+        """
         return {
             "code": self.classification.code,
             "label": self.classification.label,
@@ -72,10 +84,23 @@ IFC_ACCEPTED_CODES: dict[str, list[str]] = {
 
 
 def accepted_codes_for(ifc_class: str, top_code: Optional[str]) -> set[str]:
-    """Famille de codes acceptés pour juger la cohérence d'une classification.
+    """Famille de codes plausibles pour juger la cohérence d'une classification.
 
-    Réunit le top suggéré + les alternatives définies dans
-    ``IFC_ACCEPTED_CODES``. Tous normalisés (déjà au niveau 3).
+    Pour les classes IFC ambigües (mobilier fixe vs mobile, mur intérieur
+    vs extérieur…), plusieurs codes UniFormat niveau 3 sont *légitimement*
+    plausibles. Cette fonction donne l'ensemble accepté pour qu'une
+    classification existante ne soit pas signalée incohérente alors
+    qu'elle appartient à la même famille que le top suggéré.
+
+    Args:
+        ifc_class: Classe IFC réelle de l'élément (``IfcWallStandardCase``
+            est traité comme ``IfcWall`` car les deux apparaissent comme
+            clés dans ``IFC_ACCEPTED_CODES``).
+        top_code: Top suggéré par ``suggest()`` (ajouté au set de retour).
+
+    Returns:
+        Set de codes UniFormat niveau 3 acceptés pour cette classe IFC
+        (ex: ``{"E2010", "E2020"}`` pour ``IfcFurnishingElement``).
     """
     out: set[str] = set()
     if top_code:
@@ -236,7 +261,23 @@ def _quantity_hint(s: ElementSignals, base_code: Optional[str]) -> Optional[str]
 
 
 def suggest(element: dict, signals: Optional[ElementSignals] = None) -> list[Suggestion]:
-    """Renvoie les suggestions classées par confiance décroissante."""
+    """Calcule les suggestions de classification UniFormat pour un élément.
+
+    Agrège jusqu'à 5 signaux pondérés (cf. constantes ``W_*``). Le même
+    code peut recevoir plusieurs contributions (classe IFC + layer +
+    Pset…) : leurs poids s'additionnent (plafonné à 1.0) et les raisons
+    sont accumulées dans ``Suggestion.reasons``.
+
+    Args:
+        element: Élément BIMData dénormalisé (cf. ``_denormalize_raw_elements``).
+        signals: ``ElementSignals`` pré-calculés (optionnel — calculé
+            depuis l'élément si absent).
+
+    Returns:
+        Liste de Suggestion triée par confiance décroissante. Vide si
+        aucun code n'a pu être déduit (typique pour IfcBuildingElementProxy
+        sans nom évocateur).
+    """
     if signals is None:
         from .signals import extract_signals
         signals = extract_signals(element)
@@ -294,13 +335,26 @@ def suggest_for_findings(
     min_confidence: float = 0.4,
     top_n: int = 3,
 ) -> list[dict]:
-    """Pour chaque finding ``classification_missing``, retourne une proposition.
+    """Génère les suggestions pour chaque finding ``classification_missing``.
+
+    Adapté pour exposition MCP (sortie JSON-compatible).
 
     Args:
-        findings: liste de ``Finding`` (model Pydantic) issus de l'audit.
-        snap: ``ModelSnapshot`` avec ``element_by_uuid``.
-        min_confidence: seuil sous lequel on ne propose rien.
-        top_n: nombre maximum de suggestions par élément.
+        findings: Liste de ``Finding`` (Pydantic) issus de l'audit. Seuls
+            les findings ``error_type == "classification_missing"`` sont
+            traités ; les autres sont ignorés.
+        snap: ``ModelSnapshot`` (pour récupérer l'élément BIMData
+            dénormalisé via ``element_by_uuid``).
+        min_confidence: Seuil 0..1 sous lequel les suggestions sont
+            exclues. Défaut 0.4 — relâcher pour avoir plus de
+            propositions, ou monter pour réduire le bruit.
+        top_n: Nombre max de suggestions par élément.
+
+    Returns:
+        Liste de dicts ``{element_uuid, ifc_type, name, layers, materials,
+        is_external, suggestions: [{code, label, system, confidence,
+        reasons}, ...]}`` — un par finding traité avec au moins une
+        suggestion au-dessus du seuil.
     """
     out: list[dict] = []
     from .signals import extract_signals

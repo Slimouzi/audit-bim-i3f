@@ -52,16 +52,29 @@ def apply_matches_to_model(
     *,
     dry_run: bool = True,
 ) -> dict:
-    """Applique les propriétés DOE aux éléments matchés dans BIMData.
+    """Pousse les Psets DOE sur les éléments IFC matchés dans BIMData.
+
+    Pour chaque ``Match.is_matched()``, regroupe ses propriétés par Pset
+    et crée le Pset complet en une requête HTTP via :
+
+        POST /cloud/{}/project/{}/model/{}/element/{uuid}/propertyset
+
+    Le ``value_type`` IFC est inféré du type Python de la valeur
+    (boolean / integer / float / string).
+
+    En ``dry_run`` (défaut), aucun POST n'est émis — la fonction renvoie
+    juste les compteurs et un échantillon de preview, pour permettre à
+    l'utilisateur de valider avant écriture irréversible.
 
     Args:
-        client: client BIMData authentifié.
-        matches: liste de Match (seuls les ``is_matched()`` sont traités).
-        dry_run: si True (défaut), n'effectue *aucun* POST — renvoie les
-            payloads et les compteurs prévisionnels.
+        client: Client BIMData authentifié.
+        matches: Itérable de Match. Les non-matchés sont ignorés.
+        dry_run: True (défaut) = pas d'appel POST.
 
     Returns:
-        Résumé : nb éléments traités, nb Psets créés/planifiés, erreurs.
+        Dict ``{dry_run, n_matched, n_psets_planned, n_psets_pushed,
+        n_properties_planned, errors, preview}``. ``preview`` est cappé
+        à 50 entrées pour préserver le canal MCP.
     """
     matched = [m for m in matches if m.is_matched()]
     if not matched:

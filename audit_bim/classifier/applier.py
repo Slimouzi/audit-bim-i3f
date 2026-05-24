@@ -26,14 +26,38 @@ from ..extraction.client import BIMDataClient
 
 
 def list_project_classifications(client: BIMDataClient) -> list[dict]:
-    """Liste les classifications existantes au niveau projet."""
+    """Liste les classifications déjà créées au niveau projet BIMData.
+
+    Utilisé en pré-chargement par ``apply_classifications`` pour ne pas
+    recréer une classification déjà présente (déduplication par code +
+    système).
+
+    Args:
+        client: Client BIMData authentifié.
+
+    Returns:
+        Liste de dicts ``{id, name, notation, title}``.
+    """
     return client._get(
         f"/cloud/{client.cloud_id}/project/{client.project_id}/classification"
     )
 
 
 def _normalize_system(system: str | None) -> str:
-    """Normalise le nom du système (``UniFormat II`` → ``uniformat``)."""
+    """Normalise le nom du système de classification pour l'API BIMData.
+
+    BIMData stocke le système dans le champ ``classification.name``
+    (chaîne libre). On normalise en minuscule pour éviter les
+    classifications dupliquées (``UniFormat II`` vs ``uniformat`` vs
+    ``UNIFORMAT``).
+
+    Args:
+        system: Nom humain (``"UniFormat II"``, ``"Omniclass"``, ``None``).
+
+    Returns:
+        Nom normalisé : ``"uniformat"``, ``"omniclass"``, ou la valeur
+        lowercase telle quelle pour les systèmes non reconnus.
+    """
     if not system:
         return "uniformat"
     s = system.lower()
@@ -178,7 +202,18 @@ def items_from_suggestions(
 ) -> list[dict]:
     """Convertit la sortie de ``suggest_for_findings`` en items pour ``apply_classifications``.
 
-    Filtre par seuil de confiance sur la suggestion top.
+    Filtre par seuil de confiance sur la suggestion top (top 1
+    uniquement — la décision « auto » prend toujours la plus probable).
+
+    Args:
+        suggestions: Sortie de ``suggest_for_findings`` (liste de dicts
+            avec clé ``suggestions``).
+        min_confidence: Seuil 0..1 sous lequel la suggestion est
+            ignorée. Défaut 0.5.
+
+    Returns:
+        Liste de dicts ``{uuid, code, label, system}`` prête pour
+        ``apply_classifications``.
     """
     out: list[dict] = []
     for s in suggestions:

@@ -49,7 +49,30 @@ def match_doe_records(
     *,
     name_min_score: int = NAME_FUZZY_MIN_SCORE,
 ) -> list[Match]:
-    """Rapproche chaque DoeRecord à un élément du snapshot."""
+    """Rapproche chaque DoeRecord à un élément IFC du snapshot.
+
+    Stratégies tentées dans l'ordre — la première qui réussit gagne :
+
+    1. **GUID exact** (``uuid_hint`` ∈ ``element_by_uuid``) — confiance 1.0.
+    2. **Tag/Mark exact** sur Pset_*Common ou attribut natif — confiance
+       0.9. En cas d'ambiguïté (plusieurs éléments avec le même tag), le
+       match est *refusé* et les candidats listés.
+    3. **Nom fuzzy** (rapidfuzz ``token_set_ratio``) — confiance = score /
+       100. Filtré par type_hint si renseigné (ex: ``type_hint="Door"``
+       restreint aux ``IfcDoor*``).
+    4. *À venir* : localisation (étage + zone + type) — confiance 0.55.
+
+    Args:
+        records: DoeRecord à rapprocher (issus des extracteurs).
+        snap: ModelSnapshot du modèle IFC.
+        name_min_score: Seuil rapidfuzz 0–100 sous lequel on rejette un
+            match par nom. Défaut 75. Monter à 85+ pour réduire les faux
+            positifs sur des modèles bruyants.
+
+    Returns:
+        Liste de Match, même longueur et même ordre que ``records``. Un
+        Match peut être ``is_matched() == False`` (non match ou ambiguïté).
+    """
     # Pré-indexation
     elements = list(snap.element_by_uuid.values())
     by_uuid = snap.element_by_uuid

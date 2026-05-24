@@ -66,13 +66,29 @@ def _detect_header(value) -> tuple[Optional[str], Optional[tuple[str, str]]]:
 
 
 def parse_doe_excel(xlsx_path: str | Path) -> list[DoeRecord]:
-    """Parse un fichier DOE Excel.
+    """Parse un fichier DOE Excel multi-feuilles.
+
+    Algorithme :
+
+    1. Itère sur toutes les feuilles du classeur.
+    2. Pour chaque feuille, cherche la **ligne d'en-tête** = première
+       ligne (parmi les 10 premières) avec ≥ 2 cellules non vides.
+    3. Mappe chaque colonne via ``_detect_header`` (slot connu ou
+       Pset.Propriété).
+    4. Pour chaque ligne suivante non vide, construit un ``DoeRecord``.
+    5. Ne garde que les lignes ayant **au moins un identifiant** (uuid /
+       tag / name) **et au moins une propriété** — les lignes vides ou
+       purement informatives sont filtrées.
 
     Args:
-        xlsx_path: chemin du xlsx.
+        xlsx_path: Chemin (str ou Path) vers le xlsx DOE.
 
     Returns:
-        Liste de DoeRecord (1 par ligne de données exploitable).
+        Liste de DoeRecord prête pour le matcher. Toutes feuilles
+        confondues, dans l'ordre du classeur.
+
+    Raises:
+        FileNotFoundError: Si le fichier n'existe pas.
     """
     path = Path(xlsx_path)
     if not path.exists():

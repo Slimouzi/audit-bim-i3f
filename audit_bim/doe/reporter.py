@@ -8,7 +8,24 @@ from .models import Match
 
 
 def summarize_matches(matches: Iterable[Match]) -> dict:
-    """Construit un résumé exploitable : taux de matching, ambiguïtés, raisons."""
+    """Synthèse statistique d'une série de Match.
+
+    Sert au reporting MCP / CLI et à la décision « apply / re-tune les
+    seuils / abandonner » de l'auditeur.
+
+    Args:
+        matches: Itérable de Match issus de ``match_doe_records``.
+
+    Returns:
+        Dict avec :
+
+        - ``n_records_total`` / ``n_matched`` / ``n_ambiguous`` /
+          ``n_unmatched``
+        - ``match_rate`` (0..1)
+        - ``by_strategy`` : nb matches par stratégie (guid / tag / name)
+        - ``by_confidence_band`` : nb matches par tranche de confiance
+        - ``top_unmatch_reasons`` : top 5 raisons de non-match
+    """
     items = list(matches)
     n_total = len(items)
     n_matched = sum(1 for m in items if m.is_matched())
