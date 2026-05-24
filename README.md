@@ -64,15 +64,32 @@ I3F_DATA_SPEC_XLSX=…/Annexe Spécification des données I3F simplifiée - CCH 
 I3F_NAMING_SPEC_XLSX=…/Annexe Nommage IFC 3F CCH 2021 V3.6 SHAB SU.xlsx
 ```
 
-## Lancer le serveur MCP
+## Lancer le serveur MCP — 4 transports disponibles
 
 ```bash
-python -m audit_bim.mcp
+python -m audit_bim.mcp                              # stdio (défaut, clients locaux)
+python -m audit_bim.mcp --transport http  --port 8765   # HTTP RPC (Node.js, apps métier)
+python -m audit_bim.mcp --transport sse   --port 8765   # Server-Sent Events
+python -m audit_bim.mcp --transport streamable-http --port 8765
 ```
 
-### Intégration Claude Desktop
+## Intégrations multi-clients
 
-Ajouter à `~/Library/Application Support/Claude/claude_desktop_config.json` :
+Le serveur est utilisable depuis :
+
+| Client | Transport | Section |
+|---|---|---|
+| **Claude Desktop** (macOS / Windows) | stdio | [→](#claude-desktop) |
+| **OpenAI Agents SDK** (Python / JS) | stdio ou http | [→](#openai-agents-sdk) |
+| **LangChain** (Python) | stdio | [→](#langchain) |
+| **CrewAI** (Python) | stdio | [→](#crewai) |
+| **Node.js / TypeScript** | stdio ou http | [→](#nodejs--typescript) |
+| **Application métier BIM** (n'importe quel langage) | HTTP REST | [→](#application-métier-bim-http) |
+| **Python direct** (sans MCP) | import lib | [→](#python-direct-sans-mcp) |
+
+### Claude Desktop
+
+Ajouter à `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) ou `%APPDATA%\Claude\claude_desktop_config.json` (Windows) :
 
 ```json
 {
@@ -84,6 +101,118 @@ Ajouter à `~/Library/Application Support/Claude/claude_desktop_config.json` :
     }
   }
 }
+```
+
+### OpenAI Agents SDK
+
+```python
+# pip install openai-agents
+from agents import Agent, Runner
+from agents.mcp import MCPServerStdio
+
+server = MCPServerStdio(
+    params={"command": "python", "args": ["-m", "audit_bim.mcp"],
+            "cwd": "/Users/stani/code/MCP/audit-bim-i3f"},
+)
+agent = Agent(name="AMO BIM I3F", model="gpt-4o",
+              instructions="Tu es un AMO BIM senior I3F.", mcp_servers=[server])
+result = await Runner.run(agent, "Audite la maquette I3F en phase AVP.")
+```
+
+### LangChain
+
+```python
+# pip install langchain-mcp-adapters langchain-openai langgraph
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langgraph.prebuilt import create_react_agent
+
+client = MultiServerMCPClient({
+    "audit-bim-i3f": {
+        "command": "python", "args": ["-m", "audit_bim.mcp"],
+        "cwd": "/Users/stani/code/MCP/audit-bim-i3f", "transport": "stdio",
+    }
+})
+tools = await client.get_tools()
+agent = create_react_agent("openai:gpt-4o", tools)
+```
+
+### CrewAI
+
+```python
+# pip install crewai crewai-tools mcp
+from crewai import Agent, Task, Crew
+from crewai_tools import MCPServerAdapter
+from mcp import StdioServerParameters
+
+server = StdioServerParameters(
+    command="python", args=["-m", "audit_bim.mcp"],
+    cwd="/Users/stani/code/MCP/audit-bim-i3f",
+)
+with MCPServerAdapter(server) as tools:
+    auditor = Agent(role="AMO BIM I3F", goal="Auditer une maquette", tools=tools,
+                    backstory="Expert CCH I3F", llm="gpt-4o")
+    Crew(agents=[auditor], tasks=[Task(description="Audite en AVP", agent=auditor)]).kickoff()
+```
+
+### Node.js / TypeScript
+
+Mode **stdio** (le serveur Python est spawné comme sous-processus) :
+
+```typescript
+// npm install @modelcontextprotocol/sdk
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+const transport = new StdioClientTransport({
+  command: "python",
+  args: ["-m", "audit_bim.mcp"],
+  cwd: "/Users/stani/code/MCP/audit-bim-i3f",
+});
+const client = new Client({ name: "my-app", version: "1.0.0" }, { capabilities: {} });
+await client.connect(transport);
+
+const result = await client.callTool({
+  name: "full_audit",
+  arguments: { phase: "AVP", push_mode: "smartview" },
+});
+```
+
+Mode **HTTP** (serveur lancé séparément avec `--transport streamable-http`) :
+
+```typescript
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+const transport = new StreamableHTTPClientTransport(new URL("http://localhost:8765/mcp"));
+const client = new Client({ name: "my-app", version: "1.0.0" }, { capabilities: {} });
+await client.connect(transport);
+```
+
+### Application métier BIM (HTTP)
+
+Lancer le serveur en mode HTTP :
+```bash
+python -m audit_bim.mcp --transport streamable-http --host 0.0.0.0 --port 8765
+```
+
+Puis appeler depuis n'importe quel langage qui parle HTTP (Curl, Go, Java, C# WPF, etc.) — l'endpoint suit le protocole MCP standard. Voir [spécification MCP](https://modelcontextprotocol.io/specification/).
+
+### Python direct (sans MCP)
+
+```python
+from audit_bim.requirements.catalog import build_catalog
+from audit_bim.extraction.client import BIMDataClient
+from audit_bim.extraction.model_data import extract_snapshot
+from audit_bim.audit.engine import run_audit
+from audit_bim.requirements.models import BIMPhase
+from audit_bim.reporting.word_report import write_word_report
+from audit_bim.reporting.xlsx_annex import write_xlsx_annex
+
+cat  = build_catalog(cch_pdf="...", data_spec_xlsx="...", naming_spec_xlsx="...")
+snap = extract_snapshot(BIMDataClient(cloud_id=33617, project_id=2698917, model_id=1674450))
+res  = run_audit(snap, cat, BIMPhase.AVP)
+write_word_report(res, "/tmp/audit.docx")
+write_xlsx_annex(res, "/tmp/audit.xlsx")
 ```
 
 ## Utilisation en CLI (sans Claude)
