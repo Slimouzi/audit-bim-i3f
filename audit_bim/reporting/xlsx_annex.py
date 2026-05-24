@@ -263,7 +263,7 @@ def write_xlsx_annex(result: AuditResult, output_path: str | Path) -> Path:
         ErrorType.NAMING_TOO_LONG.value: "Nommage trop long",
         ErrorType.PROPERTY_MISSING.value: "Propriété manquante",
         ErrorType.PROPERTY_EMPTY.value: "Propriété vide",
-        ErrorType.PROPERTY_TYPE_INVALID.value: "Propriété type invalide",
+        ErrorType.PROPERTY_TYPE_INVALID.value: "Valeur de propriété invalide",
         ErrorType.CLASSIFICATION_MISSING.value: "Classification manquante",
         ErrorType.CLASSIFICATION_INVALID.value: "Classification erronée",
         ErrorType.SPATIAL_ORPHAN.value: "Hiérarchie spatiale",

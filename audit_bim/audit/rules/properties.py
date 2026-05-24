@@ -6,6 +6,7 @@ from ...extraction.normalizer import get_attribute, resolve_value
 from ...requirements.models import BIMPhase, RequirementsCatalog
 from ..findings import ErrorType, Finding, Severity, Theme
 from ..ifc_hierarchy import expand_class
+from ..validators import validate_property_value
 
 
 def _severity_for(spec_kind: str) -> Severity:
@@ -75,14 +76,12 @@ def audit_properties(
                 if spec.kind != "property":
                     continue
                 value = resolve_value(el, spec.pset_or_attribute, spec.property_name)
+                via = (
+                    f" (exigence définie sur {ifc_class})"
+                    if actual_class != ifc_class
+                    else ""
+                )
                 if _is_empty(value):
-                    # Le finding signale la classe *réelle* (IfcWallStandardCase)
-                    # tout en mentionnant la classe-mère du CCH pour traçabilité.
-                    via = (
-                        f" (exigence définie sur {ifc_class})"
-                        if actual_class != ifc_class
-                        else ""
-                    )
                     findings.append(
                         Finding(
                             theme=Theme.PROPERTY_MISSING,
@@ -100,6 +99,37 @@ def audit_properties(
                             recommended_action=(
                                 f"Renseigner {spec.property_name} sur "
                                 f"{actual_class} (phase {phase.value})."
+                            ),
+                        )
+                    )
+                    continue
+
+                # Valeur présente — on vérifie qu'elle est *cohérente*
+                # (numérique positif, booléen, chaîne non vide, plage…).
+                reason = validate_property_value(
+                    value,
+                    property_name=spec.property_name,
+                    pset_or_attribute=spec.pset_or_attribute,
+                    comment=spec.comment,
+                )
+                if reason:
+                    findings.append(
+                        Finding(
+                            theme=Theme.PROPERTY_INVALID,
+                            severity=_severity_for(spec.kind),
+                            error_type=ErrorType.PROPERTY_TYPE_INVALID,
+                            element_uuid=uuid,
+                            ifc_type=actual_class,
+                            name=nm,
+                            expected=(
+                                f"{spec.pset_or_attribute or '(attribut natif)'}"
+                                f" › {spec.property_name} cohérente{via}"
+                            ),
+                            actual=f"{value!r} — {reason}",
+                            ref_cch=spec.ref_cch,
+                            recommended_action=(
+                                f"Corriger {spec.property_name} sur "
+                                f"{actual_class} — {reason}."
                             ),
                         )
                     )
