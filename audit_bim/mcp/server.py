@@ -53,6 +53,8 @@ class _State:
     project_id: Optional[str] = None
     model_id: Optional[str] = None
     phase: Optional[BIMPhase] = None
+    classification_system: str = "UniFormat II"
+    doe_available: Optional[bool] = None
 
     snapshot: Optional[ModelSnapshot] = None
     result: Optional[AuditResult] = None
@@ -105,6 +107,93 @@ _bootstrap_defaults()
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def project_context_questions() -> dict:
+    """Inspecte l'état de la session et renvoie la **liste des questions** à
+    poser à l'utilisateur si du contexte projet manque (phase, référentiel
+    classification, CCH, disponibilité DOE).
+
+    À appeler en début de session AVANT ``run_audit_tool`` pour s'assurer
+    que l'audit est cadré. Renvoie une liste vide si tout est déjà connu.
+
+    Returns:
+        Dict ``{ready: bool, missing: [...], questions: [{key, question,
+        suggestion}]}``.
+    """
+    questions: list[dict] = []
+    missing: list[str] = []
+
+    if _State.phase is None:
+        missing.append("phase")
+        questions.append({
+            "key": "phase",
+            "question": (
+                "À quelle phase projet correspond cette maquette ? "
+                "APS, AVP, PRO, DCE, EXE, DOE ou GESTION ?"
+            ),
+            "suggestion": "PRO (cas le plus fréquent en cours de conception).",
+        })
+    if _State.catalog is None and not (
+        _State.cch_pdf or _State.data_spec_xlsx or _State.naming_spec_xlsx
+    ):
+        missing.append("cch")
+        questions.append({
+            "key": "cch",
+            "question": (
+                "Quel cahier des charges BIM dois-je appliquer ? Le CCH I3F "
+                "V3.6 par défaut, ou un référentiel projet spécifique ?"
+            ),
+            "suggestion": (
+                "CCH I3F V3.6 (chemins par défaut dans .env) — sinon "
+                "appelle set_owner_documents avec les chemins du référentiel."
+            ),
+        })
+    if _State.classification_system == "UniFormat II":
+        # Pas vraiment manquant mais on précise le défaut au cas où
+        questions.append({
+            "key": "classification_system",
+            "question": (
+                "Quel référentiel de classification utiliser ? UniFormat II "
+                "(défaut), Omniclass, CCS, ou table 3F interne ?"
+            ),
+            "suggestion": "UniFormat II convient pour la majorité des projets I3F.",
+            "optional": True,
+        })
+    if _State.phase in (BIMPhase.DOE, BIMPhase.GESTION) and _State.doe_available is None:
+        missing.append("doe_available")
+        questions.append({
+            "key": "doe_available",
+            "question": (
+                "Phase DOE/GESTION : disposez-vous de données DOE (Excel, "
+                "PDF, ERP/GMAO) pour enrichir la maquette ?"
+            ),
+            "suggestion": "Si oui, l'agent DOE → IFC pourra compléter les Psets.",
+        })
+    if _State.client is None:
+        missing.append("bimdata_target")
+        questions.append({
+            "key": "bimdata_target",
+            "question": (
+                "Quelle maquette BIMData auditer ? (cloud_id, project_id, "
+                "model_id — ou utiliser les valeurs du .env)"
+            ),
+            "suggestion": "Appelle set_active_model avec les bons IDs.",
+        })
+
+    return {
+        "ready": len([q for q in questions if not q.get("optional")]) == 0,
+        "missing": missing,
+        "questions": questions,
+        "current_context": {
+            "phase": _State.phase.value if _State.phase else None,
+            "classification_system": _State.classification_system,
+            "cch_pdf": str(_State.cch_pdf) if _State.cch_pdf else None,
+            "model_id": _State.model_id,
+            "doe_available": _State.doe_available,
+        },
+    }
 
 
 @mcp.tool()
@@ -179,6 +268,7 @@ def set_active_model(
     project_id: Optional[str] = None,
     model_id: Optional[str] = None,
     phase: str = "PRO",
+    classification_system: Optional[str] = None,
     access_token: Optional[str] = None,
 ) -> dict:
     """Cible la maquette BIMData et la phase BIM à auditer.
@@ -186,12 +276,20 @@ def set_active_model(
     Args:
         cloud_id, project_id, model_id: IDs BIMData (fallback ``.env``).
         phase: APS | AVP | PRO | DCE | EXE | DOE | GESTION (défaut PRO).
+        classification_system: référentiel à utiliser pour les
+            classifications. Valeurs admises : ``UniFormat II`` (défaut) |
+            ``Omniclass`` | ``CCS`` | ``3F``.
         access_token: Bearer token déjà acquis (optionnel).
     """
+    from ..classifier import get_system
+
     _State.cloud_id = cloud_id or config.CLOUD_ID
     _State.project_id = project_id or config.PROJECT_ID
     _State.model_id = model_id or config.MODEL_ID
     _State.phase = BIMPhase(phase.upper())
+    if classification_system:
+        # Valide le système (raise si inconnu)
+        _State.classification_system = get_system(classification_system).label
     _State.client = BIMDataClient(
         cloud_id=_State.cloud_id,
         project_id=_State.project_id,
@@ -206,8 +304,26 @@ def set_active_model(
         "project_id": _State.project_id,
         "model_id": _State.model_id,
         "phase": _State.phase.value,
+        "classification_system": _State.classification_system,
         "auth": "ok",
     }
+
+
+@mcp.tool()
+def list_classification_systems() -> list[dict]:
+    """Liste les référentiels de classification disponibles côté MCP."""
+    from ..classifier import SYSTEMS
+
+    return [
+        {
+            "key": k,
+            "name_for_bimdata_api": v.name,
+            "label": v.label,
+            "description": v.description,
+            "has_mapper_from_uniformat": v.map_from_uniformat is not None,
+        }
+        for k, v in SYSTEMS.items()
+    ]
 
 
 @mcp.tool()

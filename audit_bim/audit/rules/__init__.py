@@ -4,6 +4,7 @@ from .lists import audit_lists
 from .naming import audit_naming
 from .properties import audit_properties
 from .spatial import audit_spatial
+from .uniqueness import audit_uniqueness
 
 __all__ = [
     "audit_classifications",
@@ -11,4 +12,5 @@ __all__ = [
     "audit_naming",
     "audit_properties",
     "audit_spatial",
+    "audit_uniqueness",
 ]

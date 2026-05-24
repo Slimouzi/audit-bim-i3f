@@ -14,6 +14,7 @@ from .rules import (
     audit_naming,
     audit_properties,
     audit_spatial,
+    audit_uniqueness,
 )
 
 
@@ -95,6 +96,7 @@ def run_audit(
     findings.extend(audit_naming(snap, catalog))
     findings.extend(audit_classifications(snap, catalog, phase))
     findings.extend(audit_properties(snap, catalog, phase))
+    findings.extend(audit_uniqueness(snap, catalog, phase))
     findings.extend(audit_lists(snap, catalog, phase))
 
     # Tri stable : sévérité décroissante puis thème puis type
