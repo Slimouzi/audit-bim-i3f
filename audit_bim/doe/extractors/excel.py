@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
 
 import openpyxl
 
@@ -44,7 +43,7 @@ def _normalize(s: str) -> str:
     return s.strip().lower()
 
 
-def _detect_header(value) -> tuple[Optional[str], Optional[tuple[str, str]]]:
+def _detect_header(value) -> tuple[str | None, tuple[str, str] | None]:
     """Pour une cellule d'en-tête, retourne :
     - ('uuid'/'tag'/'name'/'type'/'storey'/'zone', None) si c'est un alias connu
     - (None, (pset, prop)) si c'est une propriété (Pset.prop ou nom seul)
@@ -114,7 +113,7 @@ def parse_doe_excel(xlsx_path: str | Path) -> list[DoeRecord]:
                 continue
             headers = rows[header_idx]
             # Mapping colonne → slot/(pset,prop)
-            col_map: list[tuple[Optional[str], Optional[tuple[str, str]]]] = [
+            col_map: list[tuple[str | None, tuple[str, str] | None]] = [
                 _detect_header(h) for h in headers
             ]
             for row_i, row in enumerate(rows[header_idx + 1 :], start=header_idx + 2):

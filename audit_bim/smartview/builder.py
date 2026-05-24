@@ -18,7 +18,6 @@ commentaires, description), préférer l'agent ``audit_bim.bcf``.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Optional
 
 from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity, Theme
@@ -46,7 +45,7 @@ def _build_full_topic(
     items: list[Finding],
     *,
     phase: str,
-    model_id: Optional[int | str],
+    model_id: int | str | None,
     prefix: str,
     element_by_uuid: dict | None = None,
 ) -> dict:
@@ -74,7 +73,7 @@ def _build_full_topic(
     # Le viewer BIMData utilise cette couleur comme « chip » dans la liste.
     color = _severity_color(_max_severity(items))
 
-    mid_int: Optional[int] = None
+    mid_int: int | None = None
     if model_id is not None:
         try:
             mid_int = int(model_id)
@@ -122,7 +121,7 @@ def _build_overview_topic(
     by_theme: dict[Theme, list[Finding]],
     *,
     phase: str,
-    model_id: Optional[int | str],
+    model_id: int | str | None,
     prefix: str,
     element_by_uuid: dict | None = None,
 ) -> dict:
@@ -149,7 +148,7 @@ def _build_overview_topic(
 
     coloring_groups: list[dict] = []
 
-    mid_int: Optional[int] = None
+    mid_int: int | None = None
     if model_id is not None:
         try:
             mid_int = int(model_id)
@@ -193,7 +192,7 @@ def build_smartview_payloads(
     result: AuditResult,
     *,
     prefix: str = "I3F Audit — ",
-    model_id: Optional[int | str] = None,
+    model_id: int | str | None = None,
     include_overview: bool = True,
 ) -> list[dict]:
     """Produit les payloads BCF FullTopic.

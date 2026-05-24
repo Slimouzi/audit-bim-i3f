@@ -24,14 +24,14 @@ de la ligne suivante (document attendu vs propriété IFC).
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Optional
 
 import openpyxl
 
 from ..audit.ifc_hierarchy import normalize_catalog_class
-from .models import BIMPhase, PropertySpec
 from ._openpyxl_compat import patch_openpyxl
+from .models import BIMPhase, PropertySpec
 
 patch_openpyxl()
 
@@ -62,8 +62,7 @@ def _iter_rows(xlsx_path: Path) -> Iterator[tuple]:
     wb = openpyxl.load_workbook(xlsx_path, read_only=False, data_only=True)
     try:
         ws = wb[wb.sheetnames[0]]
-        for row in ws.iter_rows(values_only=True):
-            yield row
+        yield from ws.iter_rows(values_only=True)
     finally:
         wb.close()
 
@@ -74,7 +73,7 @@ def _is_header_row(row: tuple) -> bool:
     return "objet" in cells and "classe ifc" in cells
 
 
-def _detect_phase_columns(row: tuple) -> Optional[dict[BIMPhase, int]]:
+def _detect_phase_columns(row: tuple) -> dict[BIMPhase, int] | None:
     """Repère sur quelles colonnes se trouvent APS/AVP/…/GESTION.
 
     L'ordre peut varier selon versions ; on remappe sur les labels.
@@ -127,7 +126,7 @@ def parse_data_spec(xlsx_path: str | Path) -> list[PropertySpec]:
     current_objet: str = ""
     current_ifc_class: str = ""
     current_kind: str = "property"
-    phase_cols: Optional[dict[BIMPhase, int]] = None
+    phase_cols: dict[BIMPhase, int] | None = None
     header_seen = False
 
     for row in _iter_rows(xlsx_path):

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import xlsxwriter
 
@@ -94,7 +94,7 @@ def _write_findings_sheet(
     name: str,
     findings: list,
     fmts: dict,
-    suggestions_map: Optional[dict] = None,
+    suggestions_map: dict | None = None,
 ):
     """Écrit un onglet de findings. Si ``suggestions_map`` est fourni, deux
     colonnes supplémentaires (Classification proposée, Indice de confiance)

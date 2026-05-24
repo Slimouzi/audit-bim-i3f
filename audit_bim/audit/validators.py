@@ -14,7 +14,6 @@ le motif de l'invalidité (utilisée dans le finding).
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 # Noms (substrings, insensibles à la casse) suggérant une valeur numérique > 0.
 _NUMERIC_POSITIVE_KEYS = (
@@ -59,7 +58,7 @@ def _is_bool_value(value) -> bool:
     return False
 
 
-def _expects_bool(prop_name: str, comment: Optional[str]) -> bool:
+def _expects_bool(prop_name: str, comment: str | None) -> bool:
     if _has_key(prop_name, _BOOL_KEYS):
         return True
     if comment and re.search(r"\bv\s*/\s*f\b|\boui\s*/\s*non\b|true\s*/\s*false", comment, re.I):
@@ -71,9 +70,9 @@ def validate_property_value(
     value,
     *,
     property_name: str,
-    pset_or_attribute: Optional[str] = None,
-    comment: Optional[str] = None,
-) -> Optional[str]:
+    pset_or_attribute: str | None = None,
+    comment: str | None = None,
+) -> str | None:
     """Renvoie ``None`` si ``value`` est valide pour la propriété, sinon une
     chaîne courte décrivant l'incohérence (utilisée dans le finding).
 

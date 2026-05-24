@@ -30,7 +30,7 @@ class ModelSnapshot:
     elements_by_type: dict[str, list[dict]] = field(default_factory=dict)
     element_by_uuid: dict[str, dict] = field(default_factory=dict)
 
-    def index(self) -> "ModelSnapshot":
+    def index(self) -> ModelSnapshot:
         """Construit les index pour accès O(1) par UUID et par classe IFC."""
         by_type: dict[str, list[dict]] = defaultdict(list)
         by_uuid: dict[str, dict] = {}

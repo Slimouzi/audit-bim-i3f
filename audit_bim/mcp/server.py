@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
 
 from fastmcp import FastMCP
 
@@ -42,28 +41,27 @@ from ..requirements.models import BIMPhase, RequirementsCatalog
 from ..smartview.builder import push_smart_views
 from .prompts import AMO_BIM_I3F_PROMPT
 
-
 # ── État de session ────────────────────────────────────────────────────────
 
 
 class _State:
     """Singleton léger qui porte l'état de l'audit en cours."""
 
-    cch_pdf: Optional[Path] = None
-    data_spec_xlsx: Optional[Path] = None
-    naming_spec_xlsx: Optional[Path] = None
-    catalog: Optional[RequirementsCatalog] = None
+    cch_pdf: Path | None = None
+    data_spec_xlsx: Path | None = None
+    naming_spec_xlsx: Path | None = None
+    catalog: RequirementsCatalog | None = None
 
-    client: Optional[BIMDataClient] = None
-    cloud_id: Optional[str] = None
-    project_id: Optional[str] = None
-    model_id: Optional[str] = None
-    phase: Optional[BIMPhase] = None
+    client: BIMDataClient | None = None
+    cloud_id: str | None = None
+    project_id: str | None = None
+    model_id: str | None = None
+    phase: BIMPhase | None = None
     classification_system: str = "UniFormat II"
-    doe_available: Optional[bool] = None
+    doe_available: bool | None = None
 
-    snapshot: Optional[ModelSnapshot] = None
-    result: Optional[AuditResult] = None
+    snapshot: ModelSnapshot | None = None
+    result: AuditResult | None = None
 
     @classmethod
     def ensure_catalog(cls):
@@ -204,9 +202,9 @@ def project_context_questions() -> dict:
 
 @mcp.tool()
 def set_owner_documents(
-    cch_pdf: Optional[str] = None,
-    data_spec_xlsx: Optional[str] = None,
-    naming_spec_xlsx: Optional[str] = None,
+    cch_pdf: str | None = None,
+    data_spec_xlsx: str | None = None,
+    naming_spec_xlsx: str | None = None,
 ) -> dict:
     """Cible les 3 documents MOA (CCH PDF + annexe Spécifications + annexe Nommage).
 
@@ -220,7 +218,7 @@ def set_owner_documents(
     if naming_spec_xlsx is not None:
         _State.naming_spec_xlsx = Path(naming_spec_xlsx) if naming_spec_xlsx else None
 
-    def stat(p: Optional[Path]):
+    def stat(p: Path | None):
         if not p:
             return None
         return {"path": str(p), "exists": p.exists(), "size_bytes": (p.stat().st_size if p.exists() else None)}
@@ -249,9 +247,9 @@ def parse_owner_requirements() -> dict:
 
 @mcp.tool()
 def get_catalog_properties(
-    ifc_class: Optional[str] = None,
-    phase: Optional[str] = None,
-    theme: Optional[str] = None,
+    ifc_class: str | None = None,
+    phase: str | None = None,
+    theme: str | None = None,
     limit: int = 50,
 ) -> list[dict]:
     """Filtre les PropertySpec du catalogue (avant ou après audit)."""
@@ -270,12 +268,12 @@ def get_catalog_properties(
 
 @mcp.tool()
 def set_active_model(
-    cloud_id: Optional[str] = None,
-    project_id: Optional[str] = None,
-    model_id: Optional[str] = None,
+    cloud_id: str | None = None,
+    project_id: str | None = None,
+    model_id: str | None = None,
     phase: str = "PRO",
-    classification_system: Optional[str] = None,
-    access_token: Optional[str] = None,
+    classification_system: str | None = None,
+    access_token: str | None = None,
 ) -> dict:
     """Cible la maquette BIMData et la phase BIM à auditer.
 
@@ -353,10 +351,10 @@ def run_audit_tool() -> dict:
 
 @mcp.tool()
 def query_findings(
-    theme: Optional[str] = None,
-    severity: Optional[str] = None,
-    error_type: Optional[str] = None,
-    ifc_type: Optional[str] = None,
+    theme: str | None = None,
+    severity: str | None = None,
+    error_type: str | None = None,
+    ifc_type: str | None = None,
     limit: int = 50,
 ) -> list[dict]:
     """Filtre les findings de l'audit courant."""
@@ -378,7 +376,7 @@ def _default_output_paths() -> tuple[Path, Path]:
 
 
 @mcp.tool()
-def generate_xlsx_annex(output_path: Optional[str] = None) -> dict:
+def generate_xlsx_annex(output_path: str | None = None) -> dict:
     """Génère l'annexe Excel détaillée de l'audit courant."""
     _State.ensure_result()
     target = Path(output_path) if output_path else _default_output_paths()[1]
@@ -388,8 +386,8 @@ def generate_xlsx_annex(output_path: Optional[str] = None) -> dict:
 
 @mcp.tool()
 def generate_word_report(
-    output_path: Optional[str] = None,
-    xlsx_annex_path: Optional[str] = None,
+    output_path: str | None = None,
+    xlsx_annex_path: str | None = None,
     auditor: str = "AMO BIM (audit automatisé)",
 ) -> dict:
     """Génère le rapport Word d'audit."""
@@ -628,13 +626,13 @@ def create_smart_views(
 
 @mcp.tool()
 def full_audit(
-    cloud_id: Optional[str] = None,
-    project_id: Optional[str] = None,
-    model_id: Optional[str] = None,
+    cloud_id: str | None = None,
+    project_id: str | None = None,
+    model_id: str | None = None,
     phase: str = "PRO",
-    output_dir: Optional[str] = None,
+    output_dir: str | None = None,
     push_mode: str = "ask",
-    access_token: Optional[str] = None,
+    access_token: str | None = None,
 ) -> dict:
     """Orchestrateur : parse documents → extract modèle → audit → reports.
 

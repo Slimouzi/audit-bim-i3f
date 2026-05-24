@@ -17,12 +17,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
 
 import openpyxl
 
-from .models import NamingRule, RoomSpec, StoreyName, ZoneSpec
 from ._openpyxl_compat import patch_openpyxl
+from .models import NamingRule, RoomSpec, StoreyName, ZoneSpec
 
 patch_openpyxl()
 
@@ -107,7 +106,7 @@ def _extract_zone_and_room_specs(ws) -> tuple[list[ZoneSpec], list[RoomSpec]]:
     zones: list[ZoneSpec] = []
     rooms: list[RoomSpec] = []
     in_table = False
-    type_surface_col: Optional[int] = None
+    type_surface_col: int | None = None
 
     for row in ws.iter_rows(values_only=True):
         cells = list(row)

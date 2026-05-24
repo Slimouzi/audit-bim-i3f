@@ -5,7 +5,6 @@ from .applier import (
     list_project_classifications,
 )
 from .catalog import UNIFORMAT, ClassEntry, entry, normalize_uniformat_level3
-from .systems import SYSTEMS, ClassificationSystem, get_system, translate
 from .signals import ElementSignals, extract_signals
 from .suggester import (
     Suggestion,
@@ -13,6 +12,7 @@ from .suggester import (
     suggest,
     suggest_for_findings,
 )
+from .systems import SYSTEMS, ClassificationSystem, get_system, translate
 from .xlsx_reader import read_classifications_from_xlsx
 
 __all__ = [

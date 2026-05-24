@@ -20,7 +20,7 @@ Workflow API en deux étapes :
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable
+from collections.abc import Iterable
 
 from ..extraction.client import BIMDataClient
 

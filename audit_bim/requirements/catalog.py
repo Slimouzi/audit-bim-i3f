@@ -8,18 +8,17 @@ Politique de fusion :
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from .data_spec_parser import parse_data_spec
-from .models import RequirementsCatalog, RoomSpec, StoreyName, ZoneSpec
+from .models import RequirementsCatalog
 from .naming_spec_parser import parse_naming_spec
 from .pdf_parser import parse_pdf
 
 
 def build_catalog(
-    cch_pdf: Optional[str | Path] = None,
-    data_spec_xlsx: Optional[str | Path] = None,
-    naming_spec_xlsx: Optional[str | Path] = None,
+    cch_pdf: str | Path | None = None,
+    data_spec_xlsx: str | Path | None = None,
+    naming_spec_xlsx: str | Path | None = None,
 ) -> RequirementsCatalog:
     """Construit un catalogue à partir des documents disponibles.
 

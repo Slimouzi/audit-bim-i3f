@@ -5,7 +5,7 @@ qui gomment les variantes (clé absente, valeur ``None``, casse différente…).
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 # Attributs IFC natifs (qui ne sont PAS dans des Psets mais dans `attributes`)
 NATIVE_IFC_ATTRIBUTES = {
@@ -23,7 +23,7 @@ NATIVE_IFC_ATTRIBUTES = {
 }
 
 
-def get_attribute(element: dict, attr_name: str) -> Optional[Any]:
+def get_attribute(element: dict, attr_name: str) -> Any | None:
     """Récupère un attribut IFC natif d'un élément (Name, LongName, …).
 
     On accepte plusieurs sources (clé flat à la racine, ou Pset ``Attributes``).
@@ -55,7 +55,7 @@ def get_attribute(element: dict, attr_name: str) -> Optional[Any]:
 
 def get_property(
     element: dict, pset_name: str, property_name: str
-) -> Optional[Any]:
+) -> Any | None:
     """Récupère la valeur d'une propriété ``Pset.PropertyName`` d'un élément.
 
     Args:
@@ -88,8 +88,8 @@ def classification_codes(element: dict) -> list[str]:
 
 
 def resolve_value(
-    element: dict, pset_or_attribute: Optional[str], property_name: str
-) -> Optional[Any]:
+    element: dict, pset_or_attribute: str | None, property_name: str
+) -> Any | None:
     """Tente plusieurs heuristiques pour retrouver une valeur attendue.
 
     Les annexes I3F mélangent dans la même colonne :

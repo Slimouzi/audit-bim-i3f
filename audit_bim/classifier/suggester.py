@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 from .catalog import ClassEntry, entry
 from .signals import ElementSignals
@@ -83,7 +82,7 @@ IFC_ACCEPTED_CODES: dict[str, list[str]] = {
 }
 
 
-def accepted_codes_for(ifc_class: str, top_code: Optional[str]) -> set[str]:
+def accepted_codes_for(ifc_class: str, top_code: str | None) -> set[str]:
     """Famille de codes plausibles pour juger la cohérence d'une classification.
 
     Pour les classes IFC ambigües (mobilier fixe vs mobile, mur intérieur
@@ -132,7 +131,7 @@ _LAYER_PATTERNS: list[tuple[re.Pattern, str]] = [
 # ── Mapping IFC → UniFormat de base (avec branchements conditionnels) ──
 
 
-def _ifc_base_code(s: ElementSignals) -> Optional[str]:
+def _ifc_base_code(s: ElementSignals) -> str | None:
     """Code UniFormat principal déduit de la seule classe IFC + IsExternal."""
     c = s.ifc_class
     if c in ("IfcWall", "IfcWallStandardCase", "IfcWallElementedCase"):
@@ -226,7 +225,7 @@ def _ifc_base_code(s: ElementSignals) -> Optional[str]:
     return None
 
 
-def _layer_match(s: ElementSignals) -> Optional[tuple[str, str]]:
+def _layer_match(s: ElementSignals) -> tuple[str, str] | None:
     """Cherche un layer dont le nom matche un pattern connu."""
     for layer in s.layers or []:
         for pattern, code in _LAYER_PATTERNS:
@@ -235,7 +234,7 @@ def _layer_match(s: ElementSignals) -> Optional[tuple[str, str]]:
     return None
 
 
-def _keyword_match(s: ElementSignals) -> Optional[tuple[str, str]]:
+def _keyword_match(s: ElementSignals) -> tuple[str, str] | None:
     """Cherche des keywords dans Name / ObjectType / LongName."""
     blob = (s.name + " " + s.object_type + " " + s.long_name).lower()
     for pattern, code in _LAYER_PATTERNS:
@@ -244,7 +243,7 @@ def _keyword_match(s: ElementSignals) -> Optional[tuple[str, str]]:
     return None
 
 
-def _quantity_hint(s: ElementSignals, base_code: Optional[str]) -> Optional[str]:
+def _quantity_hint(s: ElementSignals, base_code: str | None) -> str | None:
     """Indice de cohérence basé sur les BaseQuantities (renvoie une raison)."""
     if not s.base_quantities:
         return None
@@ -260,7 +259,7 @@ def _quantity_hint(s: ElementSignals, base_code: Optional[str]) -> Optional[str]
     return None
 
 
-def suggest(element: dict, signals: Optional[ElementSignals] = None) -> list[Suggestion]:
+def suggest(element: dict, signals: ElementSignals | None = None) -> list[Suggestion]:
     """Calcule les suggestions de classification UniFormat pour un élément.
 
     Agrège jusqu'à 5 signaux pondérés (cf. constantes ``W_*``). Le même

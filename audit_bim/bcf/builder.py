@@ -18,7 +18,7 @@ Views). Format buildingSMART standard ; portable hors BIMData.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity, Theme
@@ -81,7 +81,7 @@ def _build_bcf_topic(
     items: list[Finding],
     *,
     phase: str,
-    model_id: Optional[int | str],
+    model_id: int | str | None,
     prefix: str,
 ) -> dict:
     uuids: list[str] = []
@@ -139,7 +139,7 @@ def _build_overview_bcf_topic(
     by_theme: dict[Theme, list[Finding]],
     *,
     phase: str,
-    model_id: Optional[int | str],
+    model_id: int | str | None,
     prefix: str,
 ) -> dict:
     """Topic « Vue d'ensemble » : viewpoint multi-coloring par thème."""
@@ -226,7 +226,7 @@ def build_bcf_payloads(
     result: AuditResult,
     *,
     prefix: str = "I3F Audit — ",
-    model_id: Optional[int | str] = None,
+    model_id: int | str | None = None,
     include_overview: bool = True,
 ) -> list[dict]:
     """Produit la liste des payloads BCF Topics (format ``standard``).

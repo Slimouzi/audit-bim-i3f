@@ -57,11 +57,11 @@ def read_classifications_from_xlsx(xlsx_path: str | Path) -> list[dict]:
         def _idx(label: str) -> int:
             try:
                 return header.index(label)
-            except ValueError:
+            except ValueError as e:
                 raise ValueError(
                     f"Colonne '{label}' absente dans l'onglet "
                     f"'{SHEET_NAME}'. En-têtes lues : {header}"
-                )
+                ) from e
 
         i_uuid = _idx("UUID")
         i_class = _idx("Classe IFC")

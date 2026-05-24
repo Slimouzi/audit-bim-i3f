@@ -14,10 +14,10 @@ correspondance via ``CUSTOM_MAPPERS``.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
-from .catalog import ClassEntry, entry as uf_entry
+from .catalog import ClassEntry
 
 
 @dataclass
@@ -27,7 +27,7 @@ class ClassificationSystem:
     name: str           # nom court (transmis à l'API BIMData)
     label: str          # libellé humain
     description: str
-    map_from_uniformat: Optional[Callable[[ClassEntry], ClassEntry]] = None
+    map_from_uniformat: Callable[[ClassEntry], ClassEntry] | None = None
 
 
 # Mapping minimaliste UniFormat → Omniclass Table 22 (Work Results).

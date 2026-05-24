@@ -15,16 +15,15 @@ Les graphes sont générés via matplotlib et insérés en PNG.
 from __future__ import annotations
 
 import io
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
-from typing import Iterable
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from docx import Document
-from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -92,7 +91,7 @@ def _pie_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -
 
     labels = [k for k, _ in big]
     sizes = [v for _, v in big]
-    colors = [f"#{colors_map.get(l, 'BFBFBF')}" for l in labels]
+    colors = [f"#{colors_map.get(lbl, 'BFBFBF')}" for lbl in labels]
 
     # Affiche % directement sur les tranches mais pas les labels (légende externe)
     wedges, _texts, autotexts = ax.pie(
@@ -107,7 +106,10 @@ def _pie_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -
     ax.set_title(title, fontsize=11)
 
     # Légende externe avec libellé + valeur absolue
-    legend_labels = [f"{l}  ({s:,})".replace(",", " ") for l, s in zip(labels, sizes)]
+    legend_labels = [
+        f"{lbl}  ({s:,})".replace(",", " ")
+        for lbl, s in zip(labels, sizes, strict=True)
+    ]
     ax.legend(
         wedges,
         legend_labels,
@@ -129,7 +131,7 @@ def _bar_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -
     fig, ax = plt.subplots(figsize=(6.5, 3.5), dpi=140)
     labels = list(values.keys())
     sizes = list(values.values())
-    colors = [f"#{colors_map.get(l, '888888')}" for l in labels]
+    colors = [f"#{colors_map.get(lbl, '888888')}" for lbl in labels]
     ax.bar(labels, sizes, color=colors)
     for i, v in enumerate(sizes):
         ax.text(i, v, str(v), ha="center", va="bottom", fontsize=9)

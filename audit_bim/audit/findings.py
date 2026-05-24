@@ -24,7 +24,7 @@ Trois axes de classification :
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -46,7 +46,7 @@ class Severity(str, Enum):
     INFO = "INFO"
 
     @classmethod
-    def ordered(cls) -> list["Severity"]:
+    def ordered(cls) -> list[Severity]:
         """Renvoie les sévérités triées de la plus grave à la moins grave.
 
         Utilisé pour le tri stable des findings (CRITICAL d'abord) et pour
@@ -118,21 +118,21 @@ class Finding(BaseModel):
     severity: Severity
     error_type: ErrorType
 
-    element_uuid: Optional[str] = Field(
+    element_uuid: str | None = Field(
         None, description="UUID/GlobalId IFC de l'objet en erreur (None si erreur projet)."
     )
-    ifc_type: Optional[str] = Field(
+    ifc_type: str | None = Field(
         None, description="Classe IFC (IfcSpace, IfcBuilding, …)."
     )
-    name: Optional[str] = None
-    storey: Optional[str] = Field(None, description="Étage de rattachement si connu.")
-    zone: Optional[str] = Field(None, description="Zone (logement) de rattachement si connue.")
+    name: str | None = None
+    storey: str | None = Field(None, description="Étage de rattachement si connu.")
+    zone: str | None = Field(None, description="Zone (logement) de rattachement si connue.")
 
-    expected: Optional[Any] = Field(None, description="Valeur ou règle attendue.")
-    actual: Optional[Any] = Field(None, description="Valeur réellement trouvée (None si manquant).")
+    expected: Any | None = Field(None, description="Valeur ou règle attendue.")
+    actual: Any | None = Field(None, description="Valeur réellement trouvée (None si manquant).")
 
-    ref_cch: Optional[str] = Field(None, description="Référence du chapitre du CCH.")
-    recommended_action: Optional[str] = Field(
+    ref_cch: str | None = Field(None, description="Référence du chapitre du CCH.")
+    recommended_action: str | None = Field(
         None, description="Action concrète à effectuer pour corriger."
     )
 

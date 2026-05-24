@@ -10,7 +10,6 @@ Vocabulaire CCH BIM I3F :
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,7 +26,7 @@ class BIMPhase(str, Enum):
     GESTION = "GESTION"
 
     @classmethod
-    def ordered(cls) -> list["BIMPhase"]:
+    def ordered(cls) -> list[BIMPhase]:
         return [cls.APS, cls.AVP, cls.PRO, cls.DCE, cls.EXE, cls.DOE, cls.GESTION]
 
 
@@ -41,7 +40,7 @@ class PropertySpec(BaseModel):
     objet: str = Field(..., description="Libellé métier (Projet, Bâtiment, Zone…)")
     ifc_class: str = Field(..., description="Classe IFC (IfcProject, IfcSpace…)")
     property_name: str = Field(..., description="Nom de la propriété ou du document")
-    pset_or_attribute: Optional[str] = Field(
+    pset_or_attribute: str | None = Field(
         None,
         description=(
             "Pset porteur (Pset_SpaceCommon…), nom d'attribut natif (Name, "
@@ -56,11 +55,11 @@ class PropertySpec(BaseModel):
         default_factory=list,
         description="Phases BIM où la donnée est exigée.",
     )
-    comment: Optional[str] = None
-    usage_3f: Optional[str] = Field(
+    comment: str | None = None
+    usage_3f: str | None = Field(
         None, description="Précision usage 3F (colonne O de l'annexe)."
     )
-    ref_cch: Optional[str] = Field(
+    ref_cch: str | None = Field(
         None, description="Référence CCH (ex: 'Chap 6.2')."
     )
 
@@ -82,7 +81,7 @@ class NamingRule(BaseModel):
     ifc_attribute: str = Field(
         ..., description="Attribut IFC ciblé (Name, LongName, ObjectType…)."
     )
-    pattern: Optional[str] = Field(
+    pattern: str | None = Field(
         None,
         description="Regex Python à respecter (None si pas de contrainte).",
     )
@@ -91,46 +90,46 @@ class NamingRule(BaseModel):
         description="Liste fermée de valeurs admises (vide = liste ouverte).",
     )
     case_sensitive: bool = True
-    max_length: Optional[int] = None
-    comment: Optional[str] = None
-    ref_cch: Optional[str] = None
+    max_length: int | None = None
+    comment: str | None = None
+    ref_cch: str | None = None
 
 
 class RoomSpec(BaseModel):
     """Catalogue des noms de pièces I3F avec leur typologie et type de surface."""
 
     name: str = Field(..., description="Nom IfcSpace/LongName attendu (majuscules)")
-    type_label: Optional[str] = Field(None, description="Type de pièce (Chambre, Cuisine…)")
+    type_label: str | None = Field(None, description="Type de pièce (Chambre, Cuisine…)")
     localisation: str = Field("PP", description="PP (partie privative) | PC (partie commune)")
-    surface_type: Optional[str] = Field(None, description="SHAB | SU | autre")
-    definition: Optional[str] = None
+    surface_type: str | None = Field(None, description="SHAB | SU | autre")
+    definition: str | None = None
 
 
 class ZoneSpec(BaseModel):
     """Catalogue des noms et types de zones I3F."""
 
-    name: Optional[str] = Field(
+    name: str | None = Field(
         None, description="Nom typique (ex: 'XXXXL-YYYY', BUREAUX, COMMERCES…)"
     )
     type_label: str = Field(..., description="IfcZone/ObjectType attendu")
     localisation: str = Field("PP", description="PP | PC")
-    definition: Optional[str] = None
+    definition: str | None = None
 
 
 class StoreyName(BaseModel):
     """Élément de la liste des noms d'étages admis (REZ-DE-CHAUSSEE, 1ER ETAGE…)."""
 
     name: str
-    pattern: Optional[str] = None  # ex: TOITURE ([0-9]+)?
+    pattern: str | None = None  # ex: TOITURE ([0-9]+)?
 
 
 class RequirementsCatalog(BaseModel):
     """Agrégation de toutes les exigences MOA extraites des 3 documents."""
 
-    cch_version: Optional[str] = None
-    cch_source_pdf: Optional[str] = None
-    data_spec_source: Optional[str] = None
-    naming_spec_source: Optional[str] = None
+    cch_version: str | None = None
+    cch_source_pdf: str | None = None
+    data_spec_source: str | None = None
+    naming_spec_source: str | None = None
 
     properties: list[PropertySpec] = Field(default_factory=list)
     naming_rules: list[NamingRule] = Field(default_factory=list)
@@ -150,7 +149,7 @@ class RequirementsCatalog(BaseModel):
 
     def naming_rule_for(
         self, ifc_class: str, attribute: str
-    ) -> Optional[NamingRule]:
+    ) -> NamingRule | None:
         """Cherche la règle de nommage pour `(classe IFC, attribut)`."""
         for r in self.naming_rules:
             if (

@@ -8,7 +8,7 @@ Authentification — ordre de précédence :
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import requests
 
@@ -46,10 +46,10 @@ class BIMDataClient:
     def __init__(
         self,
         *,
-        cloud_id: Optional[int | str] = None,
-        project_id: Optional[int | str] = None,
-        model_id: Optional[int | str] = None,
-        access_token: Optional[str] = None,
+        cloud_id: int | str | None = None,
+        project_id: int | str | None = None,
+        model_id: int | str | None = None,
+        access_token: str | None = None,
         timeout: int = 60,
     ):
         """Initialise le client et la session HTTP.
@@ -160,7 +160,7 @@ class BIMDataClient:
         resp.raise_for_status()
         return resp.json()
 
-    def _post(self, path: str, json: dict, timeout: Optional[int] = None) -> Any:
+    def _post(self, path: str, json: dict, timeout: int | None = None) -> Any:
         """POST authentifié JSON → JSON décodé.
 
         Args:

@@ -174,15 +174,8 @@ def audit_naming(
     # On détermine la localisation depuis l'ObjectType, qui doit nommer
     # explicitement la typologie (« Zone Logement T3 », « Zone Parkings »…).
     rule_zone_name = catalog.naming_rule_for("IfcZone", "Name")
-    rule_zone_type = catalog.naming_rule_for("IfcZone", "ObjectType")
     allowed_zone_types = {
         z.type_label.strip() for z in catalog.zone_specs if z.type_label
-    }
-    # ObjectType → PP/PC depuis le catalogue
-    loc_by_type = {
-        z.type_label.strip(): z.localisation
-        for z in catalog.zone_specs
-        if z.type_label
     }
 
     def _is_dwelling_zone(object_type: str | None) -> bool:

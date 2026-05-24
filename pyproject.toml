@@ -1,9 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "audit-bim-i3f"
 version = "0.1.0"
-description = "MCP d'audit BIM conforme au Cahier des Charges BIM I3F (CCH V3.6)"
+description = "MCP server for BIM model audit against the I3F French BIM specifications (CCH BIM I3F V3.6)."
+readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Stanislas Limouzi", email = "stanislas@bimdata.io" }]
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Stanislas Limouzi", email = "stanislas@bimdata.io" },
+]
+keywords = [
+    "bim",
+    "ifc",
+    "mcp",
+    "model-context-protocol",
+    "audit",
+    "bimdata",
+    "i3f",
+    "construction",
+    "amo",
+    "loi-mop",
+    "iso-19650",
+    "uniformat",
+    "bcf",
+    "smart-views",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Other Audience",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Natural Language :: French",
+]
 dependencies = [
     "requests>=2.31",
     "openpyxl>=3.1",
@@ -18,13 +56,86 @@ dependencies = [
     "rapidfuzz>=3.6",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.5",
+    "build>=1.2",
+    "twine>=5.0",
+]
+test = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/Slimouzi/audit-bim-i3f"
+Repository = "https://github.com/Slimouzi/audit-bim-i3f"
+Issues = "https://github.com/Slimouzi/audit-bim-i3f/issues"
+Changelog = "https://github.com/Slimouzi/audit-bim-i3f/blob/master/CHANGELOG.md"
+
 [project.scripts]
 audit-bim = "audit_bim.cli:main"
 audit-bim-mcp = "audit_bim.mcp.__main__:main"
 
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
 [tool.setuptools.packages.find]
 include = ["audit_bim*"]
+exclude = ["tests*", "examples*", "docs*", "out*"]
+
+[tool.setuptools.package-data]
+"audit_bim" = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "integration: tests requiring network or BIMData API",
+    "slow: tests that take more than 1 second",
+]
+
+[tool.coverage.run]
+source = ["audit_bim"]
+omit = [
+    "audit_bim/mcp/__main__.py",
+    "audit_bim/cli.py",
+    "tests/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["out", "examples"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (gérée par formatter)
+    "B008",  # function calls in defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # asserts OK in tests
+"examples/*" = ["F401", "E402"]  # imports/exemples démo

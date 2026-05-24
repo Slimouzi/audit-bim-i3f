@@ -11,7 +11,6 @@ remplacer l'ensemble via le constructeur de ``ClassificationCatalog``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(frozen=True)

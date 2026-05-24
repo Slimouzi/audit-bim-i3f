@@ -7,7 +7,7 @@ du modèle (``Match``), puis enrichit la maquette BIMData.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -38,23 +38,23 @@ class DoeRecord(BaseModel):
 
     # Indices d'identification — au moins un de ces champs devrait être
     # renseigné pour permettre le matching.
-    uuid_hint: Optional[str] = Field(
+    uuid_hint: str | None = Field(
         None, description="GlobalId IFC si déjà connu (matching exact)."
     )
-    tag_hint: Optional[str] = Field(
+    tag_hint: str | None = Field(
         None, description="Tag / Mark / numéro équipement (matching exact)."
     )
-    name_hint: Optional[str] = Field(
+    name_hint: str | None = Field(
         None, description="Libellé équipement (matching fuzzy)."
     )
-    type_hint: Optional[str] = Field(
+    type_hint: str | None = Field(
         None,
         description="Type métier (« CTA », « Pompe », « Porte coupe-feu »).",
     )
-    storey_hint: Optional[str] = Field(
+    storey_hint: str | None = Field(
         None, description="Étage de localisation (ex: « 1ER ETAGE »)."
     )
-    zone_hint: Optional[str] = Field(
+    zone_hint: str | None = Field(
         None, description="Zone / local de localisation (ex: « 7427L-1101 »)."
     )
 
@@ -95,15 +95,15 @@ class Match(BaseModel):
     """
 
     record: DoeRecord
-    ifc_uuid: Optional[str] = Field(
+    ifc_uuid: str | None = Field(
         None, description="UUID IFC matché (None si pas de match retenu)."
     )
-    ifc_type: Optional[str] = None
-    ifc_name: Optional[str] = None
+    ifc_type: str | None = None
+    ifc_name: str | None = None
     confidence: float = Field(
         0.0, description="Confiance du matching (0..1)."
     )
-    strategy: Optional[str] = Field(
+    strategy: str | None = Field(
         None,
         description="Stratégie qui a fait le match : guid / tag / name / localisation.",
     )
@@ -114,7 +114,7 @@ class Match(BaseModel):
             "Chaque entrée : ``{uuid, type, name, score}``."
         ),
     )
-    reason: Optional[str] = Field(
+    reason: str | None = Field(
         None, description="Raison du non-match si ``ifc_uuid`` est None."
     )
 

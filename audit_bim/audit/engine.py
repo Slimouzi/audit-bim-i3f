@@ -16,11 +16,10 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Optional
 
 from ..extraction.model_data import ModelSnapshot
 from ..requirements.models import BIMPhase, RequirementsCatalog
-from .findings import Finding, Severity, Theme
+from .findings import Finding, Severity
 from .rules import (
     audit_classifications,
     audit_lists,
@@ -94,10 +93,10 @@ class AuditResult:
     def filter(
         self,
         *,
-        theme: Optional[str] = None,
-        severity: Optional[str] = None,
-        error_type: Optional[str] = None,
-        ifc_type: Optional[str] = None,
+        theme: str | None = None,
+        severity: str | None = None,
+        error_type: str | None = None,
+        ifc_type: str | None = None,
     ) -> list[Finding]:
         """Filtre les findings sur 1+ critères combinés en ET.
 

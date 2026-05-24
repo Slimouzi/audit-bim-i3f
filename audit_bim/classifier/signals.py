@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -22,9 +21,9 @@ class ElementSignals:
     description: str = ""
     layers: list[str] = None  # noms de layers (Revit/CAO)
     materials: list[str] = None
-    is_external: Optional[bool] = None
-    load_bearing: Optional[bool] = None
-    predefined_type: Optional[str] = None
+    is_external: bool | None = None
+    load_bearing: bool | None = None
+    predefined_type: str | None = None
     base_quantities: dict[str, float] = None  # NetSideArea, NetVolume, Height…
 
     def text_blob(self) -> str:
@@ -106,9 +105,9 @@ def _attr(element: dict, name: str) -> str:
 def extract_signals(element: dict) -> ElementSignals:
     """Construit un ``ElementSignals`` depuis un élément BIMData dénormalisé."""
     layers = [
-        l.get("name") or ""
-        for l in (element.get("layers") or [])
-        if isinstance(l, dict)
+        layer.get("name") or ""
+        for layer in (element.get("layers") or [])
+        if isinstance(layer, dict)
     ]
     materials = []
     for m in element.get("material_list") or []:
