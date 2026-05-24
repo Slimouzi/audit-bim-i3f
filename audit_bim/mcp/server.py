@@ -27,6 +27,12 @@ from ..classifier import (
     read_classifications_from_xlsx,
     suggest_for_findings,
 )
+from ..doe import (
+    apply_matches_to_model,
+    match_doe_records,
+    parse_doe_excel,
+    summarize_matches,
+)
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot, extract_snapshot
 from ..reporting.word_report import write_word_report
@@ -492,6 +498,80 @@ def apply_classifications_from_xlsx(
     result["n_items_read_from_xlsx"] = len(items)
     result["xlsx_path"] = xlsx_path
     return result
+
+
+@mcp.tool()
+def doe_enrich_model(
+    xlsx_path: str,
+    dry_run: bool = True,
+    name_min_score: int = 75,
+) -> dict:
+    """Agent DOE → IFC : lit un fichier DOE Excel, rapproche les
+    équipements aux éléments IFC du modèle, et enrichit la maquette
+    BIMData avec les propriétés extraites.
+
+    Workflow en 3 étapes :
+    1. **Extraction** — parse les lignes Excel en ``DoeRecord``.
+    2. **Matching** — 4 stratégies en cascade (GUID, Tag/Mark, Nom fuzzy
+       via rapidfuzz, Localisation) ; renvoie un ``Match`` par DoeRecord.
+    3. **Enrichissement** — pour chaque match, crée un Pset
+       ``Pset_DOE`` (ou Pset nommé dans la colonne ``Pset.Propriete``)
+       sur l'élément IFC via l'API BIMData.
+
+    Conventions Excel attendues :
+    - En-tête identifiants : ``UUID`` / ``Tag`` / ``Mark`` / ``Nom`` /
+      ``Type`` / ``Étage`` / ``Zone`` (sensible aux accents, casse libre).
+    - En-tête propriétés : ``Pset_3F.Fabricant`` ou ``Pset_3F/Fabricant``
+      pour cibler un Pset précis, sinon ``Pset_DOE`` par défaut.
+
+    Args:
+        xlsx_path: chemin du fichier DOE Excel.
+        dry_run: si ``True`` (défaut), aucun POST — renvoie payloads et
+            résumé. Mettre ``False`` pour pousser réellement.
+        name_min_score: seuil fuzzy (0..100) sous lequel un match par nom
+            n'est pas retenu. Défaut 75 — augmenter pour réduire les faux
+            positifs.
+    """
+    _State.ensure_client()
+    _State.ensure_snapshot()
+    records = parse_doe_excel(xlsx_path)
+    matches = match_doe_records(
+        records, _State.snapshot, name_min_score=name_min_score
+    )
+    summary = summarize_matches(matches)
+    application = apply_matches_to_model(
+        _State.client, matches, dry_run=dry_run
+    )
+    return {
+        "source": xlsx_path,
+        "summary": summary,
+        "application": application,
+    }
+
+
+@mcp.tool()
+def doe_match_only(
+    xlsx_path: str,
+    name_min_score: int = 75,
+    limit: int = 50,
+) -> dict:
+    """Variante read-only de ``doe_enrich_model`` : parse + matche mais
+    n'enrichit *jamais* la maquette (utile pour valider la qualité des
+    matches avant d'appliquer).
+    """
+    _State.ensure_snapshot()
+    records = parse_doe_excel(xlsx_path)
+    matches = match_doe_records(
+        records, _State.snapshot, name_min_score=name_min_score
+    )
+    summary = summarize_matches(matches)
+    sample = [m.model_dump(mode="json") for m in matches[:limit]]
+    return {
+        "source": xlsx_path,
+        "n_records": len(records),
+        "summary": summary,
+        "sample_matches": sample,
+    }
 
 
 @mcp.tool()

@@ -15,6 +15,7 @@ dependencies = [
     "matplotlib>=3.8",
     "python-dotenv>=1.0",
     "fastmcp>=0.4",
+    "rapidfuzz>=3.6",
 ]
 
 [project.scripts]
