@@ -514,21 +514,25 @@ def doe_enrich_model(
     doe_path: str,
     dry_run: bool = True,
     name_min_score: int = 75,
+    on_conflict: str = "report",
     ocr_fallback: bool = True,
     ocr_lang: str = "fra",
 ) -> dict:
     """Agent DOE → IFC : lit un fichier DOE (Excel, PDF natif ou scanné),
     rapproche les équipements aux éléments IFC du modèle, et enrichit la
-    maquette BIMData avec les propriétés extraites.
+    maquette BIMData avec gestion des conflits.
 
-    Workflow en 3 étapes :
+    Workflow :
 
     1. **Extraction** — auto-détection du format (xlsx / pdf), avec
        fallback OCR Tesseract pour les PDF scannés.
     2. **Matching** — 4 stratégies en cascade (GUID, Tag/Mark, Nom
        fuzzy via rapidfuzz, Localisation).
-    3. **Enrichissement** — crée un Pset (``Pset_DOE`` par défaut) sur
-       chaque élément IFC matché via l'API BIMData.
+    3. **Détection des conflits** — pour chaque propriété DOE,
+       classification ``MATCH`` (= valeur déjà présente, skip),
+       ``NEW`` (absente, à écrire), ``UPGRADE`` (présente mais vide,
+       à écrire), ``CONFLICT`` (différente — voir ``on_conflict``).
+    4. **Enrichissement** — écrit les Psets sur les éléments matchés.
 
     Conventions de colonnes (mêmes pour Excel et PDF) :
 
@@ -543,6 +547,14 @@ def doe_enrich_model(
             et résumé. ``False`` pour pousser réellement les Psets.
         name_min_score: Seuil fuzzy 0–100 pour le matching par nom
             (défaut 75). Monter à 85+ pour réduire les faux positifs.
+        on_conflict: Stratégie quand la maquette a déjà une valeur
+            différente du DOE :
+
+            - ``"report"`` (défaut) : **n'écrase pas**. Signale les
+              conflits dans la réponse. Mode prudent recommandé.
+            - ``"skip"`` : comme report mais sans détail nominal.
+            - ``"overwrite"`` : écrase. À réserver au DOE autoritaire
+              (post-réception, validé MOA).
         ocr_fallback: PDF scanné détecté → OCR Tesseract (défaut
             ``True``). Nécessite ``pip install audit-bim-i3f[ocr]`` +
             binaire Tesseract installé.
@@ -553,7 +565,13 @@ def doe_enrich_model(
     records = parse_doe(doe_path, ocr_fallback=ocr_fallback, ocr_lang=ocr_lang)
     matches = match_doe_records(records, _State.snapshot, name_min_score=name_min_score)
     summary = summarize_matches(matches)
-    application = apply_matches_to_model(_State.client, matches, dry_run=dry_run)
+    application = apply_matches_to_model(
+        _State.client,
+        matches,
+        dry_run=dry_run,
+        snapshot=_State.snapshot,
+        on_conflict=on_conflict,
+    )
     return {
         "source": doe_path,
         "summary": summary,

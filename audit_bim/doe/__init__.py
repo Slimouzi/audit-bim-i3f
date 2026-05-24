@@ -6,6 +6,13 @@ BIMData via 4 stratégies en cascade (GUID, Tag, Nom fuzzy,
 Localisation), et enrichit la maquette avec les propriétés extraites.
 """
 
+from .conflicts import (
+    ConflictReport,
+    ConflictType,
+    classify_conflict,
+    detect_conflicts,
+    summarize_conflicts,
+)
 from .enricher import apply_matches_to_model
 from .extractors import parse_doe, parse_doe_excel, parse_doe_pdf
 from .matcher import match_doe_records
@@ -13,12 +20,17 @@ from .models import DoeRecord, Match
 from .reporter import summarize_matches
 
 __all__ = [
+    "ConflictReport",
+    "ConflictType",
     "DoeRecord",
     "Match",
     "apply_matches_to_model",
+    "classify_conflict",
+    "detect_conflicts",
     "match_doe_records",
     "parse_doe",
     "parse_doe_excel",
     "parse_doe_pdf",
+    "summarize_conflicts",
     "summarize_matches",
 ]
