@@ -34,8 +34,28 @@ pour les détails. Les axes couverts :
 
 ## Audit CVE — politique d'ignore
 
-Le job CI `security-audit` exécute `pip-audit --skip-editable` à chaque
-push et bloque le build en cas de vuln connue (exit code non-zéro). Quand une vuln est remontée
+Le job CI `security-audit` exécute `pip-audit` à chaque push contre les
+versions **figées dans `uv.lock`** (via `uv export --format
+requirements-txt`). L'audit est donc bit-à-bit reproductible : tant
+que `uv.lock` ne change pas, les résultats pip-audit ne dépendent ni
+de la météo du résolveur, ni de packages installés différemment en
+local. Une vuln trouvée fait sortir le job en exit code non-zéro et
+bloque le build.
+
+Un job complémentaire `security-audit-ocr` couvre les extras `[ocr]`
+(pytesseract, pdf2image, Pillow), pas inclus dans la résolution
+standard.
+
+### Mettre à jour les dépendances
+
+```bash
+uv lock              # regénère uv.lock avec les dernières versions compatibles
+git add uv.lock
+git commit -m "chore(deps): bump via uv lock"
+```
+
+La CI bloque toute PR qui modifie `pyproject.toml` sans regénérer
+`uv.lock` (via `uv lock --check`). Quand une vuln est remontée
 sans correctif disponible immédiat, on peut l'ignorer **temporairement**
 en suivant cette procédure :
 
