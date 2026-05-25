@@ -22,10 +22,14 @@ def _build_retry_adapter() -> HTTPAdapter:
     """``HTTPAdapter`` avec retries bornés sur 429 / 5xx + backoff exponentiel.
 
     Politique : 3 tentatives totales, backoff 0.5 s × 2ⁿ (cap urllib3 ~8 s).
-    Respecte ``Retry-After`` (utile sur les 429 BIMData). Les méthodes
-    autorisées au retry sont GET/HEAD/POST — les POST sur BIMData utilisés
-    par ce client sont idempotents (création par GUID / bulk classification
-    avec dédup) ou opérationnellement OK à rejouer.
+    Respecte ``Retry-After`` (utile sur les 429 BIMData).
+
+    **Méthodes idempotentes uniquement** (``GET`` / ``HEAD``). Les ``POST``
+    BIMData créent (BCF Topic, Smart View, classification-element) — si
+    la requête réussit côté serveur mais que la réponse se perd, un
+    retry dupliquerait. Les callers qui veulent un retry sur POST
+    doivent l'implémenter au-dessus, avec dédup métier (par exemple
+    un GUID stable pour BCF Topics, ou un ``GET`` de pré-existence).
     """
     retry = Retry(
         total=3,
@@ -33,7 +37,7 @@ def _build_retry_adapter() -> HTTPAdapter:
         read=2,
         backoff_factor=0.5,
         status_forcelist=(429, 500, 502, 503, 504),
-        allowed_methods=frozenset({"GET", "HEAD", "POST"}),
+        allowed_methods=frozenset({"GET", "HEAD"}),
         respect_retry_after_header=True,
         raise_on_status=False,
     )

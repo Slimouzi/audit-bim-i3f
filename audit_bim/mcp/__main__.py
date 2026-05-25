@@ -22,7 +22,7 @@ import argparse
 import logging
 import sys
 
-from .security import assert_startup_config
+from .security import assert_startup_config, set_runtime_transport
 from .server import mcp
 
 logger = logging.getLogger("audit_bim.mcp")
@@ -55,6 +55,11 @@ def main() -> int:
         help="Port d'écoute (transports http/sse).",
     )
     args = parser.parse_args()
+
+    # Mémorise le transport AVANT le check : ``assert_startup_config``
+    # logge ses warnings via :func:`is_write_allowed` qui dépend du
+    # transport runtime.
+    set_runtime_transport(args.transport)
 
     # Fail-fast avant tout bind socket.
     try:

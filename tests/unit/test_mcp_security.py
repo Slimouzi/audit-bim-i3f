@@ -14,13 +14,14 @@ from audit_bim.mcp.security import (
     is_prod,
     is_write_allowed,
     scrub,
+    set_runtime_transport,
     verify_api_key,
 )
 
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    """Repart d'un env propre pour chaque test."""
+    """Repart d'un env propre + runtime transport stdio pour chaque test."""
     for var in (
         API_KEY_ENV,
         REQUIRE_API_KEY_ENV,
@@ -28,6 +29,9 @@ def _clean_env(monkeypatch):
         "AUDIT_BIM_ALLOW_WRITES",
     ):
         monkeypatch.delenv(var, raising=False)
+    # Reset le runtime transport (les autres tests d'intégration peuvent
+    # l'avoir mis à autre chose).
+    set_runtime_transport("stdio")
 
 
 # ── Flags ────────────────────────────────────────────────────────────────
@@ -54,11 +58,32 @@ class TestEnvFlags:
         monkeypatch.setenv("AUDIT_BIM_ENV", "production")
         assert is_api_key_required() is True
 
-    def test_is_write_allowed_default_true(self):
+    def test_is_write_allowed_default_true_in_stdio(self):
         # Mode dev / stdio par défaut
+        set_runtime_transport("stdio")
         assert is_write_allowed() is True
 
-    def test_is_write_allowed_explicit_false(self, monkeypatch):
+    def test_is_write_allowed_default_false_in_http(self):
+        set_runtime_transport("http")
+        assert is_write_allowed() is False
+
+    def test_is_write_allowed_default_false_in_sse(self):
+        set_runtime_transport("sse")
+        assert is_write_allowed() is False
+
+    def test_is_write_allowed_default_false_in_streamable_http(self):
+        set_runtime_transport("streamable-http")
+        assert is_write_allowed() is False
+
+    def test_is_write_allowed_env_overrides_transport(self, monkeypatch):
+        # En HTTP, défaut = False ; on peut forcer True via env
+        set_runtime_transport("http")
+        monkeypatch.setenv("AUDIT_BIM_ALLOW_WRITES", "true")
+        assert is_write_allowed() is True
+
+    def test_is_write_allowed_env_explicit_false_in_stdio(self, monkeypatch):
+        # Et inversement : en stdio on peut désactiver explicitement
+        set_runtime_transport("stdio")
         monkeypatch.setenv("AUDIT_BIM_ALLOW_WRITES", "false")
         assert is_write_allowed() is False
 

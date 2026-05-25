@@ -73,6 +73,56 @@ python -m audit_bim.mcp --transport sse   --port 8765   # Server-Sent Events
 python -m audit_bim.mcp --transport streamable-http --port 8765
 ```
 
+## Déploiement sécurisé (transport réseau)
+
+Le mode `stdio` (Claude Desktop / SDK local) est implicitement de confiance —
+aucune configuration supplémentaire requise. Dès que le serveur écoute sur
+le réseau (`http` / `sse` / `streamable-http`), respecter cette check-list :
+
+```bash
+# 1. Activer le mode production (refuse de booter sans clé, autorise 0.0.0.0)
+export AUDIT_BIM_ENV=production
+
+# 2. Clé service obligatoire — vérifiée par X-API-Key à l'init MCP
+export AUDIT_BIM_API_KEY="$(openssl rand -hex 32)"
+
+# 3. Mode read-only par défaut sur transport réseau — les push BCF / Smart
+#    Views / classifications sont refusés tant que ce flag n'est pas
+#    explicitement à "true". Ne le relâcher qu'au besoin et après audit.
+export AUDIT_BIM_ALLOW_WRITES=false
+
+# 4. Sandbox filesystem : confiner les lectures et écritures
+export AUDIT_INPUT_DIR=/srv/audit/input    # DOE, CCH, annexes
+export AUDIT_OUTPUT_DIR=/srv/audit/output  # rapports, cache snapshot
+
+# 5. (Optionnel) Bornes de session HTTP
+export AUDIT_BIM_SESSION_TTL_S=3600
+export AUDIT_BIM_MAX_SESSIONS=64
+
+# 6. Démarrage — écoute uniquement sur la loopback ; le TLS et l'auth client
+#    sont délégués au reverse-proxy (Nginx / Traefik / Cloudflare).
+python -m audit_bim.mcp \
+  --transport streamable-http \
+  --host 127.0.0.1 \
+  --port 8765
+```
+
+Côté reverse-proxy (exemple Nginx) :
+
+```nginx
+location /mcp/ {
+    proxy_pass http://127.0.0.1:8765/mcp/;
+    proxy_set_header X-API-Key $http_x_api_key;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # TLS, rate-limit, auth client (mTLS, OIDC...) ici
+}
+```
+
+Le serveur refusera de démarrer si `AUDIT_BIM_ENV=production` (ou
+`AUDIT_BIM_REQUIRE_API_KEY=true`) est défini sans `AUDIT_BIM_API_KEY`, ou
+si `--host 0.0.0.0` est demandé hors mode production. Toutes les variables
+sont documentées dans `audit_bim/mcp/security.py` et `audit_bim/safe_paths.py`.
+
 ## Intégrations multi-clients
 
 Le serveur est utilisable depuis :

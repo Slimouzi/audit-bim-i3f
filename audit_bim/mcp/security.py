@@ -4,10 +4,14 @@ Trois axes :
 
 1. **Auth applicative** pour les transports HTTP / SSE / streamable-http.
    La clé service ``AUDIT_BIM_API_KEY`` doit être présentée dans le
-   header ``X-API-Key`` (ou dans la query string ``?api_key=...``
-   pour les clients SSE qui ne peuvent pas customiser les headers).
-   Comparaison à temps constant. En mode ``stdio``, la garde est
-   désactivée (le canal IPC est implicitement de confiance).
+   header ``X-API-Key``. Comparaison à temps constant. En mode
+   ``stdio``, la garde est désactivée (le canal IPC est implicitement
+   de confiance). On n'expose **pas** la clé via query string — les
+   secrets ne doivent pas finir dans les access logs / l'historique
+   navigateur. Côté SSE, configurer le client pour envoyer le header
+   à l'établissement de la connexion (EventSource ne le supporte pas
+   nativement ; utiliser un fetch-based polyfill ou un reverse-proxy
+   qui injecte la clé).
 
 2. **Fail-fast au démarrage** : un serveur prod qui démarre en HTTP
    *sans* clé service est presque toujours une erreur de configuration.
@@ -17,12 +21,16 @@ Trois axes :
      ``AUDIT_BIM_ENV=production``) ET la clé n'est pas définie ;
    - host = ``0.0.0.0`` sans ``AUDIT_BIM_ENV=production``.
 
-3. **Politique d'écriture** : ``AUDIT_BIM_ALLOW_WRITES`` (défaut
-   ``false`` en HTTP, ``true`` en stdio) gouverne tous les tools
-   mutatifs côté BIMData (apply_classifications, doe_enrich,
-   create_bcf_topics, create_smart_views, full_audit avec push).
+3. **Politique d'écriture** : ``AUDIT_BIM_ALLOW_WRITES`` gouverne tous
+   les tools mutatifs BIMData. Défaut **secure-by-transport** :
+
+   - ``true`` en stdio (mono-client local, AMO BIM interactif) ;
+   - ``false`` en transport réseau (HTTP / SSE / streamable-http) tant
+     que le déploiement n'a pas explicitement autorisé l'écriture
+     distante via ``AUDIT_BIM_ALLOW_WRITES=true``.
+
    :func:`ensure_writes_allowed` est appelée par chaque tool mutatif
-   avant d'effectuer un changement distant.
+   avant tout side-effect distant.
 """
 
 from __future__ import annotations
@@ -38,6 +46,27 @@ API_KEY_ENV = "AUDIT_BIM_API_KEY"
 REQUIRE_API_KEY_ENV = "AUDIT_BIM_REQUIRE_API_KEY"
 ENV_NAME_ENV = "AUDIT_BIM_ENV"
 ALLOW_WRITES_ENV = "AUDIT_BIM_ALLOW_WRITES"
+
+# Transport configuré au démarrage (cf. :func:`set_runtime_transport`).
+# ``None`` = stdio par défaut (tests, scripts, imports directs hors
+# ``__main__``) — comportement permissif identique à un MCP local.
+_RUNTIME_TRANSPORT: str | None = None
+
+
+def set_runtime_transport(transport: str) -> None:
+    """Mémorise le transport choisi au démarrage du serveur.
+
+    Appelé par ``audit_bim.mcp.__main__`` avant ``mcp.run`` pour que
+    :func:`is_write_allowed` puisse appliquer son défaut
+    *secure-by-transport*.
+    """
+    global _RUNTIME_TRANSPORT
+    _RUNTIME_TRANSPORT = transport
+
+
+def _is_network_transport() -> bool:
+    """``True`` si le runtime tourne sur un transport réseau exposable."""
+    return _RUNTIME_TRANSPORT in ("http", "sse", "streamable-http")
 
 
 # ── Politique : prod vs dev ──────────────────────────────────────────────
@@ -60,19 +89,24 @@ def is_api_key_required() -> bool:
 def is_write_allowed() -> bool:
     """Indique si les tools mutatifs peuvent toucher à BIMData.
 
-    Par défaut, on lit ``AUDIT_BIM_ALLOW_WRITES`` :
+    Logique :
 
-    - défini → cette valeur (``true`` / ``false``).
-    - non défini → ``True`` (mode dev / Claude Desktop local).
+    - ``AUDIT_BIM_ALLOW_WRITES`` défini → on respecte la valeur
+      explicite (``true`` / ``false``).
+    - Variable non définie :
 
-    Pour un déploiement HTTP exposé, mettre explicitement
-    ``AUDIT_BIM_ALLOW_WRITES=false`` puis ne re-permettre les push
-    qu'au besoin et de manière scopée.
+      - transport ``stdio`` (ou inconnu, ex. tests / scripts directs)
+        → ``True`` (mode AMO BIM interactif local).
+      - transport réseau (``http`` / ``sse`` / ``streamable-http``)
+        → ``False`` *par défaut* — un déploiement HTTP doit
+        explicitement choisir ``AUDIT_BIM_ALLOW_WRITES=true`` pour
+        autoriser les push BIMData.
     """
     raw = os.getenv(ALLOW_WRITES_ENV)
-    if raw is None:
-        return True
-    return _is_truthy(raw)
+    if raw is not None:
+        return _is_truthy(raw)
+    # Défaut secure-by-transport
+    return not _is_network_transport()
 
 
 class WritesDisabledError(PermissionError):
@@ -139,10 +173,21 @@ def assert_startup_config(*, transport: str, host: str | None = None) -> None:
             transport,
         )
     if is_write_allowed():
+        # Sur un transport réseau, ce log signifie que l'utilisateur a
+        # explicitement mis ``AUDIT_BIM_ALLOW_WRITES=true``. C'est un
+        # signal à laisser visible pour audit de configuration.
         logger.warning(
-            "AUDIT_BIM_ALLOW_WRITES non restreint en transport %s — les tools "
+            "AUDIT_BIM_ALLOW_WRITES=true en transport %s — les tools "
             "mutatifs (apply_classifications, doe_enrich, create_bcf_topics, "
-            "create_smart_views, full_audit avec push) peuvent toucher BIMData.",
+            "create_smart_views, full_audit avec push) peuvent toucher "
+            "BIMData. Confirmer que c'est l'effet attendu.",
+            transport,
+        )
+    else:
+        logger.info(
+            "AUDIT_BIM_ALLOW_WRITES inactif sur transport %s — les tools "
+            "mutatifs sont en mode read-only. Définir explicitement "
+            "AUDIT_BIM_ALLOW_WRITES=true pour autoriser les push.",
             transport,
         )
 

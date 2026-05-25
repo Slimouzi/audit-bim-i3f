@@ -181,12 +181,24 @@ def set_owner_documents(
     Tous les paramètres sont optionnels : on ne réécrit que ce qui est fourni.
     Les chemins déjà chargés depuis ``.env`` restent en place sinon.
     """
+    # Validation : si un chemin est fourni, il doit passer par la
+    # sandbox d'inputs (extension stricte selon le type de document,
+    # racine ``AUDIT_INPUT_DIR`` quand définie, taille / traversal /
+    # existence).
     if cch_pdf is not None:
-        _State.cch_pdf = Path(cch_pdf) if cch_pdf else None
+        _State.cch_pdf = safe_input_path(cch_pdf, allowed_extensions={".pdf"}) if cch_pdf else None
     if data_spec_xlsx is not None:
-        _State.data_spec_xlsx = Path(data_spec_xlsx) if data_spec_xlsx else None
+        _State.data_spec_xlsx = (
+            safe_input_path(data_spec_xlsx, allowed_extensions={".xlsx", ".xlsm"})
+            if data_spec_xlsx
+            else None
+        )
     if naming_spec_xlsx is not None:
-        _State.naming_spec_xlsx = Path(naming_spec_xlsx) if naming_spec_xlsx else None
+        _State.naming_spec_xlsx = (
+            safe_input_path(naming_spec_xlsx, allowed_extensions={".xlsx", ".xlsm"})
+            if naming_spec_xlsx
+            else None
+        )
 
     def stat(p: Path | None):
         if not p:
@@ -432,11 +444,14 @@ def enrich_with_public_data(
         zonage PLU + risques + ``sources_used`` + ``sources_errors``.
     """
     _State.ensure_snapshot()
+    # Validation du DOE optionnel : même politique que doe_enrich_model
+    # / doe_match_only — racine, extension, taille, traversal.
+    safe_doe = str(safe_input_path(doe_path)) if doe_path else None
     report = _enrich_with_public_data(
         _State.snapshot,
         address_override=address_override,
         address_override_source=address_override_source,
-        doe_path=doe_path,
+        doe_path=safe_doe,
         include_dpe=include_dpe,
         include_plu=include_plu,
         include_georisques=include_georisques,
