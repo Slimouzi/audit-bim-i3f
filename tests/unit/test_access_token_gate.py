@@ -58,7 +58,7 @@ class TestEnsureAccessTokenParamAllowed:
 
     def test_http_refused_by_default(self):
         set_runtime_transport("http")
-        with pytest.raises(AccessTokenParamDisabledError, match="désactivé"):
+        with pytest.raises(AccessTokenParamDisabledError, match="refusé"):
             ensure_access_token_param_allowed()
 
     def test_http_passes_with_opt_in(self, monkeypatch):

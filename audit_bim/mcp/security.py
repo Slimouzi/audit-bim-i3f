@@ -164,11 +164,18 @@ def ensure_access_token_param_allowed() -> None:
             "AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM=true to override)"
         )
         raise AccessTokenParamDisabledError(
-            "Paramètre `access_token` désactivé en transport réseau — "
-            "les paramètres MCP transitent dans des logs client / agent "
-            "traces / reverse-proxy. Utiliser BIMDATA_API_KEY / "
-            "BIMDATA_CLIENT_ID côté serveur ou définir explicitement "
-            "AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM=true (déconseillé)."
+            "Paramètre `access_token` refusé sur transport réseau "
+            "(http/sse/streamable-http) : les arguments MCP transitent "
+            "dans les logs client / agent traces / reverse-proxy et un "
+            "Bearer token y fuirait.\n\n"
+            "Deux corrections possibles :\n"
+            "  1. RECOMMANDÉ — configurer l'auth BIMData côté serveur "
+            "via les variables d'env (au choix : `BIMDATA_API_KEY=…` ou "
+            "`BIMDATA_CLIENT_ID=…` + `BIMDATA_CLIENT_SECRET=…`), puis "
+            "appeler set_active_model / full_audit SANS `access_token`.\n"
+            "  2. DÉCONSEILLÉ — opt-in explicite en démarrant le serveur "
+            "avec `AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM=true` (à n'utiliser "
+            "que si les logs JSON-RPC sont eux-mêmes confidentiels)."
         )
 
 

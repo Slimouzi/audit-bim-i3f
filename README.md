@@ -148,6 +148,38 @@ suivantes (`RuntimeError` au moment de `python -m audit_bim.mcp`) :
 Toutes les variables sont documentées dans
 `audit_bim/mcp/security.py` et `audit_bim/safe_paths.py`.
 
+### Note sur `access_token`
+
+Les tools `set_active_model` et `full_audit` acceptent un paramètre
+`access_token` (Bearer OAuth BIMData). Ce paramètre est **prévu pour
+stdio local / dev uniquement** :
+
+- En transport `stdio` (Claude Desktop, SDK local, scripts) : le token
+  ne quitte pas l'IPC inter-process — usage acceptable.
+- En transport réseau (`http` / `sse` / `streamable-http`) : les
+  arguments MCP transitent dans des frames JSON-RPC visibles côté
+  logs client, agent traces, et reverse-proxy. Un Bearer y fuirait.
+  Le serveur **refuse** par défaut un `access_token` en argument et
+  lève `AccessTokenParamDisabledError`.
+
+Pour un déploiement HTTP exposé, configurer l'auth BIMData côté
+**serveur** via les variables d'env (lues une seule fois au boot, ne
+fuitent pas dans les logs MCP) :
+
+```bash
+export BIMDATA_API_KEY=…
+# OU
+export BIMDATA_CLIENT_ID=…
+export BIMDATA_CLIENT_SECRET=…
+```
+
+Puis appeler `set_active_model` / `full_audit` **sans** `access_token`
+— le client BIMData prend la config serveur.
+
+L'opt-out `AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM=true` existe pour les
+cas particuliers (logs JSON-RPC eux-mêmes confidentiels, ex. déploiement
+single-tenant derrière mTLS) mais reste **déconseillé**.
+
 ## Intégrations multi-clients
 
 Le serveur est utilisable depuis :

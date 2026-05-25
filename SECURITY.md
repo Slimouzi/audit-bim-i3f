@@ -19,6 +19,11 @@ pour les détails. Les axes couverts :
   écritures (`AUDIT_OUTPUT_DIR`).
 - **Politique d'écriture BIMData** (`AUDIT_BIM_ALLOW_WRITES`, défaut
   read-only sur transport réseau).
+- **Refus du Bearer en paramètre MCP** sur transport réseau
+  (`AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM`, défaut `false` en HTTP/SSE).
+  Le paramètre `access_token` des tools reste réservé au mode
+  stdio local/dev — en HTTP exposé, configurer `BIMDATA_API_KEY`
+  ou `BIMDATA_CLIENT_ID`+`…_SECRET` côté serveur.
 - **Anti-injection** de formule sur les exports XLSX
   (`Workbook(strings_to_formulas=False)` + neutralisation `'` sur les
   valeurs externes).
@@ -69,6 +74,7 @@ Synthèse pour le déploiement. Détail : `README.md` section
 | `AUDIT_BIM_REQUIRE_API_KEY=true` | Force la clé même hors prod | Selon contexte |
 | `AUDIT_BIM_ALLOW_WRITES` | Permet les push BIMData (BCF, classifications) | `false` (sauf besoin explicite) |
 | `AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true` | Opt-out de la sandbox d'inputs (déconseillé) | Non |
+| `AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM=true` | Autorise `access_token` en paramètre MCP sur réseau (stdio = toujours autorisé, déconseillé en HTTP) | Non — utiliser `BIMDATA_API_KEY` côté serveur |
 | `AUDIT_INPUT_DIR` | Racine des fichiers DOE/CCH lisibles | Oui, dossier dédié |
 | `AUDIT_OUTPUT_DIR` | Racine des exports xlsx/docx/json | Oui, dossier dédié |
 | `AUDIT_MAX_INPUT_MB` | Taille max d'un fichier d'input | 50 par défaut |
