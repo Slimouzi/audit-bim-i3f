@@ -120,6 +120,71 @@ class TestPerPageIsolation:
         assert records[0].uuid_hint == "u-2"
 
 
+class TestPdfRasterTimeout:
+    """Round 7 review : timeout Poppler propagé à convert_from_path."""
+
+    def test_env_default(self, monkeypatch):
+        from audit_bim.doe.extractors.ocr import _pdf_raster_timeout_s
+
+        monkeypatch.delenv("AUDIT_PDF_RASTER_TIMEOUT_S", raising=False)
+        assert _pdf_raster_timeout_s() == 30
+
+    def test_env_override(self, monkeypatch):
+        from audit_bim.doe.extractors.ocr import _pdf_raster_timeout_s
+
+        monkeypatch.setenv("AUDIT_PDF_RASTER_TIMEOUT_S", "5")
+        assert _pdf_raster_timeout_s() == 5
+
+    def test_env_invalid_falls_back(self, monkeypatch):
+        from audit_bim.doe.extractors.ocr import _pdf_raster_timeout_s
+
+        monkeypatch.setenv("AUDIT_PDF_RASTER_TIMEOUT_S", "not-a-number")
+        assert _pdf_raster_timeout_s() == 30
+
+    def test_env_zero_clamped_to_one(self, monkeypatch):
+        from audit_bim.doe.extractors.ocr import _pdf_raster_timeout_s
+
+        monkeypatch.setenv("AUDIT_PDF_RASTER_TIMEOUT_S", "0")
+        assert _pdf_raster_timeout_s() == 1
+
+    @pytest.mark.skipif(not _ocr_deps_available, reason="extras [ocr] non installés")
+    def test_timeout_passed_to_convert_from_path(self, tmp_path, monkeypatch):
+        """``convert_from_path`` reçoit bien ``timeout=`` lors de l'OCR."""
+        from audit_bim.doe.extractors.ocr import _ocr_single_page
+
+        monkeypatch.setenv("AUDIT_PDF_RASTER_TIMEOUT_S", "7")
+        pdf = tmp_path / "fake.pdf"
+        pdf.write_bytes(b"%PDF-1.4 fake")
+
+        # On mocke pytesseract pour ne pas avoir besoin du binaire.
+        from unittest.mock import MagicMock
+
+        fake_img = MagicMock()
+
+        # ``convert_from_path`` est importé en lazy dans ``_ocr_single_page``
+        # via ``from pdf2image import convert_from_path`` — on patche à
+        # la source pour que le lazy import voie le mock.
+        with (
+            patch("pdf2image.convert_from_path") as mock_conv,
+            patch("pytesseract.image_to_data") as mock_ocr,
+        ):
+            mock_conv.return_value = [fake_img]
+            mock_ocr.return_value = {
+                "text": [],
+                "left": [],
+                "top": [],
+                "width": [],
+                "height": [],
+                "conf": [],
+            }
+            _ocr_single_page(path=pdf, page_num=1, dpi=200, lang="fra", ocr_timeout=30)
+            mock_conv.assert_called_once()
+            kwargs = mock_conv.call_args.kwargs
+            assert kwargs["timeout"] == 7
+            assert kwargs["first_page"] == 1
+            assert kwargs["last_page"] == 1
+
+
 @needs_ocr_deps
 class TestEnvBounds:
     def test_max_pdf_pages_env_caps(self, tmp_path, monkeypatch):

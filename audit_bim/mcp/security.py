@@ -50,6 +50,7 @@ REQUIRE_API_KEY_ENV = "AUDIT_BIM_REQUIRE_API_KEY"
 ENV_NAME_ENV = "AUDIT_BIM_ENV"
 ALLOW_WRITES_ENV = "AUDIT_BIM_ALLOW_WRITES"
 ALLOW_UNBOUNDED_INPUTS_ENV = "AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS"
+ALLOW_ACCESS_TOKEN_PARAM_ENV = "AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM"
 
 # Transport configuré au démarrage (cf. :func:`set_runtime_transport`).
 # ``None`` = stdio par défaut (tests, scripts, imports directs hors
@@ -115,6 +116,60 @@ def is_write_allowed() -> bool:
 
 class WritesDisabledError(PermissionError):
     """Levée par un tool mutatif quand ``AUDIT_BIM_ALLOW_WRITES=false``."""
+
+
+class AccessTokenParamDisabledError(PermissionError):
+    """Levée quand un Bearer token utilisateur est passé en argument MCP
+    alors que le transport réseau l'interdit (cf.
+    :func:`is_access_token_param_allowed`).
+    """
+
+
+def is_access_token_param_allowed() -> bool:
+    """Indique si un tool MCP accepte ``access_token=...`` en paramètre.
+
+    Logique :
+
+    - ``AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM`` défini → respecte la valeur
+      explicite (``true`` / ``false``).
+    - Variable non définie :
+
+      - transport ``stdio`` (ou inconnu : tests, scripts directs) →
+        ``True`` — un token passé en argument circule seulement par
+        IPC local.
+      - transport réseau (``http`` / ``sse`` / ``streamable-http``)
+        → ``False`` *par défaut*. Les paramètres MCP transitent dans
+        des frames JSON-RPC visibles côté logs client, agent traces,
+        reverse-proxy. Le serveur doit utiliser sa propre auth (env
+        ``BIMDATA_API_KEY`` / client_credentials, ou injection
+        d'identité par le proxy).
+    """
+    raw = os.getenv(ALLOW_ACCESS_TOKEN_PARAM_ENV)
+    if raw is not None:
+        return _is_truthy(raw)
+    return not _is_network_transport()
+
+
+def ensure_access_token_param_allowed() -> None:
+    """À appeler par les tools MCP qui acceptent ``access_token=`` avant
+    de l'utiliser, **uniquement quand un token est effectivement fourni**.
+
+    Raises:
+        AccessTokenParamDisabledError: Si la politique courante interdit
+            ce mode (transport réseau sans opt-in explicite).
+    """
+    if not is_access_token_param_allowed():
+        logger.warning(
+            "access_token param refused on network transport (set "
+            "AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM=true to override)"
+        )
+        raise AccessTokenParamDisabledError(
+            "Paramètre `access_token` désactivé en transport réseau — "
+            "les paramètres MCP transitent dans des logs client / agent "
+            "traces / reverse-proxy. Utiliser BIMDATA_API_KEY / "
+            "BIMDATA_CLIENT_ID côté serveur ou définir explicitement "
+            "AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM=true (déconseillé)."
+        )
 
 
 def ensure_writes_allowed(action: str) -> None:

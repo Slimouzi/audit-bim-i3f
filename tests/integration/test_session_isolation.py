@@ -27,7 +27,11 @@ class TestSessionIsolationOverHttp:
         endpoint = mcp_http_server["mcp_endpoint"]
 
         async def _scenario():
-            # Client A : mute phase = APS via set_active_model
+            # Client A : mute phase = APS via set_active_model.
+            # Pas d'``access_token`` en paramètre — depuis le round 7
+            # review, c'est refusé sur transport réseau sauf opt-in
+            # explicite. Le client BIMData prend l'env BIMDATA_API_KEY
+            # (``dummy-for-integration-tests`` posé par le conftest).
             transport_a = StreamableHttpTransport(endpoint)
             async with Client(transport_a) as client_a:
                 await client_a.call_tool(
@@ -37,7 +41,6 @@ class TestSessionIsolationOverHttp:
                         "project_id": "222",
                         "model_id": "333",
                         "phase": "APS",
-                        "access_token": "dummy-token-a",
                     },
                 )
                 ctx_a = await client_a.call_tool("project_context_questions", {})

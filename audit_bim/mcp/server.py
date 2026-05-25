@@ -47,7 +47,7 @@ from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
 from ..smartview.builder import push_smart_views
 from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
 from .prompts import AMO_BIM_I3F_PROMPT
-from .security import ensure_writes_allowed
+from .security import ensure_access_token_param_allowed, ensure_writes_allowed
 from .security import scrub as _scrub
 from .session import _State
 
@@ -296,6 +296,11 @@ def set_active_model(
         # Valide le système (raise si inconnu)
         _State.classification_system = get_system(classification_system).label
     if access_token:
+        # Garde-fou : refus du mode "token en paramètre MCP" sur les
+        # transports réseau, sauf opt-in explicite. Levée d'un
+        # AccessTokenParamDisabledError (PermissionError) avant tout
+        # log ou stockage.
+        ensure_access_token_param_allowed()
         _server_logger.info(
             "set_active_model cloud=%s project=%s model=%s token=%s",
             _State.cloud_id,
@@ -863,6 +868,13 @@ def full_audit(
         push_mode: ``"ask"`` | ``"bcf"`` | ``"smartview"`` | ``"both"`` | ``"none"``.
         access_token: bearer optionnel.
     """
+    # Refus en amont du token en paramètre sur transport réseau (même
+    # garde que ``set_active_model``, dupliquée pour fail-fast clair
+    # avant tout calcul). Sans cette ligne, le refus arriverait au
+    # milieu du pipeline (étape 2), masquant l'origine de l'erreur.
+    if access_token:
+        ensure_access_token_param_allowed()
+
     mode = (push_mode or "ask").lower()
     if mode == "ask":
         return {

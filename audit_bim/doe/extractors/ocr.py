@@ -163,6 +163,26 @@ def _ocr_timeout_s() -> int:
         return _DEFAULT_OCR_TIMEOUT_S
 
 
+_DEFAULT_PDF_RASTER_TIMEOUT_S = 30
+
+
+def _pdf_raster_timeout_s() -> int:
+    """Timeout Poppler par page lors de la rasterisation
+    (env ``AUDIT_PDF_RASTER_TIMEOUT_S``, défaut 30 s).
+
+    Empêche un PDF compressé / malformé / piégé de bloquer
+    indéfiniment le worker Poppler — la borne est appliquée au niveau
+    du subprocess ``pdftoppm`` que pdf2image invoque.
+    """
+    import os
+
+    raw = os.getenv("AUDIT_PDF_RASTER_TIMEOUT_S")
+    try:
+        return max(1, int(raw)) if raw else _DEFAULT_PDF_RASTER_TIMEOUT_S
+    except ValueError:
+        return _DEFAULT_PDF_RASTER_TIMEOUT_S
+
+
 def parse_doe_pdf_ocr(
     pdf_path: str | Path,
     *,
@@ -226,6 +246,25 @@ def parse_doe_pdf_ocr(
 
     pages_to_process = min(total_pages or page_cap, page_cap)
 
+    # Erreurs Poppler explicites — capturées en premier pour logs
+    # distincts du chemin Tesseract.
+    try:
+        from pdf2image.exceptions import (
+            PDFInfoNotInstalledError,
+            PDFPageCountError,
+            PDFPopplerTimeoutError,
+            PDFSyntaxError,
+        )
+
+        _poppler_errors: tuple[type[BaseException], ...] = (
+            PDFInfoNotInstalledError,
+            PDFPageCountError,
+            PDFPopplerTimeoutError,
+            PDFSyntaxError,
+        )
+    except ImportError:
+        _poppler_errors = ()
+
     records: list[DoeRecord] = []
     skipped_pages: list[tuple[int, str]] = []
     for page_num in range(1, pages_to_process + 1):
@@ -245,9 +284,16 @@ def parse_doe_pdf_ocr(
             logger.warning("ocr page=%d skipped: %s", page_num, e)
             skipped_pages.append((page_num, f"tesseract_error: {e}"))
             continue
+        except _poppler_errors as e:
+            # Rasterisation Poppler en erreur : timeout subprocess,
+            # PDF syntaxe corrompue, page count cassé. On isole la page
+            # et on continue avec les suivantes.
+            logger.warning("ocr page=%d poppler error: %r", page_num, e)
+            skipped_pages.append((page_num, f"poppler_error: {e}"))
+            continue
         except Exception as e:  # noqa: BLE001 — page-level isolation
-            # Rasterisation Poppler (convert_from_path) ou autres
-            # erreurs imprévues : même politique d'isolation.
+            # Tout autre échec inattendu : même politique d'isolation,
+            # pour ne jamais propager une exception page-locale.
             logger.warning("ocr page=%d failed: %r", page_num, e)
             skipped_pages.append((page_num, repr(e)))
             continue
@@ -299,7 +345,16 @@ def _ocr_single_page(
     import pytesseract
     from pdf2image import convert_from_path
 
-    images = convert_from_path(str(path), dpi=dpi, first_page=page_num, last_page=page_num)
+    # ``timeout`` propage la borne au subprocess ``pdftoppm`` que
+    # pdf2image lance. Sans ça, un PDF malveillant peut bloquer le
+    # worker indéfiniment.
+    images = convert_from_path(
+        str(path),
+        dpi=dpi,
+        first_page=page_num,
+        last_page=page_num,
+        timeout=_pdf_raster_timeout_s(),
+    )
     if not images:
         return []
     image = images[0]
