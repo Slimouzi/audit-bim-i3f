@@ -191,7 +191,10 @@ def apply_classifications(
 
     # Journal des classifications créées mais non liées (orphelines en
     # cas d'échec de l'étape 2). En re-jouant la même requête, elles
-    # seront ré-utilisées (cache code+système), pas dupliquées.
+    # seront ré-utilisées (cache code+système), pas dupliquées —
+    # **côté création** seulement. Côté liens, le bulk-link BIMData
+    # peut avoir traité une partie des relations avant l'erreur ; un
+    # rerun naïf est susceptible de retenter ces liens-là.
     orphan_classifications: list[dict] = []
     if link_failed:
         orphan_classifications = [
@@ -213,7 +216,15 @@ def apply_classifications(
         "n_links_created": n_linked,
         "link_failed": link_failed,
         "orphan_classifications": orphan_classifications,
-        "rerun_safe": True,
+        # Renommé du précédent ``rerun_safe`` (trop optimiste) :
+        # - création : oui, idempotente via cache ``(code, système)``.
+        # - liens : à vérifier — l'API BIMData peut avoir traité une
+        #   partie du bulk avant l'erreur. Pour un rerun strictement
+        #   sûr, le caller devrait :
+        #   1. lister les ``classification-element`` existants,
+        #   2. filtrer ``relations`` pour ne retenter que les manquants.
+        "classification_creation_rerun_safe": True,
+        "links_rerun_safe": not link_failed,
         "errors": errors,
         "preview": preview,
     }

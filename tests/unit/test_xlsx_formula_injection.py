@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from audit_bim.reporting.xlsx_annex import _fmt_cell, _neutralize_formula
+from unittest.mock import MagicMock
+
+from audit_bim.reporting.xlsx_annex import _fmt_cell, _neutralize_formula, write_safe
 
 
 class TestNeutralizeFormula:
@@ -57,6 +59,52 @@ class TestFmtCellNeutralizes:
 
     def test_none_stays_empty(self):
         assert _fmt_cell(None) == ""
+
+
+class TestWriteSafeHelper:
+    """``write_safe`` doit toujours appeler ``ws.write`` avec une valeur
+    neutralisée — peu importe le call-style (row/col vs A1)."""
+
+    def test_neutralizes_dangerous_string(self):
+        ws = MagicMock()
+        write_safe(ws, 0, 0, "=DANGEREUX")
+        ws.write.assert_called_once()
+        args = ws.write.call_args.args
+        # row, col, value (sans format)
+        assert args[2] == "'=DANGEREUX"
+
+    def test_passes_format_when_given(self):
+        ws = MagicMock()
+        fmt = object()
+        write_safe(ws, 5, 2, "Mur", fmt)
+        ws.write.assert_called_once_with(5, 2, "Mur", fmt)
+
+    def test_supports_a1_notation(self):
+        ws = MagicMock()
+        write_safe(ws, "A1", None, "=evil")
+        # En notation A1, ws.write est appelé avec (cell_str, value, fmt?)
+        ws.write.assert_called_once()
+        args = ws.write.call_args.args
+        assert args[0] == "A1"
+        assert args[1] == "'=evil"
+
+    def test_none_becomes_empty_string(self):
+        ws = MagicMock()
+        write_safe(ws, 0, 0, None)
+        args = ws.write.call_args.args
+        assert args[2] == ""
+
+    def test_passes_int_as_is(self):
+        ws = MagicMock()
+        write_safe(ws, 0, 0, 42)
+        args = ws.write.call_args.args
+        assert args[2] == 42
+
+    def test_passes_float_as_is(self):
+        ws = MagicMock()
+        write_safe(ws, 0, 0, 3.14)
+        args = ws.write.call_args.args
+        assert args[2] == 3.14
 
 
 class TestWorkbookOptIn:

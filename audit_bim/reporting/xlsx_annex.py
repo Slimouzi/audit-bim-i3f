@@ -84,6 +84,37 @@ def _neutralize_formula(v: Any) -> Any:
     return v
 
 
+def write_safe(ws, row, col, value, fmt=None):
+    """Wrapper unique sur ``ws.write`` qui *neutralise* toujours la valeur.
+
+    Tous les onglets de l'annexe XLSX doivent passer par cette fonction
+    pour les valeurs issues de données externes (snapshot, DOE, findings,
+    suggestions, catalogue). Pour les libellés statiques (titres,
+    en-têtes), l'usage est aussi safe par construction — la
+    neutralisation ne s'applique que si la chaîne commence par un
+    caractère piège.
+
+    Args:
+        ws: worksheet xlsxwriter.
+        row: index de ligne (0-indexed) ou notation A1 si str.
+        col: index de colonne (0-indexed).
+        value: valeur arbitraire (str / number / bool / None).
+        fmt: format xlsxwriter optionnel.
+    """
+    safe = _neutralize_formula(value) if value is not None else ""
+    if isinstance(row, str):
+        # Notation A1 — ws.write accepte (cell_str, value, fmt)
+        if fmt is not None:
+            ws.write(row, safe, fmt)
+        else:
+            ws.write(row, safe)
+    else:
+        if fmt is not None:
+            ws.write(row, col, safe, fmt)
+        else:
+            ws.write(row, col, safe)
+
+
 def _build_formats(wb: xlsxwriter.Workbook) -> dict:
     fmts = {
         "title": wb.add_format(
@@ -393,25 +424,29 @@ def _write_classification_suggestions(wb, result: AuditResult, fmts: dict):
         sugs = item.get("suggestions") or []
         s1 = sugs[0] if len(sugs) >= 1 else {}
         s2 = sugs[1] if len(sugs) >= 2 else {}
-        ws.write(i, 0, item.get("element_uuid") or "", fmt)
-        ws.write(i, 1, item.get("ifc_type") or "", fmt)
-        ws.write(i, 2, (item.get("name") or "")[:120], fmt)
-        ws.write(i, 3, ", ".join(item.get("layers") or [])[:120], fmt)
-        ws.write(
+        # Toutes ces valeurs proviennent du suggester / des IFC layers /
+        # noms d'éléments → passées par ``write_safe`` (neutralisation
+        # systématique).
+        write_safe(ws, i, 0, item.get("element_uuid") or "", fmt)
+        write_safe(ws, i, 1, item.get("ifc_type") or "", fmt)
+        write_safe(ws, i, 2, (item.get("name") or "")[:120], fmt)
+        write_safe(ws, i, 3, ", ".join(item.get("layers") or [])[:120], fmt)
+        write_safe(
+            ws,
             i,
             4,
             "" if item.get("is_external") is None else ("oui" if item["is_external"] else "non"),
             fmt,
         )
-        ws.write(i, 5, s1.get("code", ""), fmt)
-        ws.write(i, 6, s1.get("label", ""), fmt)
-        ws.write(i, 7, s1.get("confidence", ""), fmt)
-        ws.write(i, 8, s2.get("code", ""), fmt)
-        ws.write(i, 9, s2.get("label", ""), fmt)
-        ws.write(i, 10, s2.get("confidence", ""), fmt)
+        write_safe(ws, i, 5, s1.get("code", ""), fmt)
+        write_safe(ws, i, 6, s1.get("label", ""), fmt)
+        write_safe(ws, i, 7, s1.get("confidence", ""), fmt)
+        write_safe(ws, i, 8, s2.get("code", ""), fmt)
+        write_safe(ws, i, 9, s2.get("label", ""), fmt)
+        write_safe(ws, i, 10, s2.get("confidence", ""), fmt)
         reasons = []
         for s in sugs[:2]:
             reasons.extend(s.get("reasons") or [])
-        ws.write(i, 11, " ; ".join(reasons)[:300], fmt)
+        write_safe(ws, i, 11, " ; ".join(reasons)[:300], fmt)
     if suggestions:
         ws.autofilter(0, 0, len(suggestions), len(cols) - 1)

@@ -31,10 +31,13 @@ ajouter.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from ..models import DoeRecord
 from ._common import detect_header, find_header_row, row_to_record
+
+logger = logging.getLogger("audit_bim.doe.ocr")
 
 # Tolérance verticale pour grouper des mots dans la même « ligne » : on
 # considère 2 mots comme alignés horizontalement si la différence de leur
@@ -200,7 +203,6 @@ def parse_doe_pdf_ocr(
             machine (cf. doc d'installation en tête de module).
     """
     import pytesseract
-    from pdf2image import convert_from_path
     from pdf2image.pdf2image import pdfinfo_from_path
 
     path = Path(pdf_path)
@@ -225,53 +227,126 @@ def parse_doe_pdf_ocr(
     pages_to_process = min(total_pages or page_cap, page_cap)
 
     records: list[DoeRecord] = []
+    skipped_pages: list[tuple[int, str]] = []
     for page_num in range(1, pages_to_process + 1):
-        # Rasterisation page par page : empêche le chargement complet
-        # du PDF en mémoire (un PDF de 500 pages × 200 DPI ≈ plusieurs Go).
-        images = convert_from_path(str(path), dpi=safe_dpi, first_page=page_num, last_page=page_num)
-        if not images:
+        try:
+            page_records = _ocr_single_page(
+                path=path,
+                page_num=page_num,
+                dpi=safe_dpi,
+                lang=lang,
+                ocr_timeout=ocr_timeout,
+            )
+        except pytesseract.TesseractError as e:
+            # Tesseract a explicitement échoué (timeout interne, page
+            # corrompue, modèle de langue manquant). On note la page
+            # et on continue — une page muette ne doit pas tuer tout
+            # le DOE.
+            logger.warning("ocr page=%d skipped: %s", page_num, e)
+            skipped_pages.append((page_num, f"tesseract_error: {e}"))
             continue
-        image = images[0]
-        data = pytesseract.image_to_data(
-            image,
-            lang=lang,
-            output_type=pytesseract.Output.DICT,
-            timeout=ocr_timeout,
+        except Exception as e:  # noqa: BLE001 — page-level isolation
+            # Rasterisation Poppler (convert_from_path) ou autres
+            # erreurs imprévues : même politique d'isolation.
+            logger.warning("ocr page=%d failed: %r", page_num, e)
+            skipped_pages.append((page_num, repr(e)))
+            continue
+        records.extend(page_records)
+
+    if skipped_pages:
+        logger.warning(
+            "ocr completed with %d skipped page(s) out of %d — see warnings above",
+            len(skipped_pages),
+            pages_to_process,
         )
-        words = [
+    return records
+
+
+def _parse_conf(raw_conf) -> float | None:
+    """Parse une confiance Tesseract (peut être ``int``, ``"95"``,
+    ``"95.123"`` ou ``"-1"``).
+
+    Returns:
+        Float ≥ 0 si la valeur est exploitable, ``None`` sinon (incluant
+        la valeur sentinelle ``-1`` que Tesseract renvoie pour les mots
+        sans alternatives).
+    """
+    if raw_conf is None:
+        return None
+    try:
+        v = float(raw_conf)
+    except (TypeError, ValueError):
+        return None
+    if v < 0:
+        return None
+    return v
+
+
+def _ocr_single_page(
+    *,
+    path: Path,
+    page_num: int,
+    dpi: int,
+    lang: str,
+    ocr_timeout: int,
+) -> list[DoeRecord]:
+    """OCR d'une seule page, isolée des autres pour la tolérance aux erreurs.
+
+    Levée d'exception possible — capturée par le caller
+    (:func:`parse_doe_pdf_ocr`) pour ignorer la page sans tuer tout
+    le PDF.
+    """
+    import pytesseract
+    from pdf2image import convert_from_path
+
+    images = convert_from_path(str(path), dpi=dpi, first_page=page_num, last_page=page_num)
+    if not images:
+        return []
+    image = images[0]
+    data = pytesseract.image_to_data(
+        image,
+        lang=lang,
+        output_type=pytesseract.Output.DICT,
+        timeout=ocr_timeout,
+    )
+    words = []
+    for i in range(len(data["text"])):
+        text = str(data["text"][i]).strip()
+        if not text:
+            continue
+        conf = _parse_conf(data["conf"][i])
+        if conf is None or conf < 30:
+            continue
+        words.append(
             {
                 "text": data["text"][i],
                 "left": data["left"][i],
                 "top": data["top"][i],
                 "width": data["width"][i],
                 "height": data["height"][i],
-                "conf": data["conf"][i],
+                "conf": conf,
             }
-            for i in range(len(data["text"]))
-            if str(data["text"][i]).strip() and int(data["conf"][i]) >= 30
-        ]
-        if not words:
-            continue
-        lines = _group_words_into_lines(words)
-        if len(lines) < 2:
-            continue
-        table = _lines_to_table(lines)
-        header_idx = find_header_row(table)
-        if header_idx is None:
-            continue
-        headers = table[header_idx]
-        col_map = [detect_header(h) for h in headers]
-        for row_i, row in enumerate(
-            table[header_idx + 1 :],
-            start=header_idx + 2,
-        ):
-            rec = row_to_record(
-                headers,
-                row,
-                col_map,
-                source=f"{path}#page={page_num}&ocr=tesseract:{lang}",
-                row_index=row_i,
-            )
-            if rec is not None:
-                records.append(rec)
+        )
+    if not words:
+        return []
+    lines = _group_words_into_lines(words)
+    if len(lines) < 2:
+        return []
+    table = _lines_to_table(lines)
+    header_idx = find_header_row(table)
+    if header_idx is None:
+        return []
+    headers = table[header_idx]
+    col_map = [detect_header(h) for h in headers]
+    records: list[DoeRecord] = []
+    for row_i, row in enumerate(table[header_idx + 1 :], start=header_idx + 2):
+        rec = row_to_record(
+            headers,
+            row,
+            col_map,
+            source=f"{path}#page={page_num}&ocr=tesseract:{lang}",
+            row_index=row_i,
+        )
+        if rec is not None:
+            records.append(rec)
     return records
