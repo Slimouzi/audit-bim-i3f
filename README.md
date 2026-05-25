@@ -208,14 +208,21 @@ Le serveur est utilisable depuis :
 
 ### Claude Desktop
 
-Ajouter à `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) ou `%APPDATA%\Claude\claude_desktop_config.json` (Windows) :
+Procédure détaillée : **[docs/claude_desktop_local.md](docs/claude_desktop_local.md)**
+(setup venv, deux variantes de config JSON, smoke test pas à pas,
+dépannage).
+
+Config minimale, à coller dans
+`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+ou `%APPDATA%\Claude\claude_desktop_config.json` (Windows), puis
+**quitter et relancer** Claude Desktop :
 
 ```json
 {
   "mcpServers": {
     "audit-bim-i3f": {
-      "command": "python",
-      "args": ["-m", "audit_bim.mcp"],
+      "command": "/Users/stani/code/MCP/audit-bim-i3f/.venv/bin/audit-bim-mcp",
+      "args": ["--transport", "stdio"],
       "cwd": "/Users/stani/code/MCP/audit-bim-i3f"
     }
   }
