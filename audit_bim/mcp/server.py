@@ -34,6 +34,7 @@ from ..doe import (
     parse_doe,
     summarize_matches,
 )
+from ..enrichment import enrich_with_public_data as _enrich_with_public_data
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot, extract_snapshot
 from ..extraction.snapshot_cache import cached_extract_snapshot
@@ -411,6 +412,64 @@ def compare_with_previous_audit(
             )
             current_findings_json = tmp.name
     return compare_audits_from_files(previous_findings_json, current_findings_json)
+
+
+@mcp.tool()
+def enrich_with_public_data(
+    address_override: str | None = None,
+    address_override_source: str = "override",
+    include_dpe: bool = True,
+    include_plu: bool = True,
+    include_georisques: bool = True,
+    radius_dpe_m: int = 50,
+    radius_georisques_m: int = 1000,
+) -> dict:
+    """Enrichit la maquette avec les open data publiques françaises.
+
+    Pipeline : l'adresse projet est résolue depuis le snapshot
+    (``IfcBuilding.BuildingAddress`` puis ``IfcSite.SiteAddress``) ou
+    surchargée par ``address_override`` (texte libre, typiquement collé
+    depuis le DOE). Cette adresse est validée par la **BAN** (Base
+    Adresse Nationale data.gouv.fr) — qui renvoie un point lon/lat,
+    un code INSEE et un score de confiance.
+
+    Si BAN valide, on interroge en parallèle :
+
+    - **DPE ADEME** : diagnostics énergétiques connus dans
+      ``radius_dpe_m`` mètres autour du point (dataset
+      ``dpe-v2-logements-existants``, à jour post-juillet 2021).
+    - **PLU/GPU IGN** : zonage urbanisme applicable au point.
+    - **Géorisques** : aléas naturels et ICPE à proximité.
+
+    Toutes les APIs sont publiques (pas d'authentification requise).
+
+    Args:
+        address_override: Adresse libre prioritaire sur l'adresse IFC.
+            Utile si l'adresse manque dans la maquette ou si l'on veut
+            utiliser celle du DOE.
+        address_override_source: ``override`` (défaut) ou ``doe`` pour
+            tracer l'origine dans le rapport.
+        include_dpe / include_plu / include_georisques: désactive
+            individuellement une source.
+        radius_dpe_m: Rayon de recherche DPE (mètres).
+        radius_georisques_m: Rayon de recherche Géorisques (mètres).
+
+    Returns:
+        ``EnrichmentReport`` sérialisé : adresse + géocodage + DPE +
+        zonage PLU + risques + ``sources_used`` + ``sources_errors``.
+    """
+    _State.ensure_snapshot()
+    report = _enrich_with_public_data(
+        _State.snapshot,
+        address_override=address_override,
+        address_override_source=address_override_source,
+        include_dpe=include_dpe,
+        include_plu=include_plu,
+        include_georisques=include_georisques,
+        radius_dpe_m=radius_dpe_m,
+        radius_georisques_m=radius_georisques_m,
+    )
+    return report.model_dump(mode="json")
 
 
 @mcp.tool()
