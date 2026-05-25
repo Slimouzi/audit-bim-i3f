@@ -140,15 +140,26 @@ TEST_API_KEY = "test-secret-xyz123"
 
 
 @pytest.fixture(scope="session")
-def mcp_http_server_with_api_key() -> Iterator[dict]:
+def mcp_http_server_with_api_key(tmp_path_factory) -> Iterator[dict]:
     """Variante avec ``AUDIT_BIM_API_KEY`` activé.
+
+    Avec une clé service définie, ``assert_startup_config`` exige aussi
+    ``AUDIT_INPUT_DIR`` — on fournit une racine éphémère pour que le
+    serveur démarre. La racine reste vide : les tests d'auth ne lisent
+    aucun fichier.
 
     Yields:
         Dict ``{url, host, port, mcp_endpoint, api_key}`` — la clé est
         celle attendue par le serveur, à utiliser dans les headers du
         client de test.
     """
-    proc, info = _spawn_mcp_server({"AUDIT_BIM_API_KEY": TEST_API_KEY})
+    input_dir = tmp_path_factory.mktemp("audit_input_session")
+    proc, info = _spawn_mcp_server(
+        {
+            "AUDIT_BIM_API_KEY": TEST_API_KEY,
+            "AUDIT_INPUT_DIR": str(input_dir),
+        }
+    )
     info["api_key"] = TEST_API_KEY
     try:
         yield info

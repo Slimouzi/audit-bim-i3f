@@ -122,10 +122,19 @@ location /mcp/ {
 }
 ```
 
-Le serveur refusera de démarrer si `AUDIT_BIM_ENV=production` (ou
-`AUDIT_BIM_REQUIRE_API_KEY=true`) est défini sans `AUDIT_BIM_API_KEY`, ou
-si `--host 0.0.0.0` est demandé hors mode production. Toutes les variables
-sont documentées dans `audit_bim/mcp/security.py` et `audit_bim/safe_paths.py`.
+### Cas de refus au démarrage (fail-fast)
+
+Le serveur refuse explicitement de booter dans les situations
+suivantes (`RuntimeError` au moment de `python -m audit_bim.mcp`) :
+
+| Situation | Cause | Comment lever |
+|---|---|---|
+| Transport réseau + `AUDIT_BIM_ENV=production` (ou `AUDIT_BIM_REQUIRE_API_KEY=true`) sans `AUDIT_BIM_API_KEY` | Pas de clé service → endpoint ouvert | Définir `AUDIT_BIM_API_KEY` |
+| Transport réseau + clé service définie (ou prod/require) sans `AUDIT_INPUT_DIR` | Tous les fichiers locaux lisibles deviennent ouvrables par un client distant | Définir `AUDIT_INPUT_DIR=/srv/audit/input` *ou* opter explicitement pour `AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true` (chroot/conteneur/AppArmor côté infra requis) |
+| `--host 0.0.0.0` sans `AUDIT_BIM_ENV=production` | Bind sur toutes les interfaces hors mode prod déclaré | Définir `AUDIT_BIM_ENV=production`, ou rester sur `127.0.0.1` + reverse-proxy |
+
+Toutes les variables sont documentées dans
+`audit_bim/mcp/security.py` et `audit_bim/safe_paths.py`.
 
 ## Intégrations multi-clients
 

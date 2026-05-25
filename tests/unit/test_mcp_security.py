@@ -169,6 +169,41 @@ class TestStartupConfig:
         monkeypatch.setenv("AUDIT_INPUT_DIR", str(tmp_path))
         assert_startup_config(transport="http", host="127.0.0.1")
 
+    # ── Round 4 review : AUDIT_INPUT_DIR + transport réseau + clé service ──
+
+    def test_http_with_api_key_without_prod_still_needs_input_dir(self, monkeypatch):
+        """Cas signalé en review : HTTP + ``AUDIT_BIM_API_KEY`` sans mode
+        prod doit aussi exiger ``AUDIT_INPUT_DIR``."""
+        monkeypatch.setenv("AUDIT_BIM_API_KEY", "secret")
+        monkeypatch.delenv("AUDIT_INPUT_DIR", raising=False)
+        monkeypatch.delenv("AUDIT_BIM_ENV", raising=False)
+        monkeypatch.delenv("AUDIT_BIM_REQUIRE_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="AUDIT_INPUT_DIR"):
+            assert_startup_config(transport="http", host="127.0.0.1")
+
+    def test_http_with_api_key_with_input_dir_ok(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("AUDIT_BIM_API_KEY", "secret")
+        monkeypatch.setenv("AUDIT_INPUT_DIR", str(tmp_path))
+        monkeypatch.delenv("AUDIT_BIM_ENV", raising=False)
+        assert_startup_config(transport="http", host="127.0.0.1")
+
+    def test_explicit_unbounded_inputs_opt_out_allowed(self, monkeypatch):
+        monkeypatch.setenv("AUDIT_BIM_API_KEY", "secret")
+        monkeypatch.delenv("AUDIT_INPUT_DIR", raising=False)
+        monkeypatch.setenv("AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS", "true")
+        # Démarre sans lever — opt-out explicite
+        assert_startup_config(transport="http", host="127.0.0.1")
+
+    def test_http_without_api_key_no_input_dir_required(self, monkeypatch):
+        """Sans clé service et hors mode prod, l'input dir reste optionnel
+        (mode dev)."""
+        monkeypatch.delenv("AUDIT_BIM_API_KEY", raising=False)
+        monkeypatch.delenv("AUDIT_INPUT_DIR", raising=False)
+        monkeypatch.delenv("AUDIT_BIM_ENV", raising=False)
+        monkeypatch.delenv("AUDIT_BIM_REQUIRE_API_KEY", raising=False)
+        # Ne lève pas (warnings dans les logs OK)
+        assert_startup_config(transport="http", host="127.0.0.1")
+
 
 # ── verify_api_key ───────────────────────────────────────────────────────
 

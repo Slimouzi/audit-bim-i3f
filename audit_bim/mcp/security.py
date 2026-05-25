@@ -19,6 +19,9 @@ Trois axes :
 
    - transport ≠ stdio ET ``AUDIT_BIM_REQUIRE_API_KEY=true`` (ou
      ``AUDIT_BIM_ENV=production``) ET la clé n'est pas définie ;
+   - transport ≠ stdio ET (clé service définie OU mode prod/require)
+     ET ``AUDIT_INPUT_DIR`` n'est pas défini, sauf opt-out explicite
+     ``AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true`` ;
    - host = ``0.0.0.0`` sans ``AUDIT_BIM_ENV=production``.
 
 3. **Politique d'écriture** : ``AUDIT_BIM_ALLOW_WRITES`` gouverne tous
@@ -46,6 +49,7 @@ API_KEY_ENV = "AUDIT_BIM_API_KEY"
 REQUIRE_API_KEY_ENV = "AUDIT_BIM_REQUIRE_API_KEY"
 ENV_NAME_ENV = "AUDIT_BIM_ENV"
 ALLOW_WRITES_ENV = "AUDIT_BIM_ALLOW_WRITES"
+ALLOW_UNBOUNDED_INPUTS_ENV = "AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS"
 
 # Transport configuré au démarrage (cf. :func:`set_runtime_transport`).
 # ``None`` = stdio par défaut (tests, scripts, imports directs hors
@@ -157,18 +161,31 @@ def assert_startup_config(*, transport: str, host: str | None = None) -> None:
             "mais AUDIT_BIM_API_KEY n'est pas défini — refus de démarrer."
         )
 
-    # En prod réseau, AUDIT_INPUT_DIR devient obligatoire au même titre
-    # que la clé service : sans racine définie, ``safe_input_path``
-    # accepte tout fichier local existant — une zone trop implicite
-    # pour un MCP exposé à des clients distants. La même garde s'applique
-    # quand la clé est explicitement requise hors prod.
-    if is_api_key_required() and not os.getenv("AUDIT_INPUT_DIR"):
+    # ``AUDIT_INPUT_DIR`` devient obligatoire dès qu'on expose un
+    # transport réseau **et** qu'une clé service est définie (ce qui
+    # est le mode "déploiement protégé" typique, derrière reverse-proxy).
+    # Sans racine définie, ``safe_input_path`` accepte tout fichier
+    # local existant — zone trop implicite pour un MCP exposé.
+    #
+    # Opt-out explicite : ``AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true`` (à
+    # n'activer qu'en connaissance de cause pour les déploiements qui
+    # ont d'autres garde-fous filesystem côté infra — chroot, conteneur
+    # restreint, AppArmor).
+    needs_input_dir = is_api_key_required() or os.getenv(API_KEY_ENV)
+    if (
+        needs_input_dir
+        and not os.getenv("AUDIT_INPUT_DIR")
+        and not _is_truthy(os.getenv(ALLOW_UNBOUNDED_INPUTS_ENV))
+    ):
         raise RuntimeError(
-            "Transport réseau activé en mode production mais AUDIT_INPUT_DIR "
-            "n'est pas défini — refus de démarrer. Tout fichier local lisible "
-            "par le processus serait sinon ouvrable par un client MCP distant. "
-            "Définir AUDIT_INPUT_DIR sur un dossier dédié aux documents "
-            "auditables (DOE, CCH, annexes)."
+            "Transport réseau protégé par AUDIT_BIM_API_KEY mais "
+            "AUDIT_INPUT_DIR n'est pas défini — refus de démarrer. Tout "
+            "fichier local lisible par le processus serait sinon ouvrable "
+            "par un client MCP distant. Définir AUDIT_INPUT_DIR sur un "
+            "dossier dédié aux documents auditables (DOE, CCH, annexes), "
+            "ou opter explicitement pour le mode permissif via "
+            "AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true (déconseillé sans "
+            "garde-fou filesystem côté infra)."
         )
 
     if host == "0.0.0.0" and not is_prod():
