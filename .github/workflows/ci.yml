@@ -69,10 +69,11 @@ jobs:
           pip install -e ".[test]"
           pip install pip-audit
       - name: Scan dependencies for CVEs
-        # Format JSON pour faciliter le suivi en cas d'échec ; ``--strict``
-        # casse le job sur la moindre vuln trouvée (à la mainteneuse de
-        # trier via Dependabot ou un ``--ignore-vuln`` justifié).
-        run: pip-audit --strict --format columns
+        # ``--strict`` casse sur la moindre vuln ; à trier via Dependabot
+        # ou ``--ignore-vuln`` justifié (cf. SECURITY.md).
+        # ``--skip-editable`` exclut le projet lui-même (installé via
+        # ``pip install -e .``) — pip-audit n'a pas à le chercher sur PyPI.
+        run: pip-audit --strict --skip-editable --format columns
 
   integration:
     name: Integration tests (HTTP transport)

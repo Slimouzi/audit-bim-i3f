@@ -1,4 +1,10 @@
-"""Tests des garde-fous OCR — confiance flottante + isolation par page."""
+"""Tests des garde-fous OCR — confiance flottante + isolation par page.
+
+Les dépendances OCR (``pytesseract`` + ``pdf2image``) sont dans
+l'extra optionnel ``[ocr]`` du package. Quand elles ne sont pas
+installées (CI standard, dev sans Tesseract), les tests qui les
+exercent sont skippés ; ``_parse_conf`` reste testable seul.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +13,18 @@ from unittest.mock import patch
 import pytest
 
 from audit_bim.doe.extractors.ocr import _parse_conf, parse_doe_pdf_ocr
+
+_ocr_deps_available = True
+try:
+    import pdf2image  # noqa: F401
+    import pytesseract  # noqa: F401
+except ImportError:
+    _ocr_deps_available = False
+
+needs_ocr_deps = pytest.mark.skipif(
+    not _ocr_deps_available,
+    reason="extras [ocr] (pytesseract + pdf2image) non installés",
+)
 
 
 class TestParseConf:
@@ -37,6 +55,7 @@ class TestParseConf:
         assert _parse_conf(0) == 0.0
 
 
+@needs_ocr_deps
 class TestPerPageIsolation:
     """Vérifie qu'une erreur OCR sur une page n'interrompt pas les autres."""
 
@@ -101,6 +120,7 @@ class TestPerPageIsolation:
         assert records[0].uuid_hint == "u-2"
 
 
+@needs_ocr_deps
 class TestEnvBounds:
     def test_max_pdf_pages_env_caps(self, tmp_path, monkeypatch):
         # On limite à 2 pages via env même si le PDF en a "5"

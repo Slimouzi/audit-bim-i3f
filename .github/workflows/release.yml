@@ -72,7 +72,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[test]"
           pip install pip-audit
-      - run: pip-audit --strict --format columns
+      - run: pip-audit --strict --skip-editable --format columns
 
   build:
     name: Build sdist + wheel
