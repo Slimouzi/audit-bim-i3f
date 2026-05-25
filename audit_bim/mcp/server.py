@@ -418,6 +418,7 @@ def compare_with_previous_audit(
 def enrich_with_public_data(
     address_override: str | None = None,
     address_override_source: str = "override",
+    doe_path: str | None = None,
     include_dpe: bool = True,
     include_plu: bool = True,
     include_georisques: bool = True,
@@ -426,29 +427,34 @@ def enrich_with_public_data(
 ) -> dict:
     """Enrichit la maquette avec les open data publiques françaises.
 
-    Pipeline : l'adresse projet est résolue depuis le snapshot
-    (``IfcBuilding.BuildingAddress`` puis ``IfcSite.SiteAddress``) ou
-    surchargée par ``address_override`` (texte libre, typiquement collé
-    depuis le DOE). Cette adresse est validée par la **BAN** (Base
-    Adresse Nationale data.gouv.fr) — qui renvoie un point lon/lat,
-    un code INSEE et un score de confiance.
+    Pipeline de résolution de l'adresse projet :
 
-    Si BAN valide, on interroge en parallèle :
+    1. ``address_override`` (texte libre prioritaire).
+    2. ``IfcBuilding.BuildingAddress`` du snapshot.
+    3. ``IfcSite.SiteAddress`` du snapshot.
+    4. **Auto-extraction DOE** si ``doe_path`` est fourni : scan des
+       en-têtes xlsx, page de garde PDF, ou OCR (regex CP + voie).
+    5. Erreur sinon.
+
+    L'adresse est ensuite validée par la **BAN** (data.gouv.fr) :
+    géocodage exact, code INSEE, score de confiance. Sans match BAN,
+    les autres sources sont court-circuitées.
+
+    Sources interrogées en parallèle après validation BAN :
 
     - **DPE ADEME** : diagnostics énergétiques connus dans
-      ``radius_dpe_m`` mètres autour du point (dataset
-      ``dpe-v2-logements-existants``, à jour post-juillet 2021).
+      ``radius_dpe_m`` mètres (dataset ``dpe-v2-logements-existants``,
+      post juillet 2021).
     - **PLU/GPU IGN** : zonage urbanisme applicable au point.
     - **Géorisques** : aléas naturels et ICPE à proximité.
 
     Toutes les APIs sont publiques (pas d'authentification requise).
 
     Args:
-        address_override: Adresse libre prioritaire sur l'adresse IFC.
-            Utile si l'adresse manque dans la maquette ou si l'on veut
-            utiliser celle du DOE.
+        address_override: Adresse libre prioritaire sur l'adresse IFC/DOE.
         address_override_source: ``override`` (défaut) ou ``doe`` pour
             tracer l'origine dans le rapport.
+        doe_path: Chemin du fichier DOE pour fallback auto-extraction.
         include_dpe / include_plu / include_georisques: désactive
             individuellement une source.
         radius_dpe_m: Rayon de recherche DPE (mètres).
@@ -463,6 +469,7 @@ def enrich_with_public_data(
         _State.snapshot,
         address_override=address_override,
         address_override_source=address_override_source,
+        doe_path=doe_path,
         include_dpe=include_dpe,
         include_plu=include_plu,
         include_georisques=include_georisques,

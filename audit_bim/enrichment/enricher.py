@@ -38,6 +38,7 @@ def enrich_with_public_data(
     *,
     address_override: str | None = None,
     address_override_source: str = "override",
+    doe_path: str | None = None,
     include_dpe: bool = True,
     include_plu: bool = True,
     include_georisques: bool = True,
@@ -53,6 +54,10 @@ def enrich_with_public_data(
             si l'utilisateur veut surcharger avec une adresse issue du DOE.
         address_override_source: Étiquette à appliquer (``override`` ou
             ``doe``) pour tracer l'origine dans le rapport.
+        doe_path: Chemin du fichier DOE (xlsx/pdf/image). Si l'IFC ne
+            renseigne pas d'adresse, on tente une auto-extraction sur
+            les en-têtes du DOE. Cf.
+            :func:`audit_bim.doe.address.extract_address_from_doe`.
         include_dpe / include_plu / include_georisques: switches par source.
         radius_dpe_m: Rayon de recherche DPE autour du point BAN (mètres).
         radius_georisques_m: Rayon de recherche Géorisques (mètres).
@@ -65,6 +70,7 @@ def enrich_with_public_data(
         snapshot,
         override=address_override,
         override_source=address_override_source,
+        doe_path=doe_path,
     )
     geo = geocode_address(address)
 

@@ -52,17 +52,31 @@ def resolve_project_address(
     *,
     override: str | None = None,
     override_source: str = "override",
+    doe_path: str | None = None,
 ) -> ProjectAddress:
     """Cherche l'adresse projet exploitable pour le géocodage.
+
+    Priorité :
+
+    1. ``override`` explicite (texte libre passé par le caller).
+    2. ``IfcBuilding.BuildingAddress`` (premier bâtiment avec adresse).
+    3. ``IfcSite.SiteAddress`` (premier site avec adresse).
+    4. ``doe_path`` : extraction automatique depuis le DOE (en-têtes
+       xlsx, page de garde PDF, OCR image) via
+       :func:`audit_bim.doe.address.extract_address_from_doe`.
+    5. ``ValueError`` si rien d'exploitable.
+
+    L'auto-extraction DOE arrive **après** l'IFC : la maquette reste la
+    source de vérité prioritaire, le DOE complète quand elle est muette.
 
     Args:
         snapshot: ``ModelSnapshot`` extrait par ``extract_model_snapshot``.
             Doit exposer ``buildings`` et ``sites`` (listes de dicts).
-        override: Adresse libre prioritaire. Peut être copiée depuis le
-            DOE par le caller — passer ``override_source="doe"`` pour le
-            tracer dans le rapport.
-        override_source: Étiquette de source à appliquer à ``override``
-            (``override`` par défaut, ``doe`` si l'adresse vient du DOE).
+        override: Adresse libre prioritaire.
+        override_source: Étiquette à appliquer à ``override`` (``override``
+            ou ``doe``).
+        doe_path: Chemin du fichier DOE (xlsx, pdf, image). Si fourni et
+            si l'IFC ne renseigne pas d'adresse, l'extraction est tentée.
 
     Returns:
         ``ProjectAddress`` prêt à être géocodé.
@@ -86,8 +100,16 @@ def resolve_project_address(
         if addr:
             return addr
 
+    if doe_path:
+        # Import paresseux pour éviter le cycle enrichment ↔ doe.
+        from ..doe.address import extract_address_from_doe
+
+        doe_addr = extract_address_from_doe(doe_path)
+        if doe_addr is not None:
+            return doe_addr
+
     raise ValueError(
         "Aucune adresse exploitable trouvée dans le modèle "
-        "(IfcBuilding.BuildingAddress / IfcSite.SiteAddress absents ou vides). "
-        "Fournir `address_override` (adresse manuelle ou extraite du DOE)."
+        "(IfcBuilding.BuildingAddress / IfcSite.SiteAddress absents ou vides) "
+        "ni dans le DOE. Fournir `address_override`."
     )
