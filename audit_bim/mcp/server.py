@@ -569,30 +569,133 @@ def generate_word_report(
     return {"path": str(written), "size_bytes": written.stat().st_size}
 
 
+# Bornes du payload ``suggest_classifications`` — calibrées pour
+# rester sous la limite MCP de 1 MB par tool_result (cf. fix payload
+# size). Au-delà, le caller doit utiliser ``output_path`` pour dumper
+# le détail complet en JSON sur disque.
+_SUGGEST_LIMIT_MIN = 1
+_SUGGEST_LIMIT_MAX = 200
+_SUGGEST_LIMIT_DEFAULT = 50
+_SUGGEST_TOP_N_MIN = 1
+_SUGGEST_TOP_N_MAX = 5
+_SUGGEST_TOP_N_DEFAULT = 3
+
+
+def _clamp(value: int, *, lo: int, hi: int) -> int:
+    return max(lo, min(hi, value))
+
+
+def _compact_suggestion_item(item: dict) -> dict:
+    """Version allégée d'un item suggester pour le canal MCP.
+
+    Garde les champs identifiants et la suggestion top, tronque ``layers``
+    et ``materials`` à 5 entrées, plafonne ``reasons`` à 2 par suggestion.
+    """
+    compact_sugs = []
+    for sug in item.get("suggestions") or []:
+        compact_sugs.append(
+            {
+                "code": sug.get("code"),
+                "label": sug.get("label"),
+                "system": sug.get("system"),
+                "confidence": sug.get("confidence"),
+                "reasons": (sug.get("reasons") or [])[:2],
+            }
+        )
+    return {
+        "element_uuid": item.get("element_uuid"),
+        "ifc_type": item.get("ifc_type"),
+        "name": item.get("name"),
+        "layers": (item.get("layers") or [])[:5],
+        "materials": (item.get("materials") or [])[:5],
+        "is_external": item.get("is_external"),
+        "suggestions": compact_sugs,
+    }
+
+
 @mcp.tool()
 def suggest_classifications(
     min_confidence: float = 0.4,
     top_n: int = 3,
-    limit: int = 200,
-) -> list[dict]:
+    limit: int = 50,
+    compact: bool = True,
+    output_path: str | None = None,
+    include_full_output: bool = False,
+    overwrite: bool = False,
+) -> dict:
     """Pour chaque élément avec ``classification_missing``, propose 1-3 codes
     UniFormat II déduits de la classe IFC, des layers, des attributs, des
     Pset_*Common (IsExternal…) et des BaseQuantities.
 
+    Le payload MCP est borné (``limit`` 1-200, défaut 50) et compacté par
+    défaut pour rester sous la limite des 1 MB. Pour persister le détail
+    complet (toutes suggestions × toutes les ``reasons``), fournir
+    ``output_path`` ou activer ``include_full_output=True`` : la liste
+    intégrale est écrite en JSON sous ``AUDIT_OUTPUT_DIR`` via la sandbox
+    d'export.
+
     Args:
-        min_confidence: seuil de confiance (0..1) sous lequel on n'expose pas
-            de suggestion.
-        top_n: nombre maximum de suggestions par élément.
-        limit: cap du nombre d'éléments retournés (pour préserver le canal MCP).
+        min_confidence: seuil de confiance (0..1) sous lequel on n'expose
+            pas de suggestion.
+        top_n: nombre max de suggestions par élément (borné 1..5, défaut 3).
+        limit: cap du nombre d'éléments dans la réponse MCP (borné 1..200,
+            défaut 50). Le total non-coupé est dans ``n_total``.
+        compact: si ``True`` (défaut), enlève / tronque les champs
+            verbeux dans la réponse inline (``reasons`` cap 2, ``layers``
+            / ``materials`` cap 5). N'affecte PAS le fichier JSON dumpé,
+            qui reste complet.
+        output_path: chemin relatif ou absolu sous ``AUDIT_OUTPUT_DIR``
+            pour le dump JSON intégral. Refusé hors racine ou existant
+            sans ``overwrite=True``.
+        include_full_output: si ``True`` et ``output_path`` non fourni,
+            génère un nom de fichier automatique
+            (``suggestions_<ts>.json``) sous ``AUDIT_OUTPUT_DIR``.
+        overwrite: autorise l'écrasement d'un ``output_path`` existant.
+
+    Returns:
+        ``{n_total, n_returned, limit, compact, output_path, suggestions}``.
     """
     _State.ensure_result()
-    out = suggest_for_findings(
+
+    safe_limit = _clamp(limit, lo=_SUGGEST_LIMIT_MIN, hi=_SUGGEST_LIMIT_MAX)
+    safe_top_n = _clamp(top_n, lo=_SUGGEST_TOP_N_MIN, hi=_SUGGEST_TOP_N_MAX)
+
+    full = suggest_for_findings(
         _State.result.findings,
         _State.result.snapshot,
         min_confidence=min_confidence,
-        top_n=top_n,
+        top_n=safe_top_n,
     )
-    return out[:limit]
+    n_total = len(full)
+
+    # Dump JSON intégral si demandé ou si include_full_output. La sandbox
+    # d'export refuse les chemins hors AUDIT_OUTPUT_DIR / les traversals.
+    dumped_path: str | None = None
+    if output_path or include_full_output:
+        if output_path:
+            target_raw = Path(output_path)
+        else:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            target_raw = Path(f"suggestions_{ts}.json")
+        target = safe_export_path(target_raw, overwrite=overwrite)
+        target.write_text(
+            json.dumps(full, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        dumped_path = str(target)
+
+    head = full[:safe_limit]
+    if compact:
+        head = [_compact_suggestion_item(it) for it in head]
+
+    return {
+        "n_total": n_total,
+        "n_returned": len(head),
+        "limit": safe_limit,
+        "compact": compact,
+        "output_path": dumped_path,
+        "suggestions": head,
+    }
 
 
 @mcp.tool()
