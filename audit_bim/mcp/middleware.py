@@ -17,6 +17,7 @@ import logging
 import os
 
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 
 from .security import API_KEY_ENV, verify_api_key
@@ -76,6 +77,19 @@ class ApiKeyMiddleware(Middleware):
     disponible. Si la variable d'env n'est pas définie, la garde est
     désactivée. En stdio, fastmcp ne route pas l'initialize via ce
     middleware → comportement transparent.
+
+    **Hypothèse de sécurité — vérification uniquement à l'initialize** :
+    le protocole MCP exige que tout client effectue ``initialize`` avant
+    tout autre handler (tools/list, tools/call, prompts/get, etc.).
+    FastMCP refuse les requêtes hors-séquence — un client qui n'a pas
+    fait ``initialize`` ne peut donc pas atteindre un tool. Vérifier la
+    clé au seul ``on_initialize`` est suffisant *à condition* que cette
+    garantie tienne côté framework.
+
+    Si cette hypothèse devait être remise en cause (bug FastMCP, transport
+    custom, etc.), la vérification doit être étendue à ``on_call_tool`` /
+    ``on_get_prompt`` / ``on_read_resource``. Garder ce module comme point
+    d'extension unique.
     """
 
     async def on_initialize(self, context: MiddlewareContext, call_next):
@@ -93,17 +107,21 @@ class ApiKeyMiddleware(Middleware):
 
     @staticmethod
     def _extract_api_key(context: MiddlewareContext) -> str | None:
-        """Cherche la clé dans le contexte de transport.
+        """Cherche la clé dans les headers HTTP de la requête courante.
 
-        fastmcp expose les headers HTTP sur ``request_context.headers``
-        quand le transport est web. Pour stdio, retourne ``None``.
+        Utilise ``fastmcp.server.dependencies.get_http_headers`` qui
+        introspecte le ``starlette.Request`` actif (snapshot inclus pour
+        les tâches lifespan). Renvoie ``None`` si transport non-HTTP
+        (stdio) ou si le header est absent.
         """
-        ctx = context.fastmcp_context
-        req = getattr(ctx, "request_context", None) if ctx else None
-        headers = getattr(req, "headers", None) if req else None
-        if headers is None:
-            return None
+        _ = context  # ctx fastmcp non utilisé : on lit l'env HTTP global
         try:
-            return headers.get("X-API-Key") or headers.get("x-api-key") or headers.get("X-Api-Key")
+            # ``include={"x-api-key"}`` n'est pas nécessaire (X-API-Key
+            # n'est pas dans la liste d'exclusion par défaut), mais on
+            # demande ``include_all=True`` pour rester robustes aux
+            # changements futurs de la whitelist fastmcp.
+            headers = get_http_headers(include_all=True)
         except Exception:
             return None
+        # headers est dict[str, str] avec clés normalisées en minuscules.
+        return headers.get("x-api-key")

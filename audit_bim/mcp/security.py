@@ -157,6 +157,20 @@ def assert_startup_config(*, transport: str, host: str | None = None) -> None:
             "mais AUDIT_BIM_API_KEY n'est pas défini — refus de démarrer."
         )
 
+    # En prod réseau, AUDIT_INPUT_DIR devient obligatoire au même titre
+    # que la clé service : sans racine définie, ``safe_input_path``
+    # accepte tout fichier local existant — une zone trop implicite
+    # pour un MCP exposé à des clients distants. La même garde s'applique
+    # quand la clé est explicitement requise hors prod.
+    if is_api_key_required() and not os.getenv("AUDIT_INPUT_DIR"):
+        raise RuntimeError(
+            "Transport réseau activé en mode production mais AUDIT_INPUT_DIR "
+            "n'est pas défini — refus de démarrer. Tout fichier local lisible "
+            "par le processus serait sinon ouvrable par un client MCP distant. "
+            "Définir AUDIT_INPUT_DIR sur un dossier dédié aux documents "
+            "auditables (DOE, CCH, annexes)."
+        )
+
     if host == "0.0.0.0" and not is_prod():
         raise RuntimeError(
             "Refus de bind 0.0.0.0 sans AUDIT_BIM_ENV=production. "

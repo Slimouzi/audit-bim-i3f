@@ -92,6 +92,10 @@ export AUDIT_BIM_API_KEY="$(openssl rand -hex 32)"
 export AUDIT_BIM_ALLOW_WRITES=false
 
 # 4. Sandbox filesystem : confiner les lectures et écritures
+#    AUDIT_INPUT_DIR est OBLIGATOIRE en prod réseau — sans cette
+#    racine, ``safe_input_path`` accepte tout fichier local existant,
+#    une zone trop implicite pour un MCP exposé. ``__main__`` refuse
+#    de démarrer si elle est absente quand AUDIT_BIM_ENV=production.
 export AUDIT_INPUT_DIR=/srv/audit/input    # DOE, CCH, annexes
 export AUDIT_OUTPUT_DIR=/srv/audit/output  # rapports, cache snapshot
 

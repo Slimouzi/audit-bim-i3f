@@ -124,9 +124,10 @@ class TestStartupConfig:
         with pytest.raises(RuntimeError, match="AUDIT_BIM_API_KEY"):
             assert_startup_config(transport="http", host="127.0.0.1")
 
-    def test_prod_http_with_key_ok(self, monkeypatch):
+    def test_prod_http_with_key_and_input_dir_ok(self, monkeypatch, tmp_path):
         monkeypatch.setenv("AUDIT_BIM_ENV", "production")
         monkeypatch.setenv("AUDIT_BIM_API_KEY", "secret")
+        monkeypatch.setenv("AUDIT_INPUT_DIR", str(tmp_path))
         assert_startup_config(transport="http", host="127.0.0.1")
 
     def test_require_flag_refuses_without_key(self, monkeypatch):
@@ -138,10 +139,35 @@ class TestStartupConfig:
         with pytest.raises(RuntimeError, match="0.0.0.0"):
             assert_startup_config(transport="http", host="0.0.0.0")
 
-    def test_bind_all_interfaces_allowed_in_prod_with_key(self, monkeypatch):
+    def test_bind_all_interfaces_allowed_in_prod_with_key_and_input_dir(
+        self, monkeypatch, tmp_path
+    ):
         monkeypatch.setenv("AUDIT_BIM_ENV", "production")
         monkeypatch.setenv("AUDIT_BIM_API_KEY", "secret")
+        monkeypatch.setenv("AUDIT_INPUT_DIR", str(tmp_path))
         assert_startup_config(transport="http", host="0.0.0.0")
+
+    def test_prod_http_without_input_dir_refused(self, monkeypatch):
+        # Round 3 review : AUDIT_INPUT_DIR doit être obligatoire en prod
+        # réseau, au même titre que la clé service.
+        monkeypatch.setenv("AUDIT_BIM_ENV", "production")
+        monkeypatch.setenv("AUDIT_BIM_API_KEY", "secret")
+        monkeypatch.delenv("AUDIT_INPUT_DIR", raising=False)
+        with pytest.raises(RuntimeError, match="AUDIT_INPUT_DIR"):
+            assert_startup_config(transport="http", host="127.0.0.1")
+
+    def test_require_flag_without_input_dir_refused(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("AUDIT_BIM_REQUIRE_API_KEY", "true")
+        monkeypatch.setenv("AUDIT_BIM_API_KEY", "secret")
+        monkeypatch.delenv("AUDIT_INPUT_DIR", raising=False)
+        with pytest.raises(RuntimeError, match="AUDIT_INPUT_DIR"):
+            assert_startup_config(transport="http", host="127.0.0.1")
+
+    def test_prod_http_with_full_config_ok(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("AUDIT_BIM_ENV", "production")
+        monkeypatch.setenv("AUDIT_BIM_API_KEY", "secret")
+        monkeypatch.setenv("AUDIT_INPUT_DIR", str(tmp_path))
+        assert_startup_config(transport="http", host="127.0.0.1")
 
 
 # ── verify_api_key ───────────────────────────────────────────────────────
