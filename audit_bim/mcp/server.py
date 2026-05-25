@@ -13,6 +13,7 @@ sérialisables (dict / list) compatibles avec FastMCP.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -47,7 +48,10 @@ from ..smartview.builder import push_smart_views
 from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
 from .prompts import AMO_BIM_I3F_PROMPT
 from .security import ensure_writes_allowed
+from .security import scrub as _scrub
 from .session import _State
+
+_server_logger = logging.getLogger("audit_bim.mcp.server")
 
 # Annotations conservées pour les imports externes (tests, scripts) qui
 # référenceraient encore ces noms.
@@ -263,13 +267,24 @@ def set_active_model(
 ) -> dict:
     """Cible la maquette BIMData et la phase BIM à auditer.
 
+    .. warning::
+       ``access_token`` reste **déconseillé en transport réseau** :
+       les paramètres MCP peuvent transiter dans des logs client,
+       des traces d'agent ou des historiques JSON-RPC. Préférer la
+       configuration côté serveur via ``BIMDATA_API_KEY`` /
+       ``BIMDATA_CLIENT_ID``+``…_SECRET``, ou l'injection d'identité
+       par le reverse-proxy. Utiliser ce paramètre uniquement en
+       contexte stdio local / dev. Côté audit-bim-i3f, le token est
+       *scrubbé* (sha-256[:8]) dans les logs serveur, mais l'appelant
+       est responsable de sa propre hygiène de logs.
+
     Args:
         cloud_id, project_id, model_id: IDs BIMData (fallback ``.env``).
         phase: APS | AVP | PRO | DCE | EXE | DOE | GESTION (défaut PRO).
         classification_system: référentiel à utiliser pour les
             classifications. Valeurs admises : ``UniFormat II`` (défaut) |
             ``Omniclass`` | ``CCS`` | ``3F``.
-        access_token: Bearer token déjà acquis (optionnel).
+        access_token: Bearer token déjà acquis (optionnel, local/dev).
     """
     from ..classifier import get_system
 
@@ -280,6 +295,14 @@ def set_active_model(
     if classification_system:
         # Valide le système (raise si inconnu)
         _State.classification_system = get_system(classification_system).label
+    if access_token:
+        _server_logger.info(
+            "set_active_model cloud=%s project=%s model=%s token=%s",
+            _State.cloud_id,
+            _State.project_id,
+            _State.model_id,
+            _scrub(access_token),
+        )
     _State.client = BIMDataClient(
         cloud_id=_State.cloud_id,
         project_id=_State.project_id,
@@ -827,6 +850,11 @@ def full_audit(
     - ``"ask"`` (défaut) : aucune publication ; renvoie une question à
       l'utilisateur pour qu'il choisisse — Claude doit demander avant de
       ré-appeler ``full_audit`` avec une valeur explicite.
+
+    .. warning::
+       ``access_token`` est déconseillé en transport réseau — cf. note
+       sur :func:`set_active_model`. Préférer la config serveur ou
+       l'injection par reverse-proxy.
 
     Args:
         cloud_id, project_id, model_id: cible BIMData (fallback ``.env``).

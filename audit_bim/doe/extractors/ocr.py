@@ -131,13 +131,53 @@ def _lines_to_table(lines: list[list[dict]], n_cols_hint: int | None = None) -> 
     return [_row_cells(line) for line in lines]
 
 
+# Bornes par défaut pour le rasterisation/OCR — surchargables via env.
+# Évite de saturer la mémoire / le CPU sur un PDF malveillant.
+_MAX_PDF_PAGES_DEFAULT = 50
+_MAX_DPI = 400
+_DEFAULT_OCR_TIMEOUT_S = 30
+
+
+def _max_pdf_pages() -> int:
+    """Nombre maximal de pages OCRisées par fichier (env ``AUDIT_MAX_PDF_PAGES``)."""
+    import os
+
+    raw = os.getenv("AUDIT_MAX_PDF_PAGES")
+    try:
+        return max(1, int(raw)) if raw else _MAX_PDF_PAGES_DEFAULT
+    except ValueError:
+        return _MAX_PDF_PAGES_DEFAULT
+
+
+def _ocr_timeout_s() -> int:
+    """Timeout Tesseract par page (env ``AUDIT_OCR_TIMEOUT_S``)."""
+    import os
+
+    raw = os.getenv("AUDIT_OCR_TIMEOUT_S")
+    try:
+        return max(1, int(raw)) if raw else _DEFAULT_OCR_TIMEOUT_S
+    except ValueError:
+        return _DEFAULT_OCR_TIMEOUT_S
+
+
 def parse_doe_pdf_ocr(
     pdf_path: str | Path,
     *,
     lang: str = "fra",
     dpi: int = 200,
+    max_pages: int | None = None,
 ) -> list[DoeRecord]:
     """Extrait les DoeRecord d'un PDF scanné via OCR Tesseract.
+
+    Bornes appliquées :
+
+    - DPI plafonné à 400 (au-delà, gain négligeable mais coût mémoire ×4).
+    - Nombre de pages plafonné par ``AUDIT_MAX_PDF_PAGES`` (défaut 50).
+      Évite qu'un PDF compressé volumineux ne sature la RAM.
+    - Tesseract appelé avec ``timeout=AUDIT_OCR_TIMEOUT_S`` (défaut 30 s
+      par page).
+    - Pages traitées une par une (``first_page`` / ``last_page`` de
+      pdf2image), pas de chargement complet en mémoire.
 
     Args:
         pdf_path: Chemin (str ou Path) du PDF scanné.
@@ -146,7 +186,8 @@ def parse_doe_pdf_ocr(
             les documents mixtes).
         dpi: Résolution de rasterisation. Défaut 200 (compromis
             qualité/perf). 300 pour plus de précision sur petites
-            polices, au prix de temps de traitement.
+            polices, au prix de temps de traitement. Capé à 400.
+        max_pages: Plafond explicite (override env).
 
     Returns:
         Liste de ``DoeRecord``, toutes pages confondues.
@@ -160,15 +201,43 @@ def parse_doe_pdf_ocr(
     """
     import pytesseract
     from pdf2image import convert_from_path
+    from pdf2image.pdf2image import pdfinfo_from_path
 
     path = Path(pdf_path)
     if not path.exists():
         raise FileNotFoundError(path)
 
-    pages = convert_from_path(str(path), dpi=dpi)
+    # Bornes
+    safe_dpi = min(dpi, _MAX_DPI)
+    page_cap = max_pages if max_pages is not None else _max_pdf_pages()
+    ocr_timeout = _ocr_timeout_s()
+
+    # Nombre de pages réel — pdfinfo lit l'en-tête seulement, pas de
+    # rasterisation à ce stade.
+    try:
+        info = pdfinfo_from_path(str(path))
+        total_pages = int(info.get("Pages", 0))
+    except Exception:
+        # pdfinfo_from_path peut nécessiter Poppler — en cas d'échec on
+        # tente quand même la rasterisation avec une borne explicite.
+        total_pages = page_cap
+
+    pages_to_process = min(total_pages or page_cap, page_cap)
+
     records: list[DoeRecord] = []
-    for page_num, image in enumerate(pages, start=1):
-        data = pytesseract.image_to_data(image, lang=lang, output_type=pytesseract.Output.DICT)
+    for page_num in range(1, pages_to_process + 1):
+        # Rasterisation page par page : empêche le chargement complet
+        # du PDF en mémoire (un PDF de 500 pages × 200 DPI ≈ plusieurs Go).
+        images = convert_from_path(str(path), dpi=safe_dpi, first_page=page_num, last_page=page_num)
+        if not images:
+            continue
+        image = images[0]
+        data = pytesseract.image_to_data(
+            image,
+            lang=lang,
+            output_type=pytesseract.Output.DICT,
+            timeout=ocr_timeout,
+        )
         words = [
             {
                 "text": data["text"][i],

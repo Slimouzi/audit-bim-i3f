@@ -36,10 +36,22 @@ Claude (vocabulaire CCH, format de signalement, chain-of-thought).
 
 ## Installation
 
+Toujours installer dans un **virtualenv dédié** — l'environnement Python
+global est partagé entre projets et provoque facilement des conflits de
+dépendances (cf. bornes hautes dans `pyproject.toml`).
+
 ```bash
-cd /Users/stani/code/MCP/audit-bim-i3f
+cd <chemin-vers-le-repo>
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
+```
+
+Pour un lock reproductible (CI / déploiement), envisager `uv` :
+
+```bash
+pip install uv
+uv pip install -e ".[test]"
+uv lock                 # génère uv.lock
 ```
 
 ## Configuration
