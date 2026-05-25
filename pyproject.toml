@@ -43,17 +43,20 @@ classifiers = [
     "Natural Language :: French",
 ]
 dependencies = [
-    "requests>=2.31",
-    "openpyxl>=3.1",
-    "xlsxwriter>=3.2",
-    "pypdf>=4.0",
-    "pdfplumber>=0.11",
-    "python-docx>=1.1",
-    "pydantic>=2.6",
-    "matplotlib>=3.8",
-    "python-dotenv>=1.0",
-    "fastmcp>=0.4",
-    "rapidfuzz>=3.6",
+    # Bornes hautes : protection contre les mises à jour majeures qui
+    # ont déjà cassé des projets en aval. Dependabot proposera les bumps
+    # via PR ; les tests CI valident chaque update.
+    "requests>=2.31,<3",
+    "openpyxl>=3.1,<4",
+    "xlsxwriter>=3.2,<4",
+    "pypdf>=4.0,<6",
+    "pdfplumber>=0.11,<1",
+    "python-docx>=1.1,<2",
+    "pydantic>=2.6,<3",
+    "matplotlib>=3.8,<4",
+    "python-dotenv>=1.0,<2",
+    "fastmcp>=3.0,<4",
+    "rapidfuzz>=3.6,<4",
 ]
 
 [project.optional-dependencies]

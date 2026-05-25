@@ -42,72 +42,32 @@ from ..reporting.word_report import write_word_report
 from ..reporting.xlsx_annex import write_xlsx_annex
 from ..requirements.catalog import build_catalog
 from ..requirements.models import BIMPhase, RequirementsCatalog
+from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
 from ..smartview.builder import push_smart_views
+from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
 from .prompts import AMO_BIM_I3F_PROMPT
+from .security import ensure_writes_allowed
+from .session import _State
 
-# ── État de session ────────────────────────────────────────────────────────
-
-
-class _State:
-    """Singleton léger qui porte l'état de l'audit en cours."""
-
-    cch_pdf: Path | None = None
-    data_spec_xlsx: Path | None = None
-    naming_spec_xlsx: Path | None = None
-    catalog: RequirementsCatalog | None = None
-
-    client: BIMDataClient | None = None
-    cloud_id: str | None = None
-    project_id: str | None = None
-    model_id: str | None = None
-    phase: BIMPhase | None = None
-    classification_system: str = "UniFormat II"
-    doe_available: bool | None = None
-
-    snapshot: ModelSnapshot | None = None
-    result: AuditResult | None = None
-
-    @classmethod
-    def ensure_catalog(cls):
-        if cls.catalog is None:
-            raise RuntimeError(
-                "Le catalogue d'exigences n'est pas chargé — appelez "
-                "`parse_owner_requirements` (ou `full_audit`) au préalable."
-            )
-
-    @classmethod
-    def ensure_client(cls):
-        if cls.client is None:
-            raise RuntimeError("Aucune cible BIMData configurée — appelez `set_active_model`.")
-
-    @classmethod
-    def ensure_snapshot(cls):
-        if cls.snapshot is None:
-            raise RuntimeError("Aucun snapshot — appelez `extract_model_snapshot`.")
-
-    @classmethod
-    def ensure_result(cls):
-        if cls.result is None:
-            raise RuntimeError("Aucun audit en cours — appelez `run_audit`.")
+# Annotations conservées pour les imports externes (tests, scripts) qui
+# référenceraient encore ces noms.
+_ = (AuditResult, BIMDataClient, ModelSnapshot, RequirementsCatalog)
 
 
 # ── Application MCP ────────────────────────────────────────────────────────
 
 
 mcp = FastMCP("audit-bim-i3f")
+# Middleware d'isolation de session (bind ``_State`` au client MCP courant)
+# et d'authentification optionnelle. En stdio, les deux sont des no-ops
+# transparents.
+mcp.add_middleware(SessionBindingMiddleware())
+mcp.add_middleware(ApiKeyMiddleware())
 
 
-# Charger un éventuel chemin par défaut depuis l'env
-def _bootstrap_defaults():
-    if config.I3F_CCH_PDF:
-        _State.cch_pdf = Path(config.I3F_CCH_PDF)
-    if config.I3F_DATA_SPEC_XLSX:
-        _State.data_spec_xlsx = Path(config.I3F_DATA_SPEC_XLSX)
-    if config.I3F_NAMING_SPEC_XLSX:
-        _State.naming_spec_xlsx = Path(config.I3F_NAMING_SPEC_XLSX)
-
-
-_bootstrap_defaults()
+# Note : le bootstrap des chemins par défaut depuis l'env est fait dans
+# ``_Session.__init__`` (cf. ``session.py``) — chaque session HTTP repart
+# avec les mêmes pointeurs CCH/annexes qu'en stdio.
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
@@ -360,9 +320,12 @@ def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cach
         Résumé du snapshot enrichi de ``from_cache: bool``.
     """
     _State.ensure_client()
+    # Le dossier de cache est sandboxé : créé sous AUDIT_OUTPUT_DIR si
+    # relatif, refusé s'il s'évade.
+    safe_dir = safe_export_dir(cache_dir)
     if use_cache:
         _State.snapshot, hit = cached_extract_snapshot(
-            _State.client, cache_dir=cache_dir, use_cache=True
+            _State.client, cache_dir=str(safe_dir), use_cache=True
         )
     else:
         _State.snapshot = extract_snapshot(_State.client)
@@ -395,6 +358,7 @@ def compare_with_previous_audit(
         Dict ``{old_source, new_source, summary, entries_sample,
         n_old_findings, n_new_findings}``.
     """
+    prev_safe = safe_input_path(previous_findings_json, allowed_extensions={".json"})
     if current_findings_json is None:
         _State.ensure_result()
         # Persiste l'audit courant dans un fichier temporaire pour
@@ -411,7 +375,10 @@ def compare_with_previous_audit(
                 ensure_ascii=False,
             )
             current_findings_json = tmp.name
-    return compare_audits_from_files(previous_findings_json, current_findings_json)
+        current_safe = current_findings_json
+    else:
+        current_safe = str(safe_input_path(current_findings_json, allowed_extensions={".json"}))
+    return compare_audits_from_files(str(prev_safe), current_safe)
 
 
 @mcp.tool()
@@ -507,20 +474,30 @@ def query_findings(
 
 
 def _default_output_paths() -> tuple[Path, Path]:
+    """Renvoie deux chemins relatifs (docx, xlsx) — passés ensuite à
+    :func:`safe_export_path` qui les résoudra sous ``AUDIT_OUTPUT_DIR``.
+    """
     project_name = (_State.snapshot.project or {}).get("name") if _State.snapshot else None
     project_name = project_name or _State.project_id or "projet"
     safe = "".join(c for c in str(project_name) if c not in r'\/:*?"<>|').strip()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     phase = _State.phase.value if _State.phase else "PRO"
-    base = config.AUDIT_OUTPUT_DIR / f"audit_{safe}_{phase}_{ts}"
+    base = f"audit_{safe}_{phase}_{ts}"
     return Path(f"{base}.docx"), Path(f"{base}_annexes.xlsx")
 
 
 @mcp.tool()
-def generate_xlsx_annex(output_path: str | None = None) -> dict:
-    """Génère l'annexe Excel détaillée de l'audit courant."""
+def generate_xlsx_annex(output_path: str | None = None, overwrite: bool = False) -> dict:
+    """Génère l'annexe Excel détaillée de l'audit courant.
+
+    Le chemin de sortie est filtré par la sandbox d'export
+    (:func:`audit_bim.safe_paths.safe_export_path`) : doit rester sous
+    ``AUDIT_OUTPUT_DIR`` (défaut ``./out``), sans ``..``, pas
+    d'écrasement silencieux sauf ``overwrite=True``.
+    """
     _State.ensure_result()
-    target = Path(output_path) if output_path else _default_output_paths()[1]
+    raw = Path(output_path) if output_path else _default_output_paths()[1]
+    target = safe_export_path(raw, overwrite=overwrite)
     written = write_xlsx_annex(_State.result, target)
     return {"path": str(written), "size_bytes": written.stat().st_size}
 
@@ -530,10 +507,16 @@ def generate_word_report(
     output_path: str | None = None,
     xlsx_annex_path: str | None = None,
     auditor: str = "AMO BIM (audit automatisé)",
+    overwrite: bool = False,
 ) -> dict:
-    """Génère le rapport Word d'audit."""
+    """Génère le rapport Word d'audit.
+
+    Le chemin de sortie est filtré par la sandbox d'export — cf.
+    :func:`generate_xlsx_annex`.
+    """
     _State.ensure_result()
-    target = Path(output_path) if output_path else _default_output_paths()[0]
+    raw = Path(output_path) if output_path else _default_output_paths()[0]
+    target = safe_export_path(raw, overwrite=overwrite)
     written = write_word_report(
         _State.result,
         target,
@@ -597,6 +580,8 @@ def apply_suggested_classifications(
     """
     _State.ensure_result()
     _State.ensure_client()
+    if not dry_run:
+        ensure_writes_allowed("apply_suggested_classifications")
     suggestions = suggest_for_findings(
         _State.result.findings,
         _State.result.snapshot,
@@ -632,10 +617,13 @@ def apply_classifications_from_xlsx(
         ``n_items_read_from_xlsx`` pour traçabilité.
     """
     _State.ensure_client()
-    items = read_classifications_from_xlsx(xlsx_path)
+    if not dry_run:
+        ensure_writes_allowed("apply_classifications_from_xlsx")
+    safe_xlsx = safe_input_path(xlsx_path, allowed_extensions={".xlsx", ".xlsm"})
+    items = read_classifications_from_xlsx(str(safe_xlsx))
     result = apply_classifications(_State.client, items, dry_run=dry_run)
     result["n_items_read_from_xlsx"] = len(items)
-    result["xlsx_path"] = xlsx_path
+    result["xlsx_path"] = str(safe_xlsx)
     return result
 
 
@@ -692,7 +680,10 @@ def doe_enrich_model(
     """
     _State.ensure_client()
     _State.ensure_snapshot()
-    records = parse_doe(doe_path, ocr_fallback=ocr_fallback, ocr_lang=ocr_lang)
+    if not dry_run:
+        ensure_writes_allowed("doe_enrich_model")
+    safe_doe = safe_input_path(doe_path)
+    records = parse_doe(str(safe_doe), ocr_fallback=ocr_fallback, ocr_lang=ocr_lang)
     matches = match_doe_records(records, _State.snapshot, name_min_score=name_min_score)
     summary = summarize_matches(matches)
     application = apply_matches_to_model(
@@ -703,7 +694,7 @@ def doe_enrich_model(
         on_conflict=on_conflict,
     )
     return {
-        "source": doe_path,
+        "source": str(safe_doe),
         "summary": summary,
         "application": application,
     }
@@ -731,12 +722,13 @@ def doe_match_only(
         ocr_lang: Langue Tesseract (défaut ``"fra"``).
     """
     _State.ensure_snapshot()
-    records = parse_doe(doe_path, ocr_fallback=ocr_fallback, ocr_lang=ocr_lang)
+    safe_doe = safe_input_path(doe_path)
+    records = parse_doe(str(safe_doe), ocr_fallback=ocr_fallback, ocr_lang=ocr_lang)
     matches = match_doe_records(records, _State.snapshot, name_min_score=name_min_score)
     summary = summarize_matches(matches)
     sample = [m.model_dump(mode="json") for m in matches[:limit]]
     return {
-        "source": doe_path,
+        "source": str(safe_doe),
         "n_records": len(records),
         "summary": summary,
         "sample_matches": sample,
@@ -761,6 +753,8 @@ def create_bcf_topics(
     """
     _State.ensure_result()
     _State.ensure_client()
+    if not dry_run:
+        ensure_writes_allowed("create_bcf_topics")
     out = push_bcf_topics(_State.result, _State.client, prefix=prefix, dry_run=dry_run)
     return {"n_topics": len(out), "dry_run": dry_run, "topics": out}
 
@@ -783,6 +777,8 @@ def create_smart_views(
     """
     _State.ensure_result()
     _State.ensure_client()
+    if not dry_run:
+        ensure_writes_allowed("create_smart_views")
     out = push_smart_views(_State.result, _State.client, prefix=prefix, dry_run=dry_run)
     return {
         "n_views": len(out),
@@ -870,22 +866,31 @@ def full_audit(
     # 4. Audit
     _State.result = run_audit(_State.snapshot, _State.catalog, _State.phase)
 
-    # 5. Livrables
+    # 5. Livrables — tous les chemins passent par la sandbox d'export.
+    # ``output_dir`` (relatif ou absolu) doit rester sous AUDIT_OUTPUT_DIR.
+    do_push_bcf = mode in ("bcf", "both")
+    do_push_sv = mode in ("smartview", "both")
+    if do_push_bcf or do_push_sv:
+        ensure_writes_allowed(f"full_audit(push_mode={mode})")
+
+    raw_word, raw_xlsx = _default_output_paths()
     if output_dir:
-        config.AUDIT_OUTPUT_DIR = Path(output_dir).resolve()
-    word_path, xlsx_path = _default_output_paths()
+        # output_dir est une sous-arborescence (sandbox-validée) où
+        # écrire les livrables — on préfixe les noms par défaut.
+        raw_word = Path(output_dir) / raw_word
+        raw_xlsx = Path(output_dir) / raw_xlsx
+
+    word_path = safe_export_path(raw_word)
+    xlsx_path = safe_export_path(raw_xlsx)
     xlsx_written = write_xlsx_annex(_State.result, xlsx_path)
     word_written = write_word_report(_State.result, word_path, xlsx_annex_path=xlsx_written)
 
     # 6. Publication selon le mode
-    bcf_result, sv_result = [], []
-    do_push_bcf = mode in ("bcf", "both")
-    do_push_sv = mode in ("smartview", "both")
     bcf_result = push_bcf_topics(_State.result, _State.client, dry_run=not do_push_bcf)
     sv_result = push_smart_views(_State.result, _State.client, dry_run=not do_push_sv)
 
-    # 7. JSON machine
-    findings_json = word_path.with_name(word_path.stem + "_findings.json")
+    # 7. JSON machine (chacun resandboxé pour être explicite)
+    findings_json = safe_export_path(word_path.with_name(word_path.stem + "_findings.json"))
     findings_json.write_text(
         json.dumps(
             [f.model_dump(mode="json") for f in _State.result.findings],
@@ -894,12 +899,12 @@ def full_audit(
         ),
         encoding="utf-8",
     )
-    bcf_json = word_path.with_name(word_path.stem + "_bcf_topics.json")
+    bcf_json = safe_export_path(word_path.with_name(word_path.stem + "_bcf_topics.json"))
     bcf_json.write_text(
         json.dumps(bcf_result, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
-    sv_json = word_path.with_name(word_path.stem + "_smart_views.json")
+    sv_json = safe_export_path(word_path.with_name(word_path.stem + "_smart_views.json"))
     sv_json.write_text(
         json.dumps(sv_result, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )

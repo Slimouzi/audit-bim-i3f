@@ -12,8 +12,40 @@ from __future__ import annotations
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from .. import config
+
+
+def _build_retry_adapter() -> HTTPAdapter:
+    """``HTTPAdapter`` avec retries bornés sur 429 / 5xx + backoff exponentiel.
+
+    Politique : 3 tentatives totales, backoff 0.5 s × 2ⁿ (cap urllib3 ~8 s).
+    Respecte ``Retry-After`` (utile sur les 429 BIMData). Les méthodes
+    autorisées au retry sont GET/HEAD/POST — les POST sur BIMData utilisés
+    par ce client sont idempotents (création par GUID / bulk classification
+    avec dédup) ou opérationnellement OK à rejouer.
+    """
+    retry = Retry(
+        total=3,
+        connect=2,
+        read=2,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET", "HEAD", "POST"}),
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    return HTTPAdapter(max_retries=retry)
+
+
+class BIMDataAuthError(PermissionError):
+    """L'API BIMData a rejeté la requête pour cause d'auth (401 / 403).
+
+    Sous-classe de ``PermissionError`` pour découpler les couches
+    supérieures (MCP) du module ``requests``.
+    """
 
 
 class BIMDataClient:
@@ -79,6 +111,9 @@ class BIMDataClient:
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update(self._auth_headers())
+        adapter = _build_retry_adapter()
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
 
     # ── Auth ────────────────────────────────────────────────────────────────
 
@@ -155,9 +190,12 @@ class BIMDataClient:
             La réponse JSON décodée (dict ou liste).
 
         Raises:
-            requests.HTTPError: Si le statut est 4xx/5xx.
+            BIMDataAuthError: Statut 401/403 (token invalide ou périmé).
+            requests.HTTPError: Autres statuts 4xx/5xx.
         """
         resp = self.session.get(self._url(path), params=params, timeout=self.timeout)
+        if resp.status_code in (401, 403):
+            raise BIMDataAuthError(f"BIMData {resp.status_code} on {path}")
         resp.raise_for_status()
         return resp.json()
 
@@ -177,10 +215,13 @@ class BIMDataClient:
             du JSON parseable.
 
         Raises:
-            requests.HTTPError: Si le statut est 4xx/5xx (le body est
+            BIMDataAuthError: Statut 401/403.
+            requests.HTTPError: Autres statuts 4xx/5xx (le body est
                 disponible via ``e.response.text`` côté appelant).
         """
         resp = self.session.post(self._url(path), json=json, timeout=(timeout or self.timeout))
+        if resp.status_code in (401, 403):
+            raise BIMDataAuthError(f"BIMData {resp.status_code} on {path}")
         resp.raise_for_status()
         if not resp.content:
             return None
