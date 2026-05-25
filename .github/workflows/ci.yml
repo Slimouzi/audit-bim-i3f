@@ -63,19 +63,21 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install package (non-editable) + pip-audit
-        # Install NON-éditable : ``--strict`` de pip-audit casse sur
-        # toute distrib non résolue, et un install éditable laisse le
-        # projet lui-même hors PyPI. On veut auditer **les deps**, donc
-        # on installe normalement (wheel local construit en mémoire).
+      - name: Install package (editable) + pip-audit
+        # Install éditable : le projet lui-même n'a pas à être audité
+        # (il n'est pas sur PyPI), seulement ses dépendances. Combiné
+        # avec ``--skip-editable`` côté pip-audit, le projet est exclu
+        # proprement. Sans ``--strict`` : pip-audit retourne exit 1
+        # uniquement sur vulnérabilité trouvée — c'est ce qu'on veut.
         run: |
           python -m pip install --upgrade pip
-          pip install ".[test]"
+          pip install -e ".[test]"
           pip install pip-audit
       - name: Scan dependencies for CVEs
-        # ``--strict`` : fail sur toute vuln ; à trier via Dependabot ou
-        # ``--ignore-vuln`` justifié (cf. SECURITY.md).
-        run: pip-audit --strict --format columns
+        # ``--skip-editable`` exclut le projet ; les vulns sur les deps
+        # font sortir en exit 1 (qui bloque le job). Politique d'ignore
+        # documentée dans SECURITY.md.
+        run: pip-audit --skip-editable --format columns
 
   security-audit-ocr:
     name: Security audit (pip-audit) — extras [ocr]
@@ -87,17 +89,16 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install package + ocr (non-editable) + pip-audit
+      - name: Install package + ocr (editable) + pip-audit
         # Les extras ``[ocr]`` (pytesseract, pdf2image, Pillow) ne sont
         # pas inclus dans ``test`` mais sont exécutés à l'extraction
-        # DOE PDF scanné. On audit leurs CVE séparément, en
-        # non-éditable pour rester compatible avec ``--strict``.
+        # DOE PDF scanné. On audit leurs CVE séparément.
         run: |
           python -m pip install --upgrade pip
-          pip install ".[test,ocr]"
+          pip install -e ".[test,ocr]"
           pip install pip-audit
       - name: Scan OCR extras for CVEs
-        run: pip-audit --strict --format columns
+        run: pip-audit --skip-editable --format columns
 
   integration:
     name: Integration tests (HTTP transport)

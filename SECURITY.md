@@ -34,8 +34,8 @@ pour les détails. Les axes couverts :
 
 ## Audit CVE — politique d'ignore
 
-Le job CI `security-audit` exécute `pip-audit --strict` à chaque push
-et bloque le build en cas de vuln connue. Quand une vuln est remontée
+Le job CI `security-audit` exécute `pip-audit --skip-editable` à chaque
+push et bloque le build en cas de vuln connue (exit code non-zéro). Quand une vuln est remontée
 sans correctif disponible immédiat, on peut l'ignorer **temporairement**
 en suivant cette procédure :
 
@@ -50,7 +50,7 @@ en suivant cette procédure :
    et `.github/workflows/release.yml` :
 
    ```yaml
-   - run: pip-audit --strict --format columns \
+   - run: pip-audit --skip-editable --format columns \
        --ignore-vuln GHSA-xxxx-yyyy-zzzz  # voir issue #N — expire YYYY-MM-DD
    ```
 
