@@ -54,7 +54,7 @@ jobs:
         continue-on-error: true
 
   security-audit:
-    name: Security audit (pip-audit)
+    name: Security audit (pip-audit) — uv.lock
     runs-on: ubuntu-latest
     needs: [lint]
     steps:
@@ -63,21 +63,25 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install package (editable) + pip-audit
-        # Install éditable : le projet lui-même n'a pas à être audité
-        # (il n'est pas sur PyPI), seulement ses dépendances. Combiné
-        # avec ``--skip-editable`` côté pip-audit, le projet est exclu
-        # proprement. Sans ``--strict`` : pip-audit retourne exit 1
-        # uniquement sur vulnérabilité trouvée — c'est ce qu'on veut.
+      - name: Install uv + pip-audit
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[test]"
-          pip install pip-audit
-      - name: Scan dependencies for CVEs
-        # ``--skip-editable`` exclut le projet ; les vulns sur les deps
-        # font sortir en exit 1 (qui bloque le job). Politique d'ignore
-        # documentée dans SECURITY.md.
-        run: pip-audit --skip-editable --format columns
+          pip install uv pip-audit
+      - name: Verify lockfile is up-to-date
+        # Garantit que ``uv.lock`` est cohérent avec ``pyproject.toml``.
+        # Si quelqu'un a bumpé une dep sans regen le lock, la CI casse
+        # ici — ce qui force le contributeur à regen + commit le lock.
+        run: uv lock --check
+      - name: Export resolved dependencies from lockfile
+        # ``--no-emit-project`` exclut audit-bim-i3f lui-même (pas
+        # publié sur PyPI). ``--no-hashes`` car pip-audit n'utilise
+        # pas les hashes — seuls les ``name==version`` comptent ici.
+        run: uv export --format requirements-txt --no-hashes --no-emit-project --output-file requirements-from-lock.txt
+      - name: Scan locked dependencies for CVEs
+        # Audit **reproductible** : exactement les versions du lockfile,
+        # pas ce que pip aurait résolu fraîchement. Permet aux résultats
+        # de pip-audit d'être stables tant que le lock ne change pas.
+        run: pip-audit -r requirements-from-lock.txt --format columns
 
   security-audit-ocr:
     name: Security audit (pip-audit) — extras [ocr]
@@ -89,16 +93,19 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install package + ocr (editable) + pip-audit
-        # Les extras ``[ocr]`` (pytesseract, pdf2image, Pillow) ne sont
-        # pas inclus dans ``test`` mais sont exécutés à l'extraction
-        # DOE PDF scanné. On audit leurs CVE séparément.
+      - name: Install uv + pip-audit
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[test,ocr]"
-          pip install pip-audit
+          pip install uv pip-audit
+      - name: Verify lockfile is up-to-date
+        run: uv lock --check
+      - name: Export resolved dependencies (including OCR extras)
+        # ``--extra ocr`` ajoute pytesseract / pdf2image / Pillow au
+        # lockfile résolu — ces deps ne sont pas dans le ``test`` extra
+        # mais sont exécutées en runtime sur DOE PDF scanné.
+        run: uv export --format requirements-txt --no-hashes --no-emit-project --extra ocr --output-file requirements-from-lock-ocr.txt
       - name: Scan OCR extras for CVEs
-        run: pip-audit --skip-editable --format columns
+        run: pip-audit -r requirements-from-lock-ocr.txt --format columns
 
   integration:
     name: Integration tests (HTTP transport)

@@ -1,0 +1,32 @@
+name: actionlint
+
+# Lint des workflows GitHub Actions eux-mêmes. Catche les erreurs
+# courantes : versions d'action obsolètes, syntaxe ``needs:`` cassée,
+# usage incorrect de ``${{ }}``, secrets non déclarés, etc.
+#
+# Tourne uniquement quand un fichier ``.github/workflows/`` change —
+# pas la peine de payer ~5 s sur les PR qui ne touchent pas la CI.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+  push:
+    branches: [master, main]
+    paths:
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2
+        with:
+          # ``shellcheck`` activé pour valider aussi les blocs ``run:`` bash.
+          shellcheck: true

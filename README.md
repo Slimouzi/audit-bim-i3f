@@ -46,12 +46,24 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 ```
 
-Pour un lock reproductible (CI / déploiement), envisager `uv` :
+Un lockfile **`uv.lock` est checked-in** au repo pour la reproductibilité
+des audits CVE (job CI `security-audit`). Pour bumper les dépendances :
 
 ```bash
 pip install uv
-uv pip install -e ".[test]"
-uv lock                 # génère uv.lock
+uv lock              # regénère uv.lock à partir de pyproject.toml
+git add uv.lock && git commit -m "chore(deps): bump via uv lock"
+```
+
+La CI bloque (`uv lock --check`) toute PR qui touche `pyproject.toml`
+sans regénérer le lockfile.
+
+Pour installer depuis le lockfile (env strictement identique à la CI) :
+
+```bash
+uv sync --extra test         # installe pyproject + extras test depuis uv.lock
+# ou
+uv sync --extra test --extra ocr   # ajoute les deps OCR
 ```
 
 ## Configuration
