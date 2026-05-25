@@ -53,10 +53,78 @@ jobs:
           fail_ci_if_error: false
         continue-on-error: true
 
+  security-audit:
+    name: Security audit (pip-audit)
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install package (editable) + pip-audit
+        # Install éditable : le projet lui-même n'a pas à être audité
+        # (il n'est pas sur PyPI), seulement ses dépendances. Combiné
+        # avec ``--skip-editable`` côté pip-audit, le projet est exclu
+        # proprement. Sans ``--strict`` : pip-audit retourne exit 1
+        # uniquement sur vulnérabilité trouvée — c'est ce qu'on veut.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+          pip install pip-audit
+      - name: Scan dependencies for CVEs
+        # ``--skip-editable`` exclut le projet ; les vulns sur les deps
+        # font sortir en exit 1 (qui bloque le job). Politique d'ignore
+        # documentée dans SECURITY.md.
+        run: pip-audit --skip-editable --format columns
+
+  security-audit-ocr:
+    name: Security audit (pip-audit) — extras [ocr]
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install package + ocr (editable) + pip-audit
+        # Les extras ``[ocr]`` (pytesseract, pdf2image, Pillow) ne sont
+        # pas inclus dans ``test`` mais sont exécutés à l'extraction
+        # DOE PDF scanné. On audit leurs CVE séparément.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test,ocr]"
+          pip install pip-audit
+      - name: Scan OCR extras for CVEs
+        run: pip-audit --skip-editable --format columns
+
+  integration:
+    name: Integration tests (HTTP transport)
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install package + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+      - name: Run integration tests
+        # Couvre : transport streamable-http opérationnel, X-API-Key
+        # (missing/wrong/valid), isolation de session entre clients.
+        # Le runner GitHub autorise bind(127.0.0.1) contrairement au
+        # sandbox local.
+        run: pytest tests/integration -q -m integration
+
   build:
     name: Build sdist + wheel
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, test, integration, security-audit, security-audit-ocr]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

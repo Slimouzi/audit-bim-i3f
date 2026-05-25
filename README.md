@@ -36,10 +36,22 @@ Claude (vocabulaire CCH, format de signalement, chain-of-thought).
 
 ## Installation
 
+Toujours installer dans un **virtualenv dédié** — l'environnement Python
+global est partagé entre projets et provoque facilement des conflits de
+dépendances (cf. bornes hautes dans `pyproject.toml`).
+
 ```bash
-cd /Users/stani/code/MCP/audit-bim-i3f
+cd <chemin-vers-le-repo>
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
+```
+
+Pour un lock reproductible (CI / déploiement), envisager `uv` :
+
+```bash
+pip install uv
+uv pip install -e ".[test]"
+uv lock                 # génère uv.lock
 ```
 
 ## Configuration
@@ -72,6 +84,101 @@ python -m audit_bim.mcp --transport http  --port 8765   # HTTP RPC (Node.js, app
 python -m audit_bim.mcp --transport sse   --port 8765   # Server-Sent Events
 python -m audit_bim.mcp --transport streamable-http --port 8765
 ```
+
+## Déploiement sécurisé (transport réseau)
+
+Le mode `stdio` (Claude Desktop / SDK local) est implicitement de confiance —
+aucune configuration supplémentaire requise. Dès que le serveur écoute sur
+le réseau (`http` / `sse` / `streamable-http`), respecter cette check-list :
+
+```bash
+# 1. Activer le mode production (refuse de booter sans clé, autorise 0.0.0.0)
+export AUDIT_BIM_ENV=production
+
+# 2. Clé service obligatoire — vérifiée par X-API-Key à l'init MCP
+export AUDIT_BIM_API_KEY="$(openssl rand -hex 32)"
+
+# 3. Mode read-only par défaut sur transport réseau — les push BCF / Smart
+#    Views / classifications sont refusés tant que ce flag n'est pas
+#    explicitement à "true". Ne le relâcher qu'au besoin et après audit.
+export AUDIT_BIM_ALLOW_WRITES=false
+
+# 4. Sandbox filesystem : confiner les lectures et écritures
+#    AUDIT_INPUT_DIR est OBLIGATOIRE en prod réseau — sans cette
+#    racine, ``safe_input_path`` accepte tout fichier local existant,
+#    une zone trop implicite pour un MCP exposé. ``__main__`` refuse
+#    de démarrer si elle est absente quand AUDIT_BIM_ENV=production.
+export AUDIT_INPUT_DIR=/srv/audit/input    # DOE, CCH, annexes
+export AUDIT_OUTPUT_DIR=/srv/audit/output  # rapports, cache snapshot
+
+# 5. (Optionnel) Bornes de session HTTP
+export AUDIT_BIM_SESSION_TTL_S=3600
+export AUDIT_BIM_MAX_SESSIONS=64
+
+# 6. Démarrage — écoute uniquement sur la loopback ; le TLS et l'auth client
+#    sont délégués au reverse-proxy (Nginx / Traefik / Cloudflare).
+python -m audit_bim.mcp \
+  --transport streamable-http \
+  --host 127.0.0.1 \
+  --port 8765
+```
+
+Côté reverse-proxy (exemple Nginx) :
+
+```nginx
+location /mcp/ {
+    proxy_pass http://127.0.0.1:8765/mcp/;
+    proxy_set_header X-API-Key $http_x_api_key;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # TLS, rate-limit, auth client (mTLS, OIDC...) ici
+}
+```
+
+### Cas de refus au démarrage (fail-fast)
+
+Le serveur refuse explicitement de booter dans les situations
+suivantes (`RuntimeError` au moment de `python -m audit_bim.mcp`) :
+
+| Situation | Cause | Comment lever |
+|---|---|---|
+| Transport réseau + `AUDIT_BIM_ENV=production` (ou `AUDIT_BIM_REQUIRE_API_KEY=true`) sans `AUDIT_BIM_API_KEY` | Pas de clé service → endpoint ouvert | Définir `AUDIT_BIM_API_KEY` |
+| Transport réseau + clé service définie (ou prod/require) sans `AUDIT_INPUT_DIR` | Tous les fichiers locaux lisibles deviennent ouvrables par un client distant | Définir `AUDIT_INPUT_DIR=/srv/audit/input` *ou* opter explicitement pour `AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true` (chroot/conteneur/AppArmor côté infra requis) |
+| `--host 0.0.0.0` sans `AUDIT_BIM_ENV=production` | Bind sur toutes les interfaces hors mode prod déclaré | Définir `AUDIT_BIM_ENV=production`, ou rester sur `127.0.0.1` + reverse-proxy |
+
+Toutes les variables sont documentées dans
+`audit_bim/mcp/security.py` et `audit_bim/safe_paths.py`.
+
+### Note sur `access_token`
+
+Les tools `set_active_model` et `full_audit` acceptent un paramètre
+`access_token` (Bearer OAuth BIMData). Ce paramètre est **prévu pour
+stdio local / dev uniquement** :
+
+- En transport `stdio` (Claude Desktop, SDK local, scripts) : le token
+  ne quitte pas l'IPC inter-process — usage acceptable.
+- En transport réseau (`http` / `sse` / `streamable-http`) : les
+  arguments MCP transitent dans des frames JSON-RPC visibles côté
+  logs client, agent traces, et reverse-proxy. Un Bearer y fuirait.
+  Le serveur **refuse** par défaut un `access_token` en argument et
+  lève `AccessTokenParamDisabledError`.
+
+Pour un déploiement HTTP exposé, configurer l'auth BIMData côté
+**serveur** via les variables d'env (lues une seule fois au boot, ne
+fuitent pas dans les logs MCP) :
+
+```bash
+export BIMDATA_API_KEY=…
+# OU
+export BIMDATA_CLIENT_ID=…
+export BIMDATA_CLIENT_SECRET=…
+```
+
+Puis appeler `set_active_model` / `full_audit` **sans** `access_token`
+— le client BIMData prend la config serveur.
+
+L'opt-out `AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM=true` existe pour les
+cas particuliers (logs JSON-RPC eux-mêmes confidentiels, ex. déploiement
+single-tenant derrière mTLS) mais reste **déconseillé**.
 
 ## Intégrations multi-clients
 

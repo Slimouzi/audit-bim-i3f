@@ -42,15 +42,77 @@ COLUMNS = [
 
 
 def _fmt_cell(v: Any) -> str:
+    """Convertit une valeur arbitraire en chaîne *sûre* pour Excel.
+
+    Toute chaîne issue de données externes (DOE, IFC, findings) est
+    passée par :func:`_neutralize_formula` pour interdire l'injection
+    de formule via une valeur commençant par ``=`` / ``+`` / ``-``
+    / ``@``.
+    """
     if v is None:
         return ""
     if isinstance(v, (list, tuple)):
         sample = list(v)[:8]
         more = " …" if len(v) > 8 else ""
-        return ", ".join(map(str, sample)) + more
+        return _neutralize_formula(", ".join(map(str, sample)) + more)
     if isinstance(v, dict):
-        return "; ".join(f"{k}={vv}" for k, vv in v.items())
-    return str(v)
+        return _neutralize_formula("; ".join(f"{k}={vv}" for k, vv in v.items()))
+    return _neutralize_formula(str(v))
+
+
+# Préfixes interprétés par Excel comme formules. CSV injection / XLSX
+# formula injection — cf. OWASP "Formula Injection (CSV Injection)".
+# On préfixe l'apostrophe pour neutraliser la cellule : Excel l'affiche
+# comme texte sans déclencher d'évaluation.
+_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _neutralize_formula(v: Any) -> Any:
+    """Neutralise une cellule texte qui commencerait par un caractère
+    interprété comme formule par Excel (``=`` ``+`` ``-`` ``@``).
+
+    Les valeurs non-textuelles (int, float, bool, date) sont rendues
+    inchangées : Excel les écrit comme types natifs, sans risque.
+
+    Combiné avec ``Workbook(.., {"strings_to_formulas": False})``, cette
+    fonction protège contre l'injection de formules via les libellés
+    DOE / IFC / findings issus de données externes potentiellement
+    hostiles.
+    """
+    if isinstance(v, str) and v and v[0] in _FORMULA_TRIGGERS:
+        return "'" + v
+    return v
+
+
+def write_safe(ws, row, col, value, fmt=None):
+    """Wrapper unique sur ``ws.write`` qui *neutralise* toujours la valeur.
+
+    Tous les onglets de l'annexe XLSX doivent passer par cette fonction
+    pour les valeurs issues de données externes (snapshot, DOE, findings,
+    suggestions, catalogue). Pour les libellés statiques (titres,
+    en-têtes), l'usage est aussi safe par construction — la
+    neutralisation ne s'applique que si la chaîne commence par un
+    caractère piège.
+
+    Args:
+        ws: worksheet xlsxwriter.
+        row: index de ligne (0-indexed) ou notation A1 si str.
+        col: index de colonne (0-indexed).
+        value: valeur arbitraire (str / number / bool / None).
+        fmt: format xlsxwriter optionnel.
+    """
+    safe = _neutralize_formula(value) if value is not None else ""
+    if isinstance(row, str):
+        # Notation A1 — ws.write accepte (cell_str, value, fmt)
+        if fmt is not None:
+            ws.write(row, safe, fmt)
+        else:
+            ws.write(row, safe)
+    else:
+        if fmt is not None:
+            ws.write(row, col, safe, fmt)
+        else:
+            ws.write(row, col, safe)
 
 
 def _build_formats(wb: xlsxwriter.Workbook) -> dict:
@@ -120,24 +182,26 @@ def _write_findings_sheet(
 
     for i, f in enumerate(findings, start=1):
         fmt = fmts["row_alt"] if i % 2 == 0 else fmts["row"]
+        # Tout ce qui provient de la maquette / DOE / suggestion est
+        # neutralisé pour interdire l'injection de formule Excel.
         values = [
-            f.element_uuid or "",
-            f.ifc_type or "",
-            f.name or "",
-            f.storey or "",
-            f.zone or "",
+            _neutralize_formula(f.element_uuid or ""),
+            _neutralize_formula(f.ifc_type or ""),
+            _neutralize_formula(f.name or ""),
+            _neutralize_formula(f.storey or ""),
+            _neutralize_formula(f.zone or ""),
             f.theme.value,
             f.error_type.value,
             f.severity.value,
             _fmt_cell(f.expected),
             _fmt_cell(f.actual),
-            f.ref_cch or "",
-            f.recommended_action or "",
+            _neutralize_formula(f.ref_cch or ""),
+            _neutralize_formula(f.recommended_action or ""),
         ]
         if suggestions_map is not None:
             sug = suggestions_map.get(f.element_uuid) if f.element_uuid else None
             if sug:
-                values.append(f"{sug['code']} — {sug['label']}")
+                values.append(_neutralize_formula(f"{sug['code']} — {sug['label']}"))
                 values.append(sug["confidence"])
             else:
                 values.extend(["", ""])
@@ -157,12 +221,20 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
     project = result.snapshot.project or {}
     model = result.snapshot.model or {}
 
+    # Les noms projet/modèle/CCH sont concaténés à du texte fixe pour
+    # contextualiser, mais ils proviennent in fine de données externes
+    # — neutralisation systématique en amont.
+    safe_project = _neutralize_formula(project.get("name", "?"))
+    safe_model = _neutralize_formula(model.get("name", "?"))
+    safe_cch = _neutralize_formula(result.catalog.cch_version or "?")
+    safe_ref = _neutralize_formula(Path(result.catalog.data_spec_source or "").name or "—")
+
     ws.write("A1", "Audit BIM — I3F", fmts["title"])
     ws.write("A2", f"Phase auditée : {result.phase.value}", fmts["h2"])
-    ws.write("A3", f"Projet : {project.get('name', '?')}")
-    ws.write("A4", f"Modèle : {model.get('name', '?')}")
-    ws.write("A5", f"CCH version : {result.catalog.cch_version or '?'}")
-    ws.write("A6", f"Référentiel : {Path(result.catalog.data_spec_source or '').name or '—'}")
+    ws.write("A3", f"Projet : {safe_project}")
+    ws.write("A4", f"Modèle : {safe_model}")
+    ws.write("A5", f"CCH version : {safe_cch}")
+    ws.write("A6", f"Référentiel : {safe_ref}")
 
     # KPIs
     ws.write("A8", "KPI global", fmts["h2"])
@@ -216,7 +288,7 @@ def _write_referential(wb, result: AuditResult, fmts: dict):
     ws.write(row, 0, "Étages admis", fmts["h2"])
     row += 1
     for s in cat.storey_names:
-        ws.write(row, 0, s.name, fmts["row"])
+        ws.write(row, 0, _neutralize_formula(s.name), fmts["row"])
         row += 1
 
     row += 1
@@ -225,9 +297,9 @@ def _write_referential(wb, result: AuditResult, fmts: dict):
     ws.write(row, 2, "Définition", fmts["h2"])
     row += 1
     for z in cat.zone_specs:
-        ws.write(row, 0, z.type_label, fmts["row"])
-        ws.write(row, 1, z.localisation, fmts["row"])
-        ws.write(row, 2, z.definition or "", fmts["row"])
+        ws.write(row, 0, _neutralize_formula(z.type_label), fmts["row"])
+        ws.write(row, 1, _neutralize_formula(z.localisation), fmts["row"])
+        ws.write(row, 2, _neutralize_formula(z.definition or ""), fmts["row"])
         row += 1
 
     row += 1
@@ -237,10 +309,10 @@ def _write_referential(wb, result: AuditResult, fmts: dict):
     ws.write(row, 3, "Surface", fmts["h2"])
     row += 1
     for r in cat.room_specs:
-        ws.write(row, 0, r.name, fmts["row"])
-        ws.write(row, 1, r.type_label or "", fmts["row"])
-        ws.write(row, 2, r.localisation, fmts["row"])
-        ws.write(row, 3, r.surface_type or "", fmts["row"])
+        ws.write(row, 0, _neutralize_formula(r.name), fmts["row"])
+        ws.write(row, 1, _neutralize_formula(r.type_label or ""), fmts["row"])
+        ws.write(row, 2, _neutralize_formula(r.localisation), fmts["row"])
+        ws.write(row, 3, _neutralize_formula(r.surface_type or ""), fmts["row"])
         row += 1
 
 
@@ -249,7 +321,11 @@ def write_xlsx_annex(result: AuditResult, output_path: str | Path) -> Path:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    wb = xlsxwriter.Workbook(str(output_path))
+    # ``strings_to_formulas=False`` : ceinture *et* bretelles avec
+    # ``_neutralize_formula`` — XlsxWriter n'évalue plus aucune chaîne
+    # commençant par ``=`` comme formule, même si la neutralisation a
+    # été oubliée sur un site d'écriture.
+    wb = xlsxwriter.Workbook(str(output_path), {"strings_to_formulas": False})
     fmts = _build_formats(wb)
 
     _write_synthesis(wb, result, fmts)
@@ -348,25 +424,29 @@ def _write_classification_suggestions(wb, result: AuditResult, fmts: dict):
         sugs = item.get("suggestions") or []
         s1 = sugs[0] if len(sugs) >= 1 else {}
         s2 = sugs[1] if len(sugs) >= 2 else {}
-        ws.write(i, 0, item.get("element_uuid") or "", fmt)
-        ws.write(i, 1, item.get("ifc_type") or "", fmt)
-        ws.write(i, 2, (item.get("name") or "")[:120], fmt)
-        ws.write(i, 3, ", ".join(item.get("layers") or [])[:120], fmt)
-        ws.write(
+        # Toutes ces valeurs proviennent du suggester / des IFC layers /
+        # noms d'éléments → passées par ``write_safe`` (neutralisation
+        # systématique).
+        write_safe(ws, i, 0, item.get("element_uuid") or "", fmt)
+        write_safe(ws, i, 1, item.get("ifc_type") or "", fmt)
+        write_safe(ws, i, 2, (item.get("name") or "")[:120], fmt)
+        write_safe(ws, i, 3, ", ".join(item.get("layers") or [])[:120], fmt)
+        write_safe(
+            ws,
             i,
             4,
             "" if item.get("is_external") is None else ("oui" if item["is_external"] else "non"),
             fmt,
         )
-        ws.write(i, 5, s1.get("code", ""), fmt)
-        ws.write(i, 6, s1.get("label", ""), fmt)
-        ws.write(i, 7, s1.get("confidence", ""), fmt)
-        ws.write(i, 8, s2.get("code", ""), fmt)
-        ws.write(i, 9, s2.get("label", ""), fmt)
-        ws.write(i, 10, s2.get("confidence", ""), fmt)
+        write_safe(ws, i, 5, s1.get("code", ""), fmt)
+        write_safe(ws, i, 6, s1.get("label", ""), fmt)
+        write_safe(ws, i, 7, s1.get("confidence", ""), fmt)
+        write_safe(ws, i, 8, s2.get("code", ""), fmt)
+        write_safe(ws, i, 9, s2.get("label", ""), fmt)
+        write_safe(ws, i, 10, s2.get("confidence", ""), fmt)
         reasons = []
         for s in sugs[:2]:
             reasons.extend(s.get("reasons") or [])
-        ws.write(i, 11, " ; ".join(reasons)[:300], fmt)
+        write_safe(ws, i, 11, " ; ".join(reasons)[:300], fmt)
     if suggestions:
         ws.autofilter(0, 0, len(suggestions), len(cols) - 1)

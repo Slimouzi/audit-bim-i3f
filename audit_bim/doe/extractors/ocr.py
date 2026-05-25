@@ -31,10 +31,13 @@ ajouter.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from ..models import DoeRecord
 from ._common import detect_header, find_header_row, row_to_record
+
+logger = logging.getLogger("audit_bim.doe.ocr")
 
 # Tolérance verticale pour grouper des mots dans la même « ligne » : on
 # considère 2 mots comme alignés horizontalement si la différence de leur
@@ -131,13 +134,73 @@ def _lines_to_table(lines: list[list[dict]], n_cols_hint: int | None = None) -> 
     return [_row_cells(line) for line in lines]
 
 
+# Bornes par défaut pour le rasterisation/OCR — surchargables via env.
+# Évite de saturer la mémoire / le CPU sur un PDF malveillant.
+_MAX_PDF_PAGES_DEFAULT = 50
+_MAX_DPI = 400
+_DEFAULT_OCR_TIMEOUT_S = 30
+
+
+def _max_pdf_pages() -> int:
+    """Nombre maximal de pages OCRisées par fichier (env ``AUDIT_MAX_PDF_PAGES``)."""
+    import os
+
+    raw = os.getenv("AUDIT_MAX_PDF_PAGES")
+    try:
+        return max(1, int(raw)) if raw else _MAX_PDF_PAGES_DEFAULT
+    except ValueError:
+        return _MAX_PDF_PAGES_DEFAULT
+
+
+def _ocr_timeout_s() -> int:
+    """Timeout Tesseract par page (env ``AUDIT_OCR_TIMEOUT_S``)."""
+    import os
+
+    raw = os.getenv("AUDIT_OCR_TIMEOUT_S")
+    try:
+        return max(1, int(raw)) if raw else _DEFAULT_OCR_TIMEOUT_S
+    except ValueError:
+        return _DEFAULT_OCR_TIMEOUT_S
+
+
+_DEFAULT_PDF_RASTER_TIMEOUT_S = 30
+
+
+def _pdf_raster_timeout_s() -> int:
+    """Timeout Poppler par page lors de la rasterisation
+    (env ``AUDIT_PDF_RASTER_TIMEOUT_S``, défaut 30 s).
+
+    Empêche un PDF compressé / malformé / piégé de bloquer
+    indéfiniment le worker Poppler — la borne est appliquée au niveau
+    du subprocess ``pdftoppm`` que pdf2image invoque.
+    """
+    import os
+
+    raw = os.getenv("AUDIT_PDF_RASTER_TIMEOUT_S")
+    try:
+        return max(1, int(raw)) if raw else _DEFAULT_PDF_RASTER_TIMEOUT_S
+    except ValueError:
+        return _DEFAULT_PDF_RASTER_TIMEOUT_S
+
+
 def parse_doe_pdf_ocr(
     pdf_path: str | Path,
     *,
     lang: str = "fra",
     dpi: int = 200,
+    max_pages: int | None = None,
 ) -> list[DoeRecord]:
     """Extrait les DoeRecord d'un PDF scanné via OCR Tesseract.
+
+    Bornes appliquées :
+
+    - DPI plafonné à 400 (au-delà, gain négligeable mais coût mémoire ×4).
+    - Nombre de pages plafonné par ``AUDIT_MAX_PDF_PAGES`` (défaut 50).
+      Évite qu'un PDF compressé volumineux ne sature la RAM.
+    - Tesseract appelé avec ``timeout=AUDIT_OCR_TIMEOUT_S`` (défaut 30 s
+      par page).
+    - Pages traitées une par une (``first_page`` / ``last_page`` de
+      pdf2image), pas de chargement complet en mémoire.
 
     Args:
         pdf_path: Chemin (str ou Path) du PDF scanné.
@@ -146,7 +209,8 @@ def parse_doe_pdf_ocr(
             les documents mixtes).
         dpi: Résolution de rasterisation. Défaut 200 (compromis
             qualité/perf). 300 pour plus de précision sur petites
-            polices, au prix de temps de traitement.
+            polices, au prix de temps de traitement. Capé à 400.
+        max_pages: Plafond explicite (override env).
 
     Returns:
         Liste de ``DoeRecord``, toutes pages confondues.
@@ -159,50 +223,185 @@ def parse_doe_pdf_ocr(
             machine (cf. doc d'installation en tête de module).
     """
     import pytesseract
-    from pdf2image import convert_from_path
+    from pdf2image.pdf2image import pdfinfo_from_path
 
     path = Path(pdf_path)
     if not path.exists():
         raise FileNotFoundError(path)
 
-    pages = convert_from_path(str(path), dpi=dpi)
+    # Bornes
+    safe_dpi = min(dpi, _MAX_DPI)
+    page_cap = max_pages if max_pages is not None else _max_pdf_pages()
+    ocr_timeout = _ocr_timeout_s()
+
+    # Nombre de pages réel — pdfinfo lit l'en-tête seulement, pas de
+    # rasterisation à ce stade.
+    try:
+        info = pdfinfo_from_path(str(path))
+        total_pages = int(info.get("Pages", 0))
+    except Exception:
+        # pdfinfo_from_path peut nécessiter Poppler — en cas d'échec on
+        # tente quand même la rasterisation avec une borne explicite.
+        total_pages = page_cap
+
+    pages_to_process = min(total_pages or page_cap, page_cap)
+
+    # Erreurs Poppler explicites — capturées en premier pour logs
+    # distincts du chemin Tesseract.
+    try:
+        from pdf2image.exceptions import (
+            PDFInfoNotInstalledError,
+            PDFPageCountError,
+            PDFPopplerTimeoutError,
+            PDFSyntaxError,
+        )
+
+        _poppler_errors: tuple[type[BaseException], ...] = (
+            PDFInfoNotInstalledError,
+            PDFPageCountError,
+            PDFPopplerTimeoutError,
+            PDFSyntaxError,
+        )
+    except ImportError:
+        _poppler_errors = ()
+
     records: list[DoeRecord] = []
-    for page_num, image in enumerate(pages, start=1):
-        data = pytesseract.image_to_data(image, lang=lang, output_type=pytesseract.Output.DICT)
-        words = [
+    skipped_pages: list[tuple[int, str]] = []
+    for page_num in range(1, pages_to_process + 1):
+        try:
+            page_records = _ocr_single_page(
+                path=path,
+                page_num=page_num,
+                dpi=safe_dpi,
+                lang=lang,
+                ocr_timeout=ocr_timeout,
+            )
+        except pytesseract.TesseractError as e:
+            # Tesseract a explicitement échoué (timeout interne, page
+            # corrompue, modèle de langue manquant). On note la page
+            # et on continue — une page muette ne doit pas tuer tout
+            # le DOE.
+            logger.warning("ocr page=%d skipped: %s", page_num, e)
+            skipped_pages.append((page_num, f"tesseract_error: {e}"))
+            continue
+        except _poppler_errors as e:
+            # Rasterisation Poppler en erreur : timeout subprocess,
+            # PDF syntaxe corrompue, page count cassé. On isole la page
+            # et on continue avec les suivantes.
+            logger.warning("ocr page=%d poppler error: %r", page_num, e)
+            skipped_pages.append((page_num, f"poppler_error: {e}"))
+            continue
+        except Exception as e:  # noqa: BLE001 — page-level isolation
+            # Tout autre échec inattendu : même politique d'isolation,
+            # pour ne jamais propager une exception page-locale.
+            logger.warning("ocr page=%d failed: %r", page_num, e)
+            skipped_pages.append((page_num, repr(e)))
+            continue
+        records.extend(page_records)
+
+    if skipped_pages:
+        logger.warning(
+            "ocr completed with %d skipped page(s) out of %d — see warnings above",
+            len(skipped_pages),
+            pages_to_process,
+        )
+    return records
+
+
+def _parse_conf(raw_conf) -> float | None:
+    """Parse une confiance Tesseract (peut être ``int``, ``"95"``,
+    ``"95.123"`` ou ``"-1"``).
+
+    Returns:
+        Float ≥ 0 si la valeur est exploitable, ``None`` sinon (incluant
+        la valeur sentinelle ``-1`` que Tesseract renvoie pour les mots
+        sans alternatives).
+    """
+    if raw_conf is None:
+        return None
+    try:
+        v = float(raw_conf)
+    except (TypeError, ValueError):
+        return None
+    if v < 0:
+        return None
+    return v
+
+
+def _ocr_single_page(
+    *,
+    path: Path,
+    page_num: int,
+    dpi: int,
+    lang: str,
+    ocr_timeout: int,
+) -> list[DoeRecord]:
+    """OCR d'une seule page, isolée des autres pour la tolérance aux erreurs.
+
+    Levée d'exception possible — capturée par le caller
+    (:func:`parse_doe_pdf_ocr`) pour ignorer la page sans tuer tout
+    le PDF.
+    """
+    import pytesseract
+    from pdf2image import convert_from_path
+
+    # ``timeout`` propage la borne au subprocess ``pdftoppm`` que
+    # pdf2image lance. Sans ça, un PDF malveillant peut bloquer le
+    # worker indéfiniment.
+    images = convert_from_path(
+        str(path),
+        dpi=dpi,
+        first_page=page_num,
+        last_page=page_num,
+        timeout=_pdf_raster_timeout_s(),
+    )
+    if not images:
+        return []
+    image = images[0]
+    data = pytesseract.image_to_data(
+        image,
+        lang=lang,
+        output_type=pytesseract.Output.DICT,
+        timeout=ocr_timeout,
+    )
+    words = []
+    for i in range(len(data["text"])):
+        text = str(data["text"][i]).strip()
+        if not text:
+            continue
+        conf = _parse_conf(data["conf"][i])
+        if conf is None or conf < 30:
+            continue
+        words.append(
             {
                 "text": data["text"][i],
                 "left": data["left"][i],
                 "top": data["top"][i],
                 "width": data["width"][i],
                 "height": data["height"][i],
-                "conf": data["conf"][i],
+                "conf": conf,
             }
-            for i in range(len(data["text"]))
-            if str(data["text"][i]).strip() and int(data["conf"][i]) >= 30
-        ]
-        if not words:
-            continue
-        lines = _group_words_into_lines(words)
-        if len(lines) < 2:
-            continue
-        table = _lines_to_table(lines)
-        header_idx = find_header_row(table)
-        if header_idx is None:
-            continue
-        headers = table[header_idx]
-        col_map = [detect_header(h) for h in headers]
-        for row_i, row in enumerate(
-            table[header_idx + 1 :],
-            start=header_idx + 2,
-        ):
-            rec = row_to_record(
-                headers,
-                row,
-                col_map,
-                source=f"{path}#page={page_num}&ocr=tesseract:{lang}",
-                row_index=row_i,
-            )
-            if rec is not None:
-                records.append(rec)
+        )
+    if not words:
+        return []
+    lines = _group_words_into_lines(words)
+    if len(lines) < 2:
+        return []
+    table = _lines_to_table(lines)
+    header_idx = find_header_row(table)
+    if header_idx is None:
+        return []
+    headers = table[header_idx]
+    col_map = [detect_header(h) for h in headers]
+    records: list[DoeRecord] = []
+    for row_i, row in enumerate(table[header_idx + 1 :], start=header_idx + 2):
+        rec = row_to_record(
+            headers,
+            row,
+            col_map,
+            source=f"{path}#page={page_num}&ocr=tesseract:{lang}",
+            row_index=row_i,
+        )
+        if rec is not None:
+            records.append(rec)
     return records

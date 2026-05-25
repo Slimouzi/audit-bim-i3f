@@ -1,0 +1,40 @@
+version: 2
+updates:
+  # Dépendances Python — PR groupées hebdomadaires pour limiter le bruit.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      runtime:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "pytest*"
+          - "ruff"
+          - "build"
+          - "twine"
+          - "reportlab"
+      dev:
+        applies-to: version-updates
+        patterns:
+          - "pytest*"
+          - "ruff"
+          - "build"
+          - "twine"
+          - "reportlab"
+    labels:
+      - "dependencies"
+      - "automated"
+
+  # Actions GitHub
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"

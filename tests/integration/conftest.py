@@ -55,12 +55,16 @@ def _wait_for_http(url: str, timeout_s: float = 15.0) -> None:
     raise TimeoutError(f"Serveur {url} non démarré après {timeout_s}s ({last_exc!r})")
 
 
-@pytest.fixture(scope="session")
-def mcp_http_server() -> Iterator[dict]:
-    """Démarre le serveur MCP en streamable-http pour la session de tests.
+def _spawn_mcp_server(extra_env: dict[str, str] | None = None) -> tuple[subprocess.Popen, dict]:
+    """Démarre un serveur MCP streamable-http en sous-process.
 
-    Yields:
-        Dict ``{url, host, port, mcp_endpoint}`` pour les tests.
+    Args:
+        extra_env: Variables d'env à fusionner avec ``os.environ`` (utile
+            pour activer ``AUDIT_BIM_API_KEY`` sur certaines fixtures).
+
+    Returns:
+        Tuple ``(proc, info)`` — ``info`` est le dict yieldé par les
+        fixtures (``url``, ``host``, ``port``, ``mcp_endpoint``).
     """
     port = _find_free_port()
     host = "127.0.0.1"
@@ -69,9 +73,9 @@ def mcp_http_server() -> Iterator[dict]:
 
     repo_root = Path(__file__).resolve().parents[2]
     env = os.environ.copy()
-    # Empêche les tests d'écraser le .env utilisateur — la lecture du
-    # snapshot n'est pas testée ici (pas besoin d'IDs BIMData valides).
     env.setdefault("BIMDATA_API_KEY", "dummy-for-integration-tests")
+    if extra_env:
+        env.update(extra_env)
 
     proc = subprocess.Popen(
         [
@@ -93,7 +97,6 @@ def mcp_http_server() -> Iterator[dict]:
     try:
         _wait_for_http(mcp_endpoint, timeout_s=20.0)
     except Exception as exc:
-        # Récupère la sortie pour débug
         proc.terminate()
         out, err = proc.communicate(timeout=5)
         raise RuntimeError(
@@ -102,13 +105,66 @@ def mcp_http_server() -> Iterator[dict]:
             f"stderr: {err.decode(errors='ignore')[:2000]}"
         ) from exc
 
-    yield {"url": url, "host": host, "port": port, "mcp_endpoint": mcp_endpoint}
+    return proc, {"url": url, "host": host, "port": port, "mcp_endpoint": mcp_endpoint}
 
+
+def _terminate(proc: subprocess.Popen) -> None:
     proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
+
+
+@pytest.fixture(scope="session")
+def mcp_http_server() -> Iterator[dict]:
+    """Démarre le serveur MCP en streamable-http pour la session de tests.
+
+    Variante sans clé service — couvre les tools sans dépendance externe.
+    Pour un serveur protégé par ``AUDIT_BIM_API_KEY``, voir
+    :func:`mcp_http_server_with_api_key`.
+
+    Yields:
+        Dict ``{url, host, port, mcp_endpoint}`` pour les tests.
+    """
+    proc, info = _spawn_mcp_server()
+    try:
+        yield info
+    finally:
+        _terminate(proc)
+
+
+# Clé service utilisée par les tests d'auth — volontairement courte +
+# non-secrète, lisible dans les logs pour le débug.
+TEST_API_KEY = "test-secret-xyz123"
+
+
+@pytest.fixture(scope="session")
+def mcp_http_server_with_api_key(tmp_path_factory) -> Iterator[dict]:
+    """Variante avec ``AUDIT_BIM_API_KEY`` activé.
+
+    Avec une clé service définie, ``assert_startup_config`` exige aussi
+    ``AUDIT_INPUT_DIR`` — on fournit une racine éphémère pour que le
+    serveur démarre. La racine reste vide : les tests d'auth ne lisent
+    aucun fichier.
+
+    Yields:
+        Dict ``{url, host, port, mcp_endpoint, api_key}`` — la clé est
+        celle attendue par le serveur, à utiliser dans les headers du
+        client de test.
+    """
+    input_dir = tmp_path_factory.mktemp("audit_input_session")
+    proc, info = _spawn_mcp_server(
+        {
+            "AUDIT_BIM_API_KEY": TEST_API_KEY,
+            "AUDIT_INPUT_DIR": str(input_dir),
+        }
+    )
+    info["api_key"] = TEST_API_KEY
+    try:
+        yield info
+    finally:
+        _terminate(proc)
 
 
 def pytest_collection_modifyitems(config, items):

@@ -1,4 +1,4 @@
-"""Permet ``python -m audit_bim.mcp [--transport stdio|http|sse|streamable-http] [--host ...] [--port ...]``.
+"""Permet ``python -m audit_bim.mcp [--transport ...] [--host ...] [--port ...]``.
 
 Transports supportés par FastMCP 3.x :
 
@@ -7,14 +7,25 @@ Transports supportés par FastMCP 3.x :
 - ``http`` / ``streamable-http`` — endpoint HTTP RPC pour clients Node.js,
   apps métier BIM, intégrations custom.
 - ``sse`` — Server-Sent Events pour clients web temps réel.
+
+Pour les transports réseau, on applique des garde-fous au démarrage
+(cf. :func:`audit_bim.mcp.security.assert_startup_config`) :
+
+- refus de démarrer si ``AUDIT_BIM_REQUIRE_API_KEY=true``
+  (ou ``AUDIT_BIM_ENV=production``) sans ``AUDIT_BIM_API_KEY``,
+- refus de bind ``0.0.0.0`` hors mode production explicite.
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 
+from .security import assert_startup_config, set_runtime_transport
 from .server import mcp
+
+logger = logging.getLogger("audit_bim.mcp")
 
 
 def main() -> int:
@@ -35,7 +46,7 @@ def main() -> int:
     parser.add_argument(
         "--host",
         default="127.0.0.1",
-        help="Hôte d'écoute (transports http/sse).",
+        help=("Hôte d'écoute (transports http/sse). 0.0.0.0 refusé sans AUDIT_BIM_ENV=production."),
     )
     parser.add_argument(
         "--port",
@@ -44,6 +55,18 @@ def main() -> int:
         help="Port d'écoute (transports http/sse).",
     )
     args = parser.parse_args()
+
+    # Mémorise le transport AVANT le check : ``assert_startup_config``
+    # logge ses warnings via :func:`is_write_allowed` qui dépend du
+    # transport runtime.
+    set_runtime_transport(args.transport)
+
+    # Fail-fast avant tout bind socket.
+    try:
+        assert_startup_config(transport=args.transport, host=args.host)
+    except RuntimeError as exc:
+        print(f"audit-bim-i3f MCP — refus de démarrer : {exc}", file=sys.stderr)
+        return 2
 
     kwargs: dict = {}
     if args.transport in ("http", "sse", "streamable-http"):
