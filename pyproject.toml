@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audit-bim-i3f"
-version = "0.2.1"
+version = "0.3.0"
 description = "MCP server for BIM model audit against the I3F French BIM specifications (CCH BIM I3F V3.6)."
 readme = "README.md"
 requires-python = ">=3.10"

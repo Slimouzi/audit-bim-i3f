@@ -7,14 +7,100 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
-### Changed
+## [0.3.0] — 2026-05-26
 
-- **Distribution** : abandon de la publication PyPI. Le workflow Release
-  produit désormais uniquement les artefacts `sdist` + `wheel` attachés à
-  la GitHub Release. Installation via téléchargement direct ou
-  `pip install https://github.com/Slimouzi/audit-bim-i3f/releases/download/<tag>/<file>.whl`.
-  Le job `publish-pypi` est supprimé du workflow ; `create-release`
-  dépend désormais directement de `build`.
+Release de capacités métier visibles : requêtage tabulaire sémantique
+des données BIM, rapport Word d'audit enrichi multi-sections, et garde
+de gouvernance AMO BIM (3 champs de contexte obligatoires avant audit).
+
+### Added
+
+#### Requête tabulaire sémantique de la maquette (PR #15)
+
+- **Nouveau module `audit_bim/query/property_aliases.py`** —
+  résolveur sémantique FR/EN pour propriétés IFC/Pset avec matching
+  exact → suffixe → fallback dynamique sur n'importe quel `Pset.Prop` :
+  acoustique (`Rw`, `AcousticRating`,
+  `IndiceAffaiblissementAcoustique`…), feu (`FireRating`,
+  `DegreCoupeFeu`, `ResistanceAuFeu`…), dimensions (`Height` /
+  `Hauteur` / `OverallHeight` / `BaseQuantities.Height`), matériaux
+  (`Material` / `Materiau`), fabricant (`Manufacturer` / `Fabricant`
+  / `Marque`), maintenance (`MaintenanceID` / `AssetID` / `IdGmao`).
+- **Nouveau module `audit_bim/query/table_query.py`** — `BimQuery`
+  (filter + fields + include_empty + flatten_lists + pagination) +
+  `BimQueryResult` (columns + rows source-tracées + warnings).
+  Fonction `query_bim_table(snapshot, query)` pure, sans I/O ni API.
+- **3 nouveaux tools MCP** : `query_bim_data` (requête générique avec
+  pagination ≤ 500 + overflow disque > 256 KB via
+  `maybe_dump_to_disk`), `query_bim_preset`, `list_query_presets`.
+- **3 presets initiaux** : `doors_acoustic_dimensions`,
+  `walls_fire_acoustic`, `equipment_maintenance`.
+- **Extension `BimObject`** : `get_property(name_or_alias)`,
+  `get_quantity(name_or_alias)`, `dimensions_summary()`,
+  `materials_summary()`.
+- Outils MCP : 46 → **49**.
+
+#### Rapport Word d'audit enrichi (PR #16)
+
+- **Structure du rapport** : 6 → **13 sections**. Nouvelles sections :
+  *Contexte de la mission*, *Description du projet*, *Référentiels et
+  documents analysés*, *Attendus du projet*, *Objectifs BIM*, *Liste
+  des contrôles réalisés* (tableau 4 colonnes), *Informations non
+  disponibles*. Paragraphes explicatifs sur les figures du résumé
+  exécutif et de la synthèse par thème.
+- **Nouveau module `audit_bim/reporting/context.py`** —
+  `ControlDescription` (Pydantic frozen) et `ReportProjectContext`
+  (23 champs) couvrant projet, modèle, MOA, site/bâtiment/adresse,
+  référentiel, attendus, objectifs BIM, contrôles, hypothèses,
+  `missing_information` + comptages.
+- **`build_report_context(result)`** : extracteur pur multi-sources
+  (`snapshot.project`, `snapshot.model`, `snapshot.sites`,
+  `snapshot.buildings`, `catalog`, `phase`) sans I/O ni API.
+- **Garantie anti-hallucination** : aucune donnée inventée.
+  Recherche d'objectifs BIM stricte (pas de fuzzy) ; mention
+  *« Information non disponible dans les documents fournis. »* +
+  recensement dans la section dédiée pour toute donnée manquante.
+- **Rétrocompatibilité** : `write_word_report` accepte un paramètre
+  optionnel `context: ReportProjectContext | None = None`.
+
+#### Validation du contexte avant audit (PR #17)
+
+- **Gouvernance AMO BIM** : `full_audit` et `generate_word_report`
+  exigent désormais 3 champs de contexte avant tout lancement :
+  `project_address`, `project_phase`, `auditor_name`. Un 1er appel
+  sans contexte retourne `{"status": "needs_context", "missing": […],
+  "questions": […]}` sans rien exécuter ; le 2e appel avec les
+  champs lance l'audit / le rapport. `confirm_context=True` autorise
+  un bypass d'urgence (les champs manquants apparaissent comme
+  *Information non disponible* dans le rapport).
+- **Traçabilité des sources** : nouveau champ
+  `field_sources: dict[str, str]` dans `ReportProjectContext` avec
+  4 valeurs (`user` / `extracted` / `deduced` / `missing`) et
+  helper `source_of(field)`. Les valeurs `extracted` et `deduced`
+  sont marquées dans le rapport Word (`_render_with_source`,
+  suffixes *« (déduit de la maquette — à confirmer) »* /
+  *« (déduit par heuristique — à confirmer) »*).
+- **Helper `merge_user_context(ctx, *, project_address=,
+  project_phase=, auditor_name=, …)`** : écrase les champs fournis,
+  les marque `source="user"`, nettoie les entrées correspondantes
+  dans `missing_information`. Les chaînes vides ou blanches sont
+  ignorées. `project_phase` validée contre `BIMPhase`.
+- **Anti-hallucination renforcée** : `auditor_name` jamais déduit
+  d'un autre champ ; adresse IfcSite extraite marquée `extracted`
+  (à confirmer) ; `merge_user_context(ctx)` sans input renvoie
+  l'instance inchangée.
+
+### Tests
+
+- **+132 tests** (754 → 886). Aucune régression.
+
+### Documentation
+
+- `docs/mcp_tools.md` — nouvelle section *« Requête tabulaire
+  sémantique »*.
+- `docs/workflow_amo_bim.md` — sections *« Interroger la maquette »*,
+  *« Rapport Word — contexte projet enrichi »*, *« Validation du
+  contexte avant audit »*.
 
 ## [0.2.1] — 2026-05-26
 
