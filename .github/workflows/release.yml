@@ -9,10 +9,11 @@ permissions:
   contents: read
 
 jobs:
-  # ── Gates de sécurité / qualité — DOIVENT passer avant publish PyPI.
-  # On duplique les jobs critiques de ci.yml plutôt que d'utiliser
-  # ``workflow_run`` (qui se base sur le commit ET pas le tag — moins
-  # fiable pour garantir que le commit taggé a bien été validé).
+  # ── Gates de sécurité / qualité — DOIVENT passer avant attachement
+  # des artefacts à la GitHub Release. On duplique les jobs critiques
+  # de ci.yml plutôt que d'utiliser ``workflow_run`` (qui se base sur
+  # le commit ET pas le tag — moins fiable pour garantir que le commit
+  # taggé a bien été validé).
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest
@@ -96,8 +97,8 @@ jobs:
     name: Build sdist + wheel
     runs-on: ubuntu-latest
     # Gates obligatoires avant la moindre construction d'artifact :
-    # une release qui ne passe pas la CI n'a aucune raison d'arriver
-    # jusqu'à PyPI.
+    # une release qui ne passe pas la CI n'a aucune raison d'être
+    # publiée comme GitHub Release.
     needs: [lint, test, integration, security-audit, security-audit-ocr]
     steps:
       - uses: actions/checkout@v4
@@ -115,29 +116,15 @@ jobs:
           name: dist
           path: dist/
 
-  publish-pypi:
-    name: Publish to PyPI
-    needs: [build]
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/audit-bim-i3f
-    # OIDC trusted publisher — pas besoin de stocker un token PyPI.
-    # Voir https://docs.pypi.org/trusted-publishers/
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-
   create-release:
     name: Create GitHub Release
-    needs: [publish-pypi]
+    needs: [build]
     runs-on: ubuntu-latest
+    # Distribution via GitHub Releases uniquement (le projet n'est pas
+    # publié sur PyPI). Les artefacts sdist + wheel produits par
+    # ``build`` sont attachés à la release GitHub pour permettre
+    # l'installation via ``pip install <url-asset>`` ou téléchargement
+    # direct.
     permissions:
       contents: write
     steps:
