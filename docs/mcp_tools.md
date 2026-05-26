@@ -78,18 +78,24 @@ utilisateur et les contrôles de migration.
 | `generate_xlsx_annex` | actif | R+disque | sandbox `AUDIT_OUTPUT_DIR/` |
 | `generate_word_report` | actif | R+disque | sandbox `AUDIT_OUTPUT_DIR/` |
 
-### DOE et enrichissement
+### DOE et enrichissement — pattern prepare/apply
 
 | Tool | Statut | R/W | `confirm=True` | Notes |
 |---|---|---|---|---|
-| `doe_match_only` | actif | R | — | lecture + matching DOE |
-| `doe_enrich_model` | actif | W | non (mais `dry_run` par défaut) | écriture Psets via BIMData |
-| `enrich_with_public_data` | actif | W | non (mais `dry_run` par défaut) | open data BAN/DPE/PLU/Géorisques |
-| `apply_classifications_from_xlsx` | actif | W | non (mais `dry_run` par défaut) | révision XLSX → push BIMData |
+| `extract_doe_records` | actif | R | — | parse Excel/PDF, pas de matching ni écriture |
+| `match_doe_to_ifc` | actif | R | — | parse + matching IFC, pas d'écriture |
+| `doe_match_only` | actif (historique) | R | — | équivalent à `match_doe_to_ifc` |
+| `prepare_doe_enrichment_plan` | actif | R+disque | — | prépare un WritePlan scellé avec pré-calcul des conflits |
+| `apply_doe_enrichment_plan` | actif | W | **oui** | écrit les Psets sur les éléments IFC matchés |
+| `prepare_doe_enrichment_from_file` | actif (alias) | R+disque | — | alias métier de `prepare_doe_enrichment_plan` |
+| `apply_doe_enrichment` | actif (alias) | W | **oui** | alias métier de `apply_doe_enrichment_plan` |
 
-> **Note** : les 3 tools écriture ci-dessus (`doe_enrich_model`,
-> `enrich_with_public_data`, `apply_classifications_from_xlsx`) seront
-> migrés vers le pattern prepare/apply dans une release ultérieure.
+### Autres écritures (à migrer vers prepare/apply dans une release ultérieure)
+
+| Tool | Statut | R/W | Notes |
+|---|---|---|---|
+| `enrich_with_public_data` | actif | W | open data BAN/DPE/PLU/Géorisques (`dry_run` par défaut) |
+| `apply_classifications_from_xlsx` | actif | W | révision XLSX → push BIMData (`dry_run` par défaut) |
 
 ## Tools dépréciés
 
@@ -99,6 +105,7 @@ utilisateur et les contrôles de migration.
 | `create_bcf_topics` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_bcf_topics` + `apply_bcf_topics` | v0.3.0 |
 | `create_smart_views` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_smart_views_plan` + `apply_smart_views_plan` | v0.3.0 |
 | `apply_suggested_classifications` | `legacy_wrapper` | R (W si `legacy_execute=True`) | `list_classification_suggestions` → `update_suggestion_status` → `prepare_classification_update_plan` → `apply_classification_update_plan` | v0.3.0 |
+| `doe_enrich_model` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan` | v0.3.0 |
 
 ### Comportement des wrappers
 

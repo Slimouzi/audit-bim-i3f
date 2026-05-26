@@ -319,3 +319,63 @@ class TestWorkflowAmoBimE2E:
         trail = mcp_server.audit_trail()
         assert "entries" in trail
         _assert_no_api_calls(client, "audit_trail")
+
+    def test_doe_workflow_prepare_apply_without_confirm_does_not_write(
+        self, amo_workflow_session, tmp_path
+    ):
+        """Workflow DOE complet : extract → match → prepare → apply(confirm=False).
+
+        Garantit que la nouvelle chaîne DOE prepare/apply respecte le même
+        contrat que les autres : aucun appel API tant que confirm=True
+        n'est pas fourni. Couvre aussi le wrapper legacy doe_enrich_model
+        en mode default.
+        """
+        sess, client, _ = amo_workflow_session
+
+        # Crée un fichier DOE Excel minimal (sandbox AUDIT_INPUT_DIR
+        # non défini → mode permissif, tmp_path autorisé).
+        import openpyxl
+
+        doe_path = tmp_path / "doe_e2e.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["UUID", "Pset_3F.Fabricant", "Pset_3F.Reference"])
+        ws.append(["W1", "BOSCH", "X42"])
+        ws.append(["W2", "SIEMENS", "Y99"])
+        wb.save(doe_path)
+
+        # ── Étape DOE-1 : extract_doe_records ─────────────────────────────
+        extracted = mcp_server.extract_doe_records(doe_path=str(doe_path))
+        assert extracted["total"] >= 2
+        _assert_no_api_calls(client, "extract_doe_records")
+
+        # ── Étape DOE-2 : match_doe_to_ifc ────────────────────────────────
+        matched = mcp_server.match_doe_to_ifc(doe_path=str(doe_path))
+        assert matched["n_records"] >= 2
+        _assert_no_api_calls(client, "match_doe_to_ifc")
+
+        # ── Étape DOE-3 : prepare_doe_enrichment_plan ─────────────────────
+        plan_doe = mcp_server.prepare_doe_enrichment_plan(doe_path=str(doe_path))
+        assert plan_doe["kind"] == "doe_enrichment"
+        assert plan_doe["requires_confirm"] is True
+        assert "plan_path" in plan_doe
+        _assert_no_api_calls(client, "prepare_doe_enrichment_plan")
+
+        # ── Étape DOE-3 bis : alias métier ───────────────────────────────
+        plan_alias = mcp_server.prepare_doe_enrichment_from_file(doe_path=str(doe_path))
+        assert plan_alias["kind"] == "doe_enrichment"
+        _assert_no_api_calls(client, "prepare_doe_enrichment_from_file")
+
+        # ── Étape DOE-4 : apply_doe_enrichment_plan(confirm=False) ────────
+        refused = mcp_server.apply_doe_enrichment_plan(
+            plan_path=plan_doe["plan_path"], confirm=False
+        )
+        assert refused.get("refused") is True
+        _assert_no_api_calls(client, "apply_doe_enrichment_plan(False)")
+
+        # ── Wrapper legacy doe_enrich_model en mode default ──────────────
+        legacy_res = mcp_server.doe_enrich_model(doe_path=str(doe_path))
+        assert legacy_res["deprecated"] is True
+        assert legacy_res.get("kind") == "doe_enrichment"
+        assert "plan_path" in legacy_res
+        _assert_no_api_calls(client, "doe_enrich_model(legacy_execute=False)")

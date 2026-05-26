@@ -35,6 +35,7 @@ from __future__ import annotations
 from ..actions import (
     prepare_bcf,
     prepare_classification_update,
+    prepare_doe_enrichment,
     prepare_smart_views,
     save_plan,
 )
@@ -48,7 +49,20 @@ from ..classifier import (
 from ..classifier import (
     suggest_for_findings as _suggest_for_findings,
 )
+from ..doe import (
+    apply_matches_to_model as _apply_matches_to_model,
+)
+from ..doe import (
+    match_doe_records as _match_doe_records,
+)
+from ..doe import (
+    parse_doe as _parse_doe,
+)
+from ..doe import (
+    summarize_matches as _summarize_matches,
+)
 from ..domain.filters import SuggestionStatus
+from ..safe_paths import safe_input_path
 from ..smartview.builder import push_smart_views as _push_smart_views
 from .deprecation import (
     add_deprecation_marker,
@@ -324,3 +338,93 @@ def apply_suggested_classifications(
         "prepare_classification_update_plan → apply_classification_update_plan."
     )
     return add_deprecation_marker(api_payload, info)
+
+
+# ── doe_enrich_model (wrapper prepare/apply par défaut) ─────────────────
+
+
+@mcp.tool()
+def doe_enrich_model(
+    doe_path: str,
+    dry_run: bool = True,
+    name_min_score: int = 75,
+    on_conflict: str = "report",
+    ocr_fallback: bool = True,
+    ocr_lang: str = "fra",
+    legacy_execute: bool = False,
+) -> dict:
+    """[DÉPRÉCIÉ] Agent DOE → IFC — désormais wrapper vers prepare/apply.
+
+    .. deprecated::
+        Workflow recommandé : ``match_doe_to_ifc`` puis
+        ``prepare_doe_enrichment_plan`` puis
+        ``apply_doe_enrichment_plan(plan_path=..., confirm=True)``.
+
+    Comportement par défaut (``legacy_execute=False``) :
+    parse le DOE, match les éléments, **prépare un WritePlan scellé**.
+    Aucune écriture BIMData. Retour avec ``plan_path`` et marqueur
+    ``deprecated=True``.
+
+    Comportement legacy (``legacy_execute=True``) :
+    ancien flux (parse + match + push direct) avec
+    ``legacy_execute_warning`` fort, log INFO additionnel, et passage
+    par ``ensure_writes_allowed`` côté écriture. À éviter — sera
+    supprimé à la version ``0.3.0``.
+
+    Args:
+        doe_path: Chemin du fichier DOE (.xlsx / .xlsm / .pdf).
+        dry_run: Ignoré en mode legacy_execute=False. Honoré en mode
+            legacy_execute=True pour rétrocompatibilité.
+        name_min_score: Seuil fuzzy 0-100 (défaut 75).
+        on_conflict: ``"report"`` (défaut, n'écrase pas) / ``"skip"`` /
+            ``"overwrite"``.
+        ocr_fallback / ocr_lang: Cf. ``extract_doe_records``.
+        legacy_execute: Si ``True``, exécute l'ancien comportement.
+    """
+    info = get_deprecation("doe_enrich_model")
+    log_deprecated_tool_call(info, extra={"legacy_execute": legacy_execute})
+
+    _State.ensure_client()
+    _State.ensure_snapshot()
+    safe_doe = safe_input_path(doe_path)
+    records = _parse_doe(str(safe_doe), ocr_fallback=ocr_fallback, ocr_lang=ocr_lang)
+    matches = _match_doe_records(records, _State.snapshot, name_min_score=name_min_score)
+
+    if not legacy_execute:
+        # Mode sûr par défaut : prépare un plan, aucune écriture BIMData.
+        plan = prepare_doe_enrichment(
+            matches,
+            snapshot=_State.snapshot,
+            target=current_target(),
+            on_conflict=on_conflict,
+            source_label=str(safe_doe),
+        )
+        path = save_plan(plan)
+        payload = plan_summary_response(plan, path)
+        payload["source"] = str(safe_doe)
+        payload["next_step"] = f"apply_doe_enrichment_plan(plan_path={str(path)!r}, confirm=True)"
+        return add_deprecation_marker(payload, info)
+
+    # Mode legacy explicite : ancien push direct.
+    if not dry_run:
+        ensure_writes_allowed("doe_enrich_model")
+    summary = _summarize_matches(matches)
+    application = _apply_matches_to_model(
+        _State.client,
+        matches,
+        dry_run=dry_run,
+        snapshot=_State.snapshot,
+        on_conflict=on_conflict,
+    )
+    payload = {
+        "source": str(safe_doe),
+        "summary": summary,
+        "application": application,
+        "legacy_execute_warning": (
+            "legacy_execute=True utilise l'ancien chemin (push direct) qui sera "
+            f"supprimé à la version {info.removal_version}. Migrer vers "
+            "match_doe_to_ifc → prepare_doe_enrichment_plan → "
+            "apply_doe_enrichment_plan."
+        ),
+    }
+    return add_deprecation_marker(payload, info)

@@ -182,6 +182,21 @@ DEPRECATIONS: dict[str, DeprecatedToolInfo] = {
         # Lecture seule donc pas de wrapper exécutable — purement déprécié.
         legacy_status="deprecated",
     ),
+    "doe_enrich_model": DeprecatedToolInfo(
+        tool_name="doe_enrich_model",
+        use_instead=(
+            "match_doe_to_ifc(...) puis "
+            "prepare_doe_enrichment_plan(...) puis "
+            "apply_doe_enrichment_plan(plan_path=..., confirm=True)"
+        ),
+        removal_version="0.3.0",
+        migration_hint=(
+            "Le pattern prepare/apply expose les conflits MATCH/NEW/UPGRADE/"
+            "CONFLICT avant écriture, scelle le plan SHA-256 et exige "
+            "confirm=True. Workflow : extract → match → prepare → review → apply."
+        ),
+        legacy_status="legacy_wrapper",
+    ),
 }
 
 
