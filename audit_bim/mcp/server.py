@@ -385,11 +385,15 @@ def verify_active_model(
     bien celle attendue **avant** de lancer l'audit ou la génération des
     livrables.
 
-    Pourquoi : un cache snapshot peut pointer vers un ancien modèle si
-    ``set_active_model`` a été ré-invoqué avec d'autres IDs entre-temps,
-    et ``modified_date`` ne suffit pas à détecter un changement de
-    cible. Cet outil rafraîchit (par défaut) le snapshot **sans cache**,
-    puis compare ``model.name`` à ``expected_model_name`` via une
+    Pourquoi : ``set_active_model`` invalide bien ``_State.snapshot`` et
+    le cache disque est keyé par ``model_id`` — il n'y a donc *pas* de
+    risque de contamination entre maquettes côté infrastructure. Le
+    risque résiduel est **humain** : l'auditeur copie-colle un mauvais
+    ``model_id`` (vue BIMData voisine, ancien projet, mauvais build du
+    DOE) et le pipeline génère alors un rapport parfaitement cohérent…
+    sur la mauvaise maquette. Le contrôle d'identité ferme cette
+    fenêtre : on rafraîchit (par défaut) le snapshot sans cache, puis
+    on compare ``model.name`` à ``expected_model_name`` via une
     correspondance insensible à la casse, aux accents et aux espaces
     multiples (le pattern attendu doit être *inclus* dans le nom du
     modèle).

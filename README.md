@@ -99,33 +99,53 @@ python -m audit_bim.mcp --transport streamable-http --port 8765
 
 ## Vérifier la bonne maquette avant audit
 
-Le cache snapshot est keyé par ``(cloud_id, project_id, model_id,
-modified_date)``. Tant que la cible BIMData n'a pas changé côté
-serveur, le cache reste valide — mais si vous re-pointez
-``set_active_model`` vers un *autre* ``model_id`` entre deux audits,
-**vous risquez de générer le rapport sur la mauvaise maquette** sans
-vous en apercevoir (snapshot servi depuis le cache d'une session
-précédente, ou snapshot précédent encore en mémoire).
+`set_active_model` invalide bien `_State.snapshot` (ligne 318 de
+`server.py`) et le cache disque est keyé par `model_id` — il n'y a donc
+**pas** de risque de contamination entre maquettes côté infrastructure.
 
-Le tool `verify_active_model` impose un contrôle d'identité avant
-l'audit : il rafraîchit le snapshot **sans cache** par défaut et vérifie
-que `model.name` contient bien la chaîne attendue (insensible à la
-casse, aux accents et aux espaces multiples).
+Le risque résiduel est **humain** : l'auditeur copie-colle un mauvais
+`model_id` (vue BIMData voisine, ancien projet, mauvais build du DOE)
+et le pipeline génère un rapport parfaitement cohérent… **sur la
+mauvaise maquette**. C'est silencieux et coûteux à découvrir.
+
+Le tool `verify_active_model` ferme cette fenêtre : il rafraîchit le
+snapshot **sans cache** par défaut et confirme que `model.name`
+contient bien la chaîne attendue (insensible à la casse, aux accents
+et aux espaces multiples — ex: `"LIFFRE"` matche
+`"Maquette BIM - LIFFRÉ - DOE.ifc"`).
 
 ### Workflow recommandé
 
 ```text
 1. set_active_model(cloud_id, project_id, model_id, phase, ...)
-2. extract_model_snapshot(use_cache=false)        # facultatif si on enchaîne directement verify_active_model
-3. verify_active_model(expected_model_name="LIFFRE")
-4. parse_owner_requirements()
-5. run_audit_tool()
-6. generate_xlsx_annex()
-7. generate_word_report()
+2. verify_active_model(expected_model_name="LIFFRE")
+   # rafraîchit le snapshot sans cache + bloque si mismatch
+3. parse_owner_requirements()
+4. run_audit_tool()
+5. generate_xlsx_annex()
+6. generate_word_report(
+       project_address="12 rue du Stade, 35340 Liffré",
+       project_phase="DOE",
+       auditor_name="Stanislas Mouzin (Korhus)",
+   )
+   # depuis v0.3.0 : project_address + project_phase + auditor_name
+   # sont obligatoires (ou passer confirm_context=True pour accepter
+   # "Information non disponible" dans le rapport)
 ```
 
 Tant que `verify_active_model` ne renvoie pas `ok: true`, **ne lancez
 pas** `run_audit_tool` ni les générateurs de livrables.
+
+`generate_xlsx_annex` n'exige pas le contexte projet, mais
+`generate_word_report` le réclame (validation `_validate_audit_context`).
+Si vous l'oubliez, vous recevez en réponse :
+
+```json
+{"status": "needs_context", "missing": ["project_address", "auditor_name"], "questions": [...]}
+```
+
+et le rapport n'est pas généré — re-appeler avec les champs renseignés
+ou ajouter `confirm_context=True`.
 
 ### Et `full_audit` ?
 
