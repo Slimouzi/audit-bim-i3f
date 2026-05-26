@@ -692,10 +692,9 @@ def _write_section_bim_objectives(doc: Document, context: ReportProjectContext) 
     else:
         doc.add_paragraph(
             "Aucun objectif BIM explicite n'a été identifié dans les "
-            "documents analysés. L'audit reste néanmoins exécuté avec une "
-            "intention de fiabilisation patrimoniale (DOE numérique, "
-            "exploitation, maintenance) cohérente avec le Cahier des Charges "
-            "BIM I3F appliqué."
+            "documents analysés. L'audit est donc limité à la vérification "
+            "de conformité au référentiel chargé et aux données "
+            "disponibles dans la maquette."
         )
 
 

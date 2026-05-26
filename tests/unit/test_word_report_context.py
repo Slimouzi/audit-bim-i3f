@@ -172,11 +172,55 @@ class TestWordReportContextSections:
 
     def test_bim_objectives_fallback_message_when_absent(self, tmp_path):
         """Sans mots-clés détectés, message explicite "Aucun objectif
-        BIM explicite"."""
+        BIM explicite" — et SURTOUT pas de termes inventés.
+
+        Garde-fou review CTO PR #16 : le rapport ne doit JAMAIS introduire
+        d'intention BIM (DOE numérique / exploitation / maintenance /
+        fiabilisation patrimoniale) dans le fallback. Si les objectifs
+        sont absents, on reste factuel.
+        """
         out = tmp_path / "report.docx"
         write_word_report(_result(project={"name": "Anonyme"}), output_path=out)
         text = _doc_text(str(out))
+        # Section présente, message factuel.
         assert "Aucun objectif BIM explicite" in text
+        assert (
+            "limité à la vérification de conformité" in text
+            or "limite a la verification de conformite" in text  # fallback sans accents
+        )
+
+        # ── Termes hallucinés interdits dans la SECTION Objectifs BIM ──
+        # On localise la section pour ne pas faire un check global sur
+        # tout le doc (les termes "maintenance", "DOE" peuvent
+        # légitimement apparaître ailleurs : preset DOE, contrôles, etc.)
+        from docx import Document
+
+        doc = Document(str(out))
+        in_section = False
+        section_paragraphs: list[str] = []
+        for para in doc.paragraphs:
+            t = para.text.strip()
+            if "Objectifs BIM" in t and "6." in t:
+                in_section = True
+                continue
+            if in_section and t.startswith("7."):
+                break
+            if in_section:
+                section_paragraphs.append(t)
+        section_text = " ".join(section_paragraphs)
+
+        forbidden_in_section = [
+            "DOE numérique",
+            "exploitation",
+            "maintenance",
+            "fiabilisation patrimoniale",
+            "intention de fiabilisation",
+        ]
+        for term in forbidden_in_section:
+            assert term not in section_text, (
+                f"Hallucination interdite : « {term} » présent dans la section "
+                f"Objectifs BIM alors qu'aucun objectif n'est explicite."
+            )
 
 
 class TestWordReportBackwardsCompat:
