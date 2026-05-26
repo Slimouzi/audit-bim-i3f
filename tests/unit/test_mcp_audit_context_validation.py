@@ -232,7 +232,7 @@ class TestWordReportSourceMarking:
     def test_user_provided_values_have_no_deduced_suffix(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire_audit(sess)
-        res = mcp_server.generate_word_report(
+        mcp_server.generate_word_report(
             output_path="rapport.docx",
             project_address="42 boulevard Saint-Germain, 75005 PARIS",
             project_phase="DCE",
