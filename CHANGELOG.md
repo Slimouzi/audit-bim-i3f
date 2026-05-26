@@ -7,6 +7,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed
+
+- **Distribution** : abandon de la publication PyPI. Le workflow Release
+  produit désormais uniquement les artefacts `sdist` + `wheel` attachés à
+  la GitHub Release. Installation via téléchargement direct ou
+  `pip install https://github.com/Slimouzi/audit-bim-i3f/releases/download/<tag>/<file>.whl`.
+  Le job `publish-pypi` est supprimé du workflow ; `create-release`
+  dépend désormais directement de `build`.
+
 ## [0.2.1] — 2026-05-26
 
 ### Fixed

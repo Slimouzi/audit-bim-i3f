@@ -10,37 +10,40 @@ Déclenché sur **push** vers `master` et sur **pull request**.
 | `test` | Matrix Python 3.10 / 3.11 / 3.12 — `pytest` avec coverage, upload Codecov (3.12 seulement) |
 | `build` | `python -m build` + `twine check` — produit sdist + wheel uploadés en artifact CI |
 
-## `release.yml` — Publication PyPI
+## `release.yml` — GitHub Release
 
-Déclenché sur **tag `v*`** (ex: `v0.1.0`, `v0.2.0`).
+Déclenché sur **tag `v*`** (ex: `v0.2.1`).
+
+**Distribution exclusivement via GitHub Releases** — le projet n'est pas
+publié sur PyPI. Les artefacts sdist + wheel sont attachés à la release
+GitHub et installables soit via téléchargement direct, soit via :
+
+```bash
+pip install https://github.com/Slimouzi/audit-bim-i3f/releases/download/v0.2.1/audit_bim_i3f-0.2.1-py3-none-any.whl
+```
+
+### Jobs
 
 | Job | Détail |
 |---|---|
-| `build` | Idem CI |
-| `publish-pypi` | Upload PyPI via [Trusted Publisher OIDC](https://docs.pypi.org/trusted-publishers/) — pas de token à stocker |
-| `create-release` | Crée la GitHub Release avec les artifacts + release notes auto |
-
-### Configuration PyPI Trusted Publisher
-
-À faire **une fois** sur [pypi.org](https://pypi.org/manage/account/publishing/) :
-
-1. Créer le projet `audit-bim-i3f` (ou laisser la 1ère release le créer).
-2. Ajouter un *pending publisher* :
-   - Owner : `Slimouzi`
-   - Repository name : `audit-bim-i3f`
-   - Workflow filename : `release.yml`
-   - Environment name : `pypi`
-
-Côté GitHub, créer une **environment** `pypi` dans Settings → Environments (sans secrets,
-l'OIDC suffit). Optionnel : exiger une review pour la promotion.
+| `lint` / `test` / `integration` / `security-audit` (×2) | Gates qualité dupliqués de `ci.yml` (besoin de garantir que le commit taggé est validé, sans dépendre du `workflow_run`) |
+| `build` | `python -m build` + `twine check` — produit sdist + wheel uploadés en artifact |
+| `create-release` | Crée la GitHub Release avec les artifacts + release notes auto-générées |
 
 ### Faire une release
 
 ```bash
-# Bump version dans pyproject.toml et CHANGELOG.md
-git commit -am "chore: release v0.2.0"
-git tag v0.2.0
-git push origin v0.2.0
+# Bump version dans pyproject.toml et CHANGELOG.md, regen lock
+vim pyproject.toml          # version = "X.Y.Z"
+uv lock                     # regen uv.lock — IMPORTANT pour passer uv lock --check
+vim CHANGELOG.md            # nouvelle section [X.Y.Z]
+git commit -am "chore(release): X.Y.Z"
+git push                    # ouvrir une PR vers master, merger
+git checkout master && git pull --ff-only
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-Le workflow `release.yml` se déclenche, build, publie sur PyPI, crée la GitHub Release.
+Le workflow `release.yml` se déclenche sur le push du tag, exécute les
+gates de qualité, build les artefacts et crée la GitHub Release avec
+les fichiers `.whl` et `.tar.gz` attachés.
