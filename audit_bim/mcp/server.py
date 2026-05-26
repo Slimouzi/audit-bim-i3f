@@ -29,16 +29,33 @@ from ..classifier import (
     read_classifications_from_xlsx,
     suggest_for_findings,
 )
+from ..classifier.suggester import suggest as _suggest_for_element
+from ..classifier.suggestion_store import (
+    ClassificationSuggestionEntry,
+    ClassificationSuggestionStore,
+)
 from ..doe import (
     apply_matches_to_model,
     match_doe_records,
     parse_doe,
     summarize_matches,
 )
+from ..domain.filters import (
+    ConfidenceBand,
+    FindingFilter,
+    ObjectFilter,
+    SuggestionFilter,
+)
 from ..enrichment import enrich_with_public_data as _enrich_with_public_data
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot, extract_snapshot
 from ..extraction.snapshot_cache import cached_extract_snapshot
+from ..query.filtering import (
+    apply_finding_filter,
+    apply_object_filter,
+    apply_suggestion_filter,
+)
+from ..query.views import bim_object_from_element, iter_bim_objects
 from ..reporting.word_report import write_word_report
 from ..reporting.xlsx_annex import write_xlsx_annex
 from ..requirements.catalog import build_catalog
@@ -977,6 +994,307 @@ def full_audit(
         "bcf_topics": {"n": len(bcf_result), "pushed": do_push_bcf},
         "smart_views": {"n": len(sv_result), "pushed": do_push_sv},
     }
+
+
+# ── Couche query : filtrage objets / findings / suggestions ──────────────
+
+
+# Seuil au-delà duquel les tools de filtrage écrivent le détail sur disque
+# au lieu de renvoyer la totalité côté canal MCP. Calibré pour rester
+# largement sous la limite 1 MB des tool_results MCP.
+_MCP_RESPONSE_INLINE_LIMIT = 256 * 1024  # 256 KB JSON UTF-8
+
+
+def _maybe_dump_to_disk(
+    payload: dict,
+    *,
+    output_path: str | None,
+    default_basename: str,
+) -> dict:
+    """Si ``output_path`` est fourni OU si le payload sérialisé dépasse
+    256 KB, écrit le détail sur disque sous ``AUDIT_OUTPUT_DIR`` et
+    retourne un payload compact avec ``items_path`` au lieu de ``items``.
+
+    Garde le contrat MCP < 1 MB.
+    """
+    raw = json.dumps(payload, ensure_ascii=False, default=str)
+    too_big = len(raw.encode("utf-8")) > _MCP_RESPONSE_INLINE_LIMIT
+    if not output_path and not too_big:
+        return payload
+
+    # Détermine le chemin d'écriture (validé sandbox).
+    target = output_path or f"{default_basename}.json"
+    path = safe_export_path(target, overwrite=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+    )
+
+    items = payload.get("items", [])
+    compact = {k: v for k, v in payload.items() if k != "items"}
+    compact["items"] = items[:5]  # 5 items en aperçu seulement
+    compact["items_path"] = str(path)
+    compact["items_truncated"] = True
+    compact["items_count_in_response"] = min(5, len(items))
+    return compact
+
+
+def _populate_suggestion_store_from_audit(*, force_refresh: bool = False) -> None:
+    """Construit le :class:`ClassificationSuggestionStore` à partir des
+    findings ``classification_missing`` / ``classification_invalid``.
+
+    Les entrées existantes en statut ``accepted`` / ``rejected`` /
+    ``applied`` sont préservées (sauf ``force_refresh=True``).
+    """
+    _State.ensure_result()
+    if _State.suggestion_store is None or force_refresh:
+        _State.suggestion_store = ClassificationSuggestionStore()
+
+    store: ClassificationSuggestionStore = _State.suggestion_store
+    snapshot = _State.result.snapshot
+
+    for finding in _State.result.findings:
+        et = finding.error_type.value
+        if et not in ("classification_missing", "classification_invalid"):
+            continue
+        uuid = finding.element_uuid
+        if not uuid:
+            continue
+        # Préserve les statuts non-proposed déjà enregistrés.
+        existing = store.get(uuid)
+        if existing is not None and existing.status.value != "proposed":
+            continue
+
+        element = snapshot.element_by_uuid.get(uuid)
+        if not element:
+            continue
+        sugs = _suggest_for_element(element)
+        sugs = [s for s in sugs if s.confidence > 0]
+        if not sugs:
+            continue
+        top = sugs[0]
+
+        current = None
+        current_system = None
+        if finding.actual:
+            # Pour classification_invalid, finding.actual contient le code trouvé.
+            actual = finding.actual
+            if isinstance(actual, dict):
+                current = actual.get("code") or actual.get("identifier")
+                current_system = actual.get("system") or actual.get("source")
+            elif isinstance(actual, str):
+                current = actual
+
+        entry = ClassificationSuggestionEntry(
+            element_uuid=uuid,
+            ifc_type=finding.ifc_type,
+            current_classification=current,
+            current_classification_system=current_system,
+            proposed_classification=top.classification.code,
+            proposed_label=top.classification.label,
+            proposed_system=(top.classification.system or "uniformat").lower(),
+            proposed_level_3=top.classification.code.upper()[:5],
+            confidence=round(top.confidence, 3),
+            confidence_band=ConfidenceBand.from_score(top.confidence),
+            reason_codes=[r.split(" ", 1)[0].lower() for r in top.reasons][:5],
+            evidence={"reasons": top.reasons},
+            alternatives=[s.as_dict() for s in sugs[1:3]],
+            source="audit",
+        )
+        store.add(entry, replace=True)
+
+
+def _ensure_suggestion_store(*, populate_if_empty: bool = True) -> ClassificationSuggestionStore:
+    """Renvoie le store de la session courante, en le peuplant depuis
+    l'audit si nécessaire."""
+    if _State.suggestion_store is None or (populate_if_empty and len(_State.suggestion_store) == 0):
+        _populate_suggestion_store_from_audit()
+    if _State.suggestion_store is None:  # défensif (ne devrait pas arriver)
+        _State.suggestion_store = ClassificationSuggestionStore()
+    return _State.suggestion_store
+
+
+@mcp.tool()
+def filter_bim_objects(
+    filter: dict | None = None,
+    output_path: str | None = None,
+) -> dict:
+    """Filtre les objets BIM (composants) du snapshot actif.
+
+    Utilise la couche domain ``BimObject`` : indépendant de la
+    représentation BIMData brute, partagé avec BCF / Smart Views /
+    plans de correction.
+
+    Args:
+        filter: Dict mappé sur :class:`audit_bim.domain.ObjectFilter`.
+            Tous les champs sont optionnels. Combinaison ``ET`` entre
+            champs, ``OU`` entre valeurs d'une liste. Voir docstring du
+            modèle pour les axes supportés (classification actuelle,
+            niveau 3, étage, zone, présence/absence de propriété, etc.).
+        output_path: Si fourni (chemin sous ``AUDIT_OUTPUT_DIR``), écrit
+            la totalité du résultat en JSON sur disque ; le retour MCP
+            ne garde qu'un aperçu. Sinon, fallback automatique disque
+            quand la réponse dépasse 256 KB.
+
+    Returns:
+        ``{items, total, next_offset, items_path?, items_truncated?}``.
+        Les ``items`` sont la version :meth:`BimObject.compact_dict`.
+    """
+    _State.ensure_snapshot()
+    f = ObjectFilter.model_validate(filter or {})
+
+    matched, total, next_offset = apply_object_filter(iter_bim_objects(_State.snapshot), f)
+    payload = {
+        "items": [obj.compact_dict() for obj in matched],
+        "total": total,
+        "next_offset": next_offset,
+        "limit": f.limit,
+        "offset": f.offset,
+    }
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return _maybe_dump_to_disk(
+        payload, output_path=output_path, default_basename=f"filter_bim_objects_{ts}"
+    )
+
+
+@mcp.tool()
+def list_audit_findings(
+    filter: dict | None = None,
+    output_path: str | None = None,
+) -> dict:
+    """Filtre les anomalies de l'audit en cours sans recalculer l'audit.
+
+    Args:
+        filter: Dict mappé sur :class:`audit_bim.domain.FindingFilter`
+            (themes / severities / severity_min / error_types / ifc_types
+            / element_uuids / require_element_uuid + pagination).
+        output_path: Idem ``filter_bim_objects``.
+
+    Returns:
+        ``{items, total, next_offset, items_path?, items_truncated?}``.
+        Les ``items`` sont les Findings sérialisés en JSON compact.
+    """
+    _State.ensure_result()
+    f = FindingFilter.model_validate(filter or {})
+
+    matched, total, next_offset = apply_finding_filter(_State.result.findings, f)
+    payload = {
+        "items": [item.model_dump(mode="json") for item in matched],
+        "total": total,
+        "next_offset": next_offset,
+        "limit": f.limit,
+        "offset": f.offset,
+    }
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return _maybe_dump_to_disk(
+        payload, output_path=output_path, default_basename=f"list_audit_findings_{ts}"
+    )
+
+
+@mcp.tool()
+def get_object_detail(
+    uuid: str,
+    include_psets: bool = True,
+    include_quantities: bool = True,
+) -> dict:
+    """Renvoie le détail complet d'un objet BIM par UUID IFC.
+
+    Args:
+        uuid: GlobalId IFC de l'élément (clé ``uuid`` du snapshot).
+        include_psets: Inclure les propriétés Pset complètes
+            (``properties``).
+        include_quantities: Inclure les BaseQuantities (``base_quantities``).
+
+    Returns:
+        Dict :class:`BimObject` complet (ou compact selon les flags) +
+        liste éventuelle de findings concernant cet objet + suggestion
+        de classification courante si présente dans le store.
+    """
+    _State.ensure_snapshot()
+    element = _State.snapshot.element_by_uuid.get(uuid)
+    if element is None:
+        raise ValueError(f"UUID inconnu dans le snapshot actif : {uuid!r}")
+    obj = bim_object_from_element(element, _State.snapshot)
+
+    data = obj.model_dump(mode="json")
+    if not include_psets:
+        data.pop("properties", None)
+    if not include_quantities:
+        data.pop("base_quantities", None)
+
+    # Enrichissement contextuel : findings + suggestion sur cet UUID.
+    related_findings: list[dict] = []
+    if _State.result is not None:
+        related_findings = [
+            f.model_dump(mode="json") for f in _State.result.findings if f.element_uuid == uuid
+        ]
+
+    suggestion: dict | None = None
+    if _State.suggestion_store is not None:
+        entry = _State.suggestion_store.get(uuid)
+        if entry is not None:
+            suggestion = entry.model_dump(mode="json")
+
+    return {
+        "object": data,
+        "findings": related_findings,
+        "n_findings": len(related_findings),
+        "suggestion": suggestion,
+    }
+
+
+@mcp.tool()
+def list_classification_suggestions(
+    filter: dict | None = None,
+    populate: bool = True,
+    output_path: str | None = None,
+) -> dict:
+    """Filtre les suggestions de classification stockées (indexées par UUID).
+
+    Lazy-populate : au premier appel sur une session active avec un audit
+    en cours, le store est rempli depuis les findings
+    ``classification_missing`` / ``classification_invalid``. Les statuts
+    non-``proposed`` (accepted / rejected / applied) sont préservés
+    entre appels.
+
+    Args:
+        filter: Dict mappé sur :class:`audit_bim.domain.SuggestionFilter`
+            (codes proposés, niveau 3, confiance min/max, bandes,
+            statuts, mismatches uniquement, missing current uniquement).
+        populate: Si True (défaut), peuple le store depuis l'audit en
+            cours si vide. Mettre à False pour ne consulter que ce qui
+            est déjà présent (utile en revue manuelle).
+        output_path: Idem ``filter_bim_objects``.
+
+    Returns:
+        ``{items, total, next_offset, store_counts: {by_status, by_band,
+        by_proposed_level_3}, items_path?, items_truncated?}``.
+    """
+    if populate:
+        _ensure_suggestion_store(populate_if_empty=True)
+    store = _State.suggestion_store or ClassificationSuggestionStore()
+
+    f = SuggestionFilter.model_validate(filter or {})
+    matched, total, next_offset = apply_suggestion_filter(store, f)
+
+    payload = {
+        "items": [e.model_dump(mode="json") for e in matched],
+        "total": total,
+        "next_offset": next_offset,
+        "limit": f.limit,
+        "offset": f.offset,
+        "store_counts": {
+            "by_status": store.counts_by_status(),
+            "by_band": store.counts_by_band(),
+            "by_proposed_level_3": store.counts_by_proposed_level_3(),
+            "total": len(store),
+        },
+    }
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return _maybe_dump_to_disk(
+        payload,
+        output_path=output_path,
+        default_basename=f"list_classification_suggestions_{ts}",
+    )
 
 
 # ── Prompt MCP ─────────────────────────────────────────────────────────────
