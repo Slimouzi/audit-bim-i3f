@@ -12,6 +12,12 @@ sont pas couplés au transport MCP :
 
 from __future__ import annotations
 
+from .redaction import redact_secrets
 from .write_journal import WriteJournal, WriteJournalEntry, get_journal
 
-__all__ = ["WriteJournal", "WriteJournalEntry", "get_journal"]
+__all__ = [
+    "WriteJournal",
+    "WriteJournalEntry",
+    "get_journal",
+    "redact_secrets",
+]

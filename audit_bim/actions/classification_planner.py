@@ -27,6 +27,7 @@ from ..domain.filters import SuggestionFilter, SuggestionStatus
 from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
 from ..query.filtering import suggestion_matches
+from ..security.redaction import redact_secrets
 from ..security.write_journal import get_journal
 from .plans import validate_target
 
@@ -164,14 +165,26 @@ def apply_classification_update(
 
     api_result = apply_classifications(client, api_items, dry_run=False)
 
-    succeeded = int(api_result.get("n_links_created") or 0)
-    failed = len(api_result.get("errors") or [])
-    impacted_uuids = [it["element_uuid"] for it in plan.items]
+    # ``apply_classifications`` expose désormais ``linked_uuids`` /
+    # ``failed_uuids`` — on ne bascule en APPLIED que ceux réellement
+    # liés (cf. revue CTO : éviter de marquer APPLIED un UUID dont la
+    # création de classification a échoué mais qui était dans le plan).
+    linked_uuids: list[str] = list(api_result.get("linked_uuids") or [])
+    failed_uuids: list[str] = list(api_result.get("failed_uuids") or [])
 
-    # Met à jour le store si fourni — uniquement si lien réussi.
-    if store is not None and not api_result.get("link_failed", False):
-        for it in plan.items:
-            store.update_status(it["element_uuid"], SuggestionStatus.APPLIED)
+    succeeded = len(linked_uuids)
+    failed = len(failed_uuids)
+
+    # Met à jour le store : seuls les UUIDs réellement liés passent en
+    # APPLIED. Les autres conservent leur statut (ACCEPTED en général)
+    # pour permettre un rerun ciblé.
+    if store is not None:
+        for uid in linked_uuids:
+            store.update_status(uid, SuggestionStatus.APPLIED)
+
+    # Scrub des erreurs avant journal/retour MCP : un message HTTP peut
+    # contenir une URL signée ou un en-tête Authorization.
+    scrubbed_errors = [redact_secrets(str(e)) for e in (api_result.get("errors") or [])]
 
     get_journal().record(
         action="apply_classification_update",
@@ -180,12 +193,13 @@ def apply_classification_update(
         target=plan.target,
         succeeded=succeeded,
         failed=failed,
-        impacted_uuids=impacted_uuids,
+        impacted_uuids=linked_uuids,
         extra={
             "n_classifications_created": api_result.get("n_classifications_created"),
             "n_classifications_reused": api_result.get("n_classifications_reused"),
             "link_failed": api_result.get("link_failed"),
-            "errors_sample": (api_result.get("errors") or [])[:5],
+            "failed_uuids_count": len(failed_uuids),
+            "errors_sample": scrubbed_errors[:5],
         },
     )
 
@@ -194,6 +208,6 @@ def apply_classification_update(
         kind=plan.kind,
         succeeded=succeeded,
         failed=failed,
-        impacted_uuids=impacted_uuids,
-        errors=[{"uuid": "?", "message": str(e)} for e in api_result.get("errors") or []],
+        impacted_uuids=linked_uuids,
+        errors=[{"uuid": "?", "message": msg} for msg in scrubbed_errors],
     )

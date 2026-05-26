@@ -16,6 +16,7 @@ from audit_bim.actions.plans import (
     validate_target,
 )
 from audit_bim.domain.write_plan import WritePlan, WritePlanKind
+from audit_bim.safe_paths import UnsafePathError
 
 
 @pytest.fixture(autouse=True)
@@ -113,6 +114,40 @@ class TestSaveLoadRoundtrip:
         rel = path.relative_to(tmp_path)
         loaded = load_plan(str(rel))
         assert loaded.plan_id == plan.plan_id
+
+
+class TestLoadPlanSandbox:
+    """``load_plan`` doit refuser tout chemin hors ``AUDIT_OUTPUT_DIR``."""
+
+    def test_rejects_path_with_dotdot(self):
+        with pytest.raises(UnsafePathError, match=r"\.\."):
+            load_plan("../escape.json")
+
+    def test_rejects_absolute_path_outside_root(self, tmp_path):
+        # /tmp/outside.json (ou équivalent OS) — hors AUDIT_OUTPUT_DIR.
+        outside = tmp_path.parent / "outside.json"
+        outside.write_text("{}", encoding="utf-8")
+        try:
+            with pytest.raises(UnsafePathError, match="rester sous"):
+                load_plan(str(outside))
+        finally:
+            outside.unlink()
+
+    def test_rejects_traversal_via_absolute_relative_mix(self, tmp_path):
+        with pytest.raises(UnsafePathError):
+            load_plan(f"{tmp_path}/../escape.json")
+
+    def test_accepts_plan_under_root(self, tmp_path):
+        plan = _make_plan()
+        path = save_plan(plan)
+        # Chemin absolu sous AUDIT_OUTPUT_DIR → OK
+        assert tmp_path in path.parents
+        loaded = load_plan(str(path))
+        assert loaded.plan_id == plan.plan_id
+
+    def test_rejects_missing_plan(self):
+        with pytest.raises(FileNotFoundError):
+            load_plan("plans/nonexistent-abc-123.json")
 
 
 class TestListPlans:

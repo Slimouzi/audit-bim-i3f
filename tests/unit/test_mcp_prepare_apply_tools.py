@@ -113,9 +113,12 @@ def _wire_session(sess, *, snapshot=True, audit=True, client=True):
 
 
 class TestNewToolsRegistered:
-    @pytest.mark.asyncio
-    async def test_prepare_apply_tools_registered(self):
-        tools = await mcp_server.mcp.list_tools()
+    def test_prepare_apply_tools_registered(self):
+        # Synchrone via ``anyio.run`` (déjà transitivement dispo) pour
+        # éviter pytest-asyncio.
+        import anyio
+
+        tools = anyio.run(mcp_server.mcp.list_tools)
         names = {t.name for t in tools}
         for name in (
             "prepare_bcf_topics",

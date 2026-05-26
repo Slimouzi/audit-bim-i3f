@@ -108,6 +108,51 @@ def safe_export_path(
     return candidate
 
 
+def safe_export_read_path(
+    output_path: str | os.PathLike,
+    *,
+    export_root: Path | None = None,
+    must_exist: bool = True,
+) -> Path:
+    """Valide un chemin de **lecture** sous la racine d'export.
+
+    Pendant de :func:`safe_export_path` côté lecture : utilisé par
+    ``apply_*`` quand un client MCP fournit un chemin de plan généré
+    par un ``prepare_*`` antérieur. On veut garantir que ce chemin
+    reste sous ``AUDIT_OUTPUT_DIR`` même s'il est absolu et qu'il ne
+    contient pas de ``..``.
+
+    Args:
+        output_path: Chemin demandé (relatif → résolu sous la racine,
+            absolu → doit être contenu dans la racine).
+        export_root: Override pour les tests.
+        must_exist: Si ``True`` (défaut), refuse si le fichier n'existe
+            pas (``FileNotFoundError``). Mettre ``False`` permet la
+            résolution même pour des fichiers non créés.
+
+    Raises:
+        UnsafePathError: ``..`` ou évasion de racine.
+        FileNotFoundError: ``must_exist=True`` et fichier absent.
+    """
+    root = (export_root or get_export_root()).resolve()
+    raw = Path(output_path).expanduser()
+
+    if any(part == ".." for part in raw.parts):
+        raise UnsafePathError(f"Composants `..` interdits dans le chemin : {output_path!r}")
+
+    candidate = raw.resolve() if raw.is_absolute() else (root / raw).resolve()
+
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise UnsafePathError(f"Le chemin doit rester sous {root}. Reçu : {candidate}") from exc
+
+    if must_exist and not candidate.exists():
+        raise FileNotFoundError(candidate)
+
+    return candidate
+
+
 def safe_export_dir(
     dir_path: str | os.PathLike,
     *,
