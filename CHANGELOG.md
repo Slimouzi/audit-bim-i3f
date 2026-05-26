@@ -7,6 +7,106 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-26
+
+Release de durcissement du pipeline d'audit (verrou d'identité du
+modèle avant toute génération de livrable) et de refonte graphique
+des rapports Word + Excel à la **charte Korhus.ai 2025 v1.0**.
+
+### Added
+
+#### Garde-fou d'identité du modèle BIMData (PR #20)
+
+- **Nouveau module `audit_bim/mcp/model_identity.py`** — helpers purs
+  `normalize_model_name(value)` et `model_matches_expected(model_name,
+  expected)`. Comparaison insensible à la casse, aux accents et aux
+  espaces multiples (ex: `"LIFFRE"` matche `"Maquette BIM - LIFFRÉ -
+  DOE.ifc"`). Un pattern attendu vide désactive la vérification
+  (rétro-compat).
+- **Nouveau tool MCP `verify_active_model(expected_model_name,
+  refresh_snapshot=True, use_cache=False)`** — confirme que la
+  maquette BIMData active est bien celle attendue. Rafraîchit le
+  snapshot **sans cache** par défaut, puis compare `model.name` au
+  fragment attendu. Renvoie `{ok, project_name, model_name, model_id,
+  modified_date, from_cache, message}`. Ne modifie jamais
+  `_State.result` — utilisable comme contrôle préalable sans effet
+  de bord sur un audit en cours. Outils MCP : 49 → **50**.
+- **`full_audit` étendu** — nouvelles options `expected_model_name`
+  (str | None, défaut `None`) et `force_refresh_snapshot` (bool,
+  défaut `True`). Sur mismatch, l'orchestrateur lève `ValueError`
+  **avant** toute génération de livrable. Comportement legacy
+  préservé quand `expected_model_name=None`.
+- **Pourquoi** : `set_active_model` invalide bien `_State.snapshot`
+  et le cache disque est keyé par `model_id`, donc il n'y a pas de
+  risque de contamination entre maquettes côté infrastructure. Le
+  risque résiduel est **humain** — un mauvais `model_id`
+  copié-collé produit un rapport cohérent sur la mauvaise maquette,
+  silencieux et coûteux à découvrir. `verify_active_model` ferme
+  cette fenêtre.
+
+#### Charte graphique Korhus.ai pour les livrables (PR #19)
+
+- **Refonte complète des rapports Word + Excel** à la *Brand
+  Guidelines 2025 v1.0* Korhus.ai :
+  - couverture sombre Korhus Primary `#0C101B` avec logo Korhus
+    (variante claire/inversée),
+  - supertitle + filet d'accent cyan `#59F4FF` sur les en-têtes,
+  - police **Roboto** (fallback Arial),
+  - tableaux KPI / référentiel sur fond Blue Neutral Light
+    `#F0F5FF`, en-têtes sombres, lignes zébrées,
+  - bandeau brandé « KORHUS.AI — AUDIT BIM » + filet cyan sur les
+    onglets *Synthèse* et *Référentiel I3F* du XLSX.
+- **Nouveau module `audit_bim/reporting/korhus_brand.py`** —
+  résolution du brand kit via deux sources : variable d'env
+  `KORHUS_BRAND_KIT_DIR` (recommandée) → scan sibling
+  `korhus_brand_kit/` voisin du repo (confort local) → `None`. Pas
+  de chemin hardcodé dans le code. Helper `find_logo(variant)` avec
+  variantes `primary | dark | light | mark_primary | mark_dark |
+  mark_light`.
+- **Tokens brand-neutres dans `theming.py`** : `KORHUS_PRIMARY`,
+  `KORHUS_SECONDARY`, `KORHUS_TERTIARY`, `KORHUS_GRANITE`,
+  `KORHUS_BLUE_NEUTRAL_LIGHT`, `KORHUS_FONT_PRIMARY` (Roboto),
+  `KORHUS_FONT_FALLBACK` (Arial). Les alias historiques `I3F_BLUE`,
+  `I3F_BLUE_LIGHT`, `I3F_GREY` pointent désormais sur les
+  équivalents Korhus (compatibilité ascendante des imports
+  externes).
+- **Dégradation gracieuse** : si le brand kit est absent (CI sans
+  assets, autre poste), la couverture rend un wordmark texte
+  « KORHUS.AI » à la place du logo. Le rapport reste générable —
+  couvert par un test dédié.
+- **Couleurs de sévérité inchangées** : la convention métier feux
+  tricolores (rouge/orange/vert) reste indépendante de la charte de
+  marque ; un finding CRITICAL reste visuellement critique même
+  dans le rendu Korhus.
+
+### Documentation
+
+- **README.md — section « Vérifier la bonne maquette avant audit »**
+  (PR #20) : workflow recommandé `set_active_model →
+  verify_active_model → parse_owner_requirements → run_audit_tool →
+  generate_xlsx_annex → generate_word_report(...)`, avec rappel
+  explicite des 3 champs contexte obligatoires depuis v0.3.0
+  (`project_address`, `project_phase`, `auditor_name`) ou
+  `confirm_context=True`. Documentation de la réponse `needs_context`
+  pour éviter aux utilisateurs (et à Claude Desktop) de tomber sur
+  l'erreur silencieuse en bout de chaîne.
+- **README.md — section « Charte graphique Korhus.ai »** (PR #19) :
+  configuration du brand kit via `KORHUS_BRAND_KIT_DIR` (recommandée)
+  ou voisinage local, rappel de la dégradation gracieuse, mention
+  de la palette + typo.
+
+### Tests
+
+- **+39 tests unitaires** :
+  - 21 pour le garde-fou identité (helpers normalisation/matching,
+    `verify_active_model` ok/ko/no-client/no-snapshot/cache,
+    `full_audit` mismatch interrompt avant les livrables, comportement
+    legacy sans `expected_model_name` préservé).
+  - 18 pour la charte Korhus (palette + alias I3F→Korhus,
+    résolution du brand kit avec env override / fallback / absence,
+    smoke render Word + Excel avec et sans logo).
+- Suite unit : 774 → **835 passed**.
+
 ## [0.3.0] — 2026-05-26
 
 Release de capacités métier visibles : requêtage tabulaire sémantique
