@@ -23,7 +23,14 @@ import xlsxwriter
 from ..audit.engine import AuditResult
 from ..audit.findings import ErrorType, Severity
 from ..classifier import suggest_for_findings
-from .theming import I3F_BLUE, I3F_BLUE_LIGHT, SEVERITY_COLORS
+from .theming import (
+    I3F_BLUE,
+    I3F_BLUE_LIGHT,
+    KORHUS_FONT_PRIMARY,
+    KORHUS_GRANITE,
+    KORHUS_SECONDARY,
+    SEVERITY_COLORS,
+)
 
 COLUMNS = [
     ("UUID", 38),
@@ -116,44 +123,72 @@ def write_safe(ws, row, col, value, fmt=None):
 
 
 def _build_formats(wb: xlsxwriter.Workbook) -> dict:
+    """Construit le jeu de formats brandés Korhus.
+
+    Tous les formats partagent la police Roboto (charte Korhus) avec
+    fallback Arial. XlsxWriter ne supporte pas la déclaration de
+    fallback, donc on configure ``font_name=Roboto`` ; si Roboto n'est
+    pas installée sur le poste qui ouvre le fichier, Excel substitue
+    automatiquement la police par défaut (Calibri / Arial) — le rendu
+    reste propre.
+    """
+
+    def _font(**kwargs) -> dict:
+        return {"font_name": KORHUS_FONT_PRIMARY, **kwargs}
+
     fmts = {
         "title": wb.add_format(
-            {
-                "bold": True,
-                "font_size": 16,
-                "font_color": I3F_BLUE,
-                "align": "left",
-            }
+            _font(
+                bold=True,
+                font_size=18,
+                font_color=I3F_BLUE,
+                align="left",
+            )
         ),
-        "h2": wb.add_format({"bold": True, "font_size": 12, "font_color": I3F_BLUE}),
+        "supertitle": wb.add_format(
+            _font(
+                bold=True,
+                font_size=9,
+                font_color=KORHUS_GRANITE,
+                align="left",
+            )
+        ),
+        "h2": wb.add_format(_font(bold=True, font_size=12, font_color=I3F_BLUE)),
         "header": wb.add_format(
-            {
-                "bold": True,
-                "bg_color": I3F_BLUE,
-                "font_color": "FFFFFF",
-                "align": "center",
-                "valign": "vcenter",
-                "border": 1,
-                "text_wrap": True,
-            }
+            _font(
+                bold=True,
+                bg_color=I3F_BLUE,
+                font_color="FFFFFF",
+                align="center",
+                valign="vcenter",
+                border=1,
+                text_wrap=True,
+            )
         ),
+        # Filet cyan d'accent : utilisable comme bordure haute / surligneur.
+        "accent_filet": wb.add_format(_font(bg_color=KORHUS_SECONDARY, font_size=2)),
+        # Alternance de lignes en Blue Neutral Light (#F0F5FF, charte Korhus).
         "row_alt": wb.add_format(
-            {"bg_color": I3F_BLUE_LIGHT, "border": 1, "text_wrap": True, "valign": "top"}
+            _font(bg_color=I3F_BLUE_LIGHT, border=1, text_wrap=True, valign="top")
         ),
-        "row": wb.add_format({"border": 1, "text_wrap": True, "valign": "top"}),
-        "kpi_key": wb.add_format({"bold": True, "bg_color": I3F_BLUE_LIGHT, "border": 1}),
-        "kpi_val": wb.add_format({"border": 1, "align": "right"}),
-        "label": wb.add_format({"bold": True}),
+        # Lignes neutres : blanc Excel par défaut pour conserver le
+        # contraste zébré avec ``row_alt`` (Korhus White / respiration).
+        "row": wb.add_format(_font(border=1, text_wrap=True, valign="top")),
+        "kpi_key": wb.add_format(
+            _font(bold=True, bg_color=I3F_BLUE_LIGHT, border=1, font_color=I3F_BLUE)
+        ),
+        "kpi_val": wb.add_format(_font(border=1, align="right")),
+        "label": wb.add_format(_font(bold=True)),
     }
     for sev, color in SEVERITY_COLORS.items():
         fmts[f"sev_{sev}"] = wb.add_format(
-            {
-                "bg_color": color,
-                "font_color": "FFFFFF",
-                "border": 1,
-                "bold": True,
-                "align": "center",
-            }
+            _font(
+                bg_color=color,
+                font_color="FFFFFF",
+                border=1,
+                bold=True,
+                align="center",
+            )
         )
     return fmts
 
@@ -229,15 +264,22 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
     safe_cch = _neutralize_formula(result.catalog.cch_version or "?")
     safe_ref = _neutralize_formula(Path(result.catalog.data_spec_source or "").name or "—")
 
-    ws.write("A1", "Audit BIM — I3F", fmts["title"])
-    ws.write("A2", f"Phase auditée : {result.phase.value}", fmts["h2"])
-    ws.write("A3", f"Projet : {safe_project}")
-    ws.write("A4", f"Modèle : {safe_model}")
-    ws.write("A5", f"CCH version : {safe_cch}")
-    ws.write("A6", f"Référentiel : {safe_ref}")
+    # En-tête brandé Korhus : supertitle gris + titre principal + filet
+    # cyan d'accent sur ligne 2 (charte Korhus.ai).
+    ws.write("A1", "KORHUS.AI — AUDIT BIM", fmts["supertitle"])
+    ws.set_row(0, 14)
+    ws.write("A2", "", fmts["accent_filet"])
+    ws.write("B2", "", fmts["accent_filet"])
+    ws.set_row(1, 4)  # hauteur fine pour le filet cyan
+    ws.write("A3", "Audit BIM — Synthèse", fmts["title"])
+    ws.write("A4", f"Phase auditée : {result.phase.value}", fmts["h2"])
+    ws.write("A5", f"Projet : {safe_project}")
+    ws.write("A6", f"Modèle : {safe_model}")
+    ws.write("A7", f"CCH version : {safe_cch}")
+    ws.write("A8", f"Référentiel : {safe_ref}")
 
-    # KPIs
-    ws.write("A8", "KPI global", fmts["h2"])
+    # KPIs (décalés de +2 lignes pour le bandeau brandé Korhus en haut).
+    ws.write("A10", "KPI global", fmts["h2"])
     kpis = [
         ("Anomalies totales", len(result.findings)),
         ("Taux de conformité (pondéré)", f"{result.conformity_rate() * 100:.1f} %"),
@@ -247,31 +289,31 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
         ("Étages (IfcBuildingStorey)", len(result.snapshot.storeys)),
     ]
     for i, (k, v) in enumerate(kpis):
-        ws.write(8 + i, 0, k, fmts["kpi_key"])
-        ws.write(8 + i, 1, v, fmts["kpi_val"])
+        ws.write(10 + i, 0, k, fmts["kpi_key"])
+        ws.write(10 + i, 1, v, fmts["kpi_val"])
 
     # Détail par sévérité
-    ws.write("D8", "Anomalies par sévérité", fmts["h2"])
+    ws.write("D10", "Anomalies par sévérité", fmts["h2"])
     by_sev = result.count_by_severity()
     for i, sev in enumerate(Severity.ordered()):
-        ws.write(8 + i, 3, sev.value, fmts[f"sev_{sev.value}"])
-        ws.write(8 + i, 4, by_sev.get(sev.value, 0), fmts["kpi_val"])
+        ws.write(10 + i, 3, sev.value, fmts[f"sev_{sev.value}"])
+        ws.write(10 + i, 4, by_sev.get(sev.value, 0), fmts["kpi_val"])
 
     # Détail par thème
-    ws.write("A18", "Anomalies par thème", fmts["h2"])
+    ws.write("A20", "Anomalies par thème", fmts["h2"])
     for i, (theme, count) in enumerate(
         sorted(result.count_by_theme().items(), key=lambda x: -x[1])
     ):
-        ws.write(18 + i, 0, theme, fmts["kpi_key"])
-        ws.write(18 + i, 1, count, fmts["kpi_val"])
+        ws.write(20 + i, 0, theme, fmts["kpi_key"])
+        ws.write(20 + i, 1, count, fmts["kpi_val"])
 
     # Détail par type d'erreur
-    ws.write("D18", "Anomalies par type d'erreur", fmts["h2"])
+    ws.write("D20", "Anomalies par type d'erreur", fmts["h2"])
     for i, (et, count) in enumerate(
         sorted(result.count_by_error_type().items(), key=lambda x: -x[1])
     ):
-        ws.write(18 + i, 3, et, fmts["kpi_key"])
-        ws.write(18 + i, 4, count, fmts["kpi_val"])
+        ws.write(20 + i, 3, et, fmts["kpi_key"])
+        ws.write(20 + i, 4, count, fmts["kpi_val"])
 
 
 def _write_referential(wb, result: AuditResult, fmts: dict):
@@ -282,9 +324,15 @@ def _write_referential(wb, result: AuditResult, fmts: dict):
     ws.set_column("D:D", 60)
 
     cat = result.catalog
-    ws.write("A1", "Référentiel CCH BIM I3F", fmts["title"])
+    # Bandeau brandé Korhus (cf. ``_write_synthesis``).
+    ws.write("A1", "KORHUS.AI — RÉFÉRENTIEL", fmts["supertitle"])
+    ws.set_row(0, 14)
+    ws.write("A2", "", fmts["accent_filet"])
+    ws.write("B2", "", fmts["accent_filet"])
+    ws.set_row(1, 4)
+    ws.write("A3", "Référentiel CCH BIM I3F", fmts["title"])
 
-    row = 3
+    row = 5
     ws.write(row, 0, "Étages admis", fmts["h2"])
     row += 1
     for s in cat.storey_names:
