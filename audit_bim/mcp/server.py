@@ -20,34 +20,13 @@ from pathlib import Path
 from fastmcp import FastMCP
 
 from .. import config
-from ..actions import (
-    PlanIntegrityError,
-    PlanTargetMismatchError,
-    apply_bcf,
-    apply_classification_update,
-    apply_smart_views,
-    load_plan,
-    prepare_bcf,
-    prepare_classification_update,
-    prepare_smart_views,
-    save_plan,
-)
-from ..actions import (
-    list_plans as _list_plans,
-)
 from ..audit.comparator import compare_audits_from_files
 from ..audit.engine import AuditResult, run_audit
 from ..bcf.builder import push_bcf_topics
 from ..classifier import (
     apply_classifications,
-    items_from_suggestions,
     read_classifications_from_xlsx,
-    suggest_for_findings,
-)
-from ..classifier.suggester import suggest as _suggest_for_element
-from ..classifier.suggestion_store import (
-    ClassificationSuggestionEntry,
-    ClassificationSuggestionStore,
+    suggest_for_findings,  # noqa: F401  — re-export public (compat)
 )
 from ..doe import (
     apply_matches_to_model,
@@ -55,29 +34,15 @@ from ..doe import (
     parse_doe,
     summarize_matches,
 )
-from ..domain.filters import (
-    ConfidenceBand,
-    FindingFilter,
-    ObjectFilter,
-    SuggestionFilter,
-    SuggestionStatus,
-)
 from ..enrichment import enrich_with_public_data as _enrich_with_public_data
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot, extract_snapshot
 from ..extraction.snapshot_cache import cached_extract_snapshot
-from ..query.filtering import (
-    apply_finding_filter,
-    apply_object_filter,
-    apply_suggestion_filter,
-)
-from ..query.views import bim_object_from_element, iter_bim_objects
 from ..reporting.word_report import write_word_report
 from ..reporting.xlsx_annex import write_xlsx_annex
 from ..requirements.catalog import build_catalog
 from ..requirements.models import BIMPhase, RequirementsCatalog
 from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
-from ..security.write_journal import get_journal
 from ..smartview.builder import push_smart_views
 from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
 from .prompts import AMO_BIM_I3F_PROMPT
@@ -604,93 +569,6 @@ def generate_word_report(
 
 
 @mcp.tool()
-def suggest_classifications(
-    min_confidence: float = 0.4,
-    top_n: int = 3,
-    limit: int = 200,
-) -> list[dict]:
-    """Pour chaque élément avec ``classification_missing``, propose 1-3 codes
-    UniFormat II déduits de la classe IFC, des layers, des attributs, des
-    Pset_*Common (IsExternal…) et des BaseQuantities.
-
-    Args:
-        min_confidence: seuil de confiance (0..1) sous lequel on n'expose pas
-            de suggestion.
-        top_n: nombre maximum de suggestions par élément.
-        limit: cap du nombre d'éléments retournés (pour préserver le canal MCP).
-    """
-    _State.ensure_result()
-    _server_logger.info(
-        "deprecated tool called: suggest_classifications — prefer list_classification_suggestions"
-    )
-    out = suggest_for_findings(
-        _State.result.findings,
-        _State.result.snapshot,
-        min_confidence=min_confidence,
-        top_n=top_n,
-    )
-    # On garde le contrat list[dict] historique mais on signale la
-    # dépréciation via la première entrée (échappable côté caller).
-    if out:
-        out[0] = dict(out[0])
-        out[0].setdefault("_meta", {})
-        out[0]["_meta"]["deprecated"] = True
-        out[0]["_meta"]["use_instead"] = "list_classification_suggestions"
-    return out[:limit]
-
-
-@mcp.tool()
-def apply_suggested_classifications(
-    min_confidence: float = 0.5,
-    dry_run: bool = True,
-) -> dict:
-    """Applique automatiquement (mode **sans contrôle**) les classifications
-    proposées par le suggester aux éléments en ``classification_missing``.
-
-    Workflow :
-    1. Récupère la suggestion top de chaque élément non classifié dont la
-       confiance ≥ ``min_confidence``.
-    2. Crée les classifications nécessaires au niveau projet BIMData
-       (dédupliquées par code+système).
-    3. Lie en bulk les classifications aux éléments via
-       ``POST /classification-element``.
-
-    Args:
-        min_confidence: seuil de confiance minimum (0..1) pour appliquer une
-            suggestion. Plus le seuil est haut, moins on prend de risques.
-        dry_run: si ``True`` (défaut), simule sans appel POST — renvoie un
-            aperçu détaillé. Mettre ``False`` pour pousser réellement.
-
-    Returns:
-        Résumé : nombre d'éléments traités, classifications créées vs
-        réutilisées, liens créés, erreurs éventuelles.
-    """
-    _State.ensure_result()
-    _State.ensure_client()
-    if not dry_run:
-        ensure_writes_allowed("apply_suggested_classifications")
-    _server_logger.info(
-        "deprecated tool called: apply_suggested_classifications — prefer "
-        "prepare_classification_update_plan + apply_classification_update_plan"
-    )
-    suggestions = suggest_for_findings(
-        _State.result.findings,
-        _State.result.snapshot,
-        min_confidence=min_confidence,
-        top_n=1,
-    )
-    items = items_from_suggestions(suggestions, min_confidence=min_confidence)
-    payload = apply_classifications(_State.client, items, dry_run=dry_run)
-    return _add_deprecation_marker(
-        payload,
-        use_instead=(
-            "prepare_classification_update_plan(...) "
-            "puis apply_classification_update_plan(plan_path=..., confirm=True)"
-        ),
-    )
-
-
-@mcp.tool()
 def apply_classifications_from_xlsx(
     xlsx_path: str,
     dry_run: bool = True,
@@ -831,69 +709,6 @@ def doe_match_only(
         "summary": summary,
         "sample_matches": sample,
     }
-
-
-@mcp.tool()
-def create_bcf_topics(
-    prefix: str = "I3F Audit — ",
-    dry_run: bool = True,
-) -> dict:
-    """Crée des BCF Topics (panneau *BCF Issues* du viewer) pour chaque thème
-    d'anomalie. Workflow d'issue : ``topic_type``, ``topic_status``,
-    ``priority``, ``description`` riche, ``labels``, sélection + coloration
-    des éléments concernés.
-
-    À utiliser pour le **suivi de résolution** d'anomalies (assignation,
-    commentaires, changement de statut Open → In Progress → Closed).
-
-    En ``dry_run`` (défaut), renvoie les payloads sans POST. Format
-    buildingSMART standard, portable hors BIMData.
-    """
-    _State.ensure_result()
-    _State.ensure_client()
-    if not dry_run:
-        ensure_writes_allowed("create_bcf_topics")
-    _server_logger.info(
-        "deprecated tool called: create_bcf_topics — prefer prepare_bcf_topics + apply_bcf_topics"
-    )
-    out = push_bcf_topics(_State.result, _State.client, prefix=prefix, dry_run=dry_run)
-    return _add_deprecation_marker(
-        {"n_topics": len(out), "dry_run": dry_run, "topics": out},
-        use_instead="prepare_bcf_topics(...) puis apply_bcf_topics(plan_path=..., confirm=True)",
-    )
-
-
-@mcp.tool()
-def create_smart_views(
-    prefix: str = "I3F Audit — ",
-    dry_run: bool = True,
-) -> dict:
-    """Crée des Smart Views (panneau *Smart Views* du viewer BIMData) pour
-    chaque thème d'anomalie. Payload minimal : juste un coloring d'éléments
-    par thème, sans workflow d'issue.
-
-    À utiliser pour la **navigation 3D rapide** vers un sous-ensemble
-    d'éléments. Pas d'assignation, pas de statut, pas de commentaires —
-    c'est juste une vue colorée.
-
-    En ``dry_run`` (défaut), renvoie les payloads JSON prêts à pousser, sans
-    appel API. Mettre ``dry_run=False`` pour pousser réellement.
-    """
-    _State.ensure_result()
-    _State.ensure_client()
-    if not dry_run:
-        ensure_writes_allowed("create_smart_views")
-    _server_logger.info(
-        "deprecated tool called: create_smart_views — prefer "
-        "prepare_smart_views_plan + apply_smart_views_plan"
-    )
-    out = push_smart_views(_State.result, _State.client, prefix=prefix, dry_run=dry_run)
-    return _add_deprecation_marker(
-        {"n_views": len(out), "dry_run": dry_run, "views": out},
-        use_instead=(
-            "prepare_smart_views_plan(...) puis apply_smart_views_plan(plan_path=..., confirm=True)"
-        ),
-    )
 
 
 @mcp.tool()
@@ -1045,608 +860,55 @@ def full_audit(
     }
 
 
-# ── Couche query : filtrage objets / findings / suggestions ──────────────
-
-
-# Seuil au-delà duquel les tools de filtrage écrivent le détail sur disque
-# au lieu de renvoyer la totalité côté canal MCP. Calibré pour rester
-# largement sous la limite 1 MB des tool_results MCP.
-_MCP_RESPONSE_INLINE_LIMIT = 256 * 1024  # 256 KB JSON UTF-8
-
-
-def _maybe_dump_to_disk(
-    payload: dict,
-    *,
-    output_path: str | None,
-    default_basename: str,
-) -> dict:
-    """Si ``output_path`` est fourni OU si le payload sérialisé dépasse
-    256 KB, écrit le détail sur disque sous ``AUDIT_OUTPUT_DIR`` et
-    retourne un payload compact avec ``items_path`` au lieu de ``items``.
-
-    Garde le contrat MCP < 1 MB.
-    """
-    raw = json.dumps(payload, ensure_ascii=False, default=str)
-    too_big = len(raw.encode("utf-8")) > _MCP_RESPONSE_INLINE_LIMIT
-    if not output_path and not too_big:
-        return payload
-
-    # Détermine le chemin d'écriture (validé sandbox).
-    target = output_path or f"{default_basename}.json"
-    path = safe_export_path(target, overwrite=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
-    )
-
-    items = payload.get("items", [])
-    compact = {k: v for k, v in payload.items() if k != "items"}
-    compact["items"] = items[:5]  # 5 items en aperçu seulement
-    compact["items_path"] = str(path)
-    compact["items_truncated"] = True
-    compact["items_count_in_response"] = min(5, len(items))
-    return compact
-
-
-def _populate_suggestion_store_from_audit(*, force_refresh: bool = False) -> None:
-    """Construit le :class:`ClassificationSuggestionStore` à partir des
-    findings ``classification_missing`` / ``classification_invalid``.
-
-    Les entrées existantes en statut ``accepted`` / ``rejected`` /
-    ``applied`` sont préservées (sauf ``force_refresh=True``).
-    """
-    _State.ensure_result()
-    if _State.suggestion_store is None or force_refresh:
-        _State.suggestion_store = ClassificationSuggestionStore()
-
-    store: ClassificationSuggestionStore = _State.suggestion_store
-    snapshot = _State.result.snapshot
-
-    for finding in _State.result.findings:
-        et = finding.error_type.value
-        if et not in ("classification_missing", "classification_invalid"):
-            continue
-        uuid = finding.element_uuid
-        if not uuid:
-            continue
-        # Préserve les statuts non-proposed déjà enregistrés.
-        existing = store.get(uuid)
-        if existing is not None and existing.status.value != "proposed":
-            continue
-
-        element = snapshot.element_by_uuid.get(uuid)
-        if not element:
-            continue
-        sugs = _suggest_for_element(element)
-        sugs = [s for s in sugs if s.confidence > 0]
-        if not sugs:
-            continue
-        top = sugs[0]
-
-        current = None
-        current_system = None
-        if finding.actual:
-            # Pour classification_invalid, finding.actual contient le code trouvé.
-            actual = finding.actual
-            if isinstance(actual, dict):
-                current = actual.get("code") or actual.get("identifier")
-                current_system = actual.get("system") or actual.get("source")
-            elif isinstance(actual, str):
-                current = actual
-
-        entry = ClassificationSuggestionEntry(
-            element_uuid=uuid,
-            ifc_type=finding.ifc_type,
-            current_classification=current,
-            current_classification_system=current_system,
-            proposed_classification=top.classification.code,
-            proposed_label=top.classification.label,
-            proposed_system=(top.classification.system or "uniformat").lower(),
-            proposed_level_3=top.classification.code.upper()[:5],
-            confidence=round(top.confidence, 3),
-            confidence_band=ConfidenceBand.from_score(top.confidence),
-            reason_codes=[r.split(" ", 1)[0].lower() for r in top.reasons][:5],
-            evidence={"reasons": top.reasons},
-            alternatives=[s.as_dict() for s in sugs[1:3]],
-            source="audit",
-        )
-        store.add(entry, replace=True)
-
-
-def _ensure_suggestion_store(*, populate_if_empty: bool = True) -> ClassificationSuggestionStore:
-    """Renvoie le store de la session courante, en le peuplant depuis
-    l'audit si nécessaire."""
-    if _State.suggestion_store is None or (populate_if_empty and len(_State.suggestion_store) == 0):
-        _populate_suggestion_store_from_audit()
-    if _State.suggestion_store is None:  # défensif (ne devrait pas arriver)
-        _State.suggestion_store = ClassificationSuggestionStore()
-    return _State.suggestion_store
-
-
-@mcp.tool()
-def filter_bim_objects(
-    filter: dict | None = None,
-    output_path: str | None = None,
-) -> dict:
-    """Filtre les objets BIM (composants) du snapshot actif.
-
-    Utilise la couche domain ``BimObject`` : indépendant de la
-    représentation BIMData brute, partagé avec BCF / Smart Views /
-    plans de correction.
-
-    Args:
-        filter: Dict mappé sur :class:`audit_bim.domain.ObjectFilter`.
-            Tous les champs sont optionnels. Combinaison ``ET`` entre
-            champs, ``OU`` entre valeurs d'une liste. Voir docstring du
-            modèle pour les axes supportés (classification actuelle,
-            niveau 3, étage, zone, présence/absence de propriété, etc.).
-        output_path: Si fourni (chemin sous ``AUDIT_OUTPUT_DIR``), écrit
-            la totalité du résultat en JSON sur disque ; le retour MCP
-            ne garde qu'un aperçu. Sinon, fallback automatique disque
-            quand la réponse dépasse 256 KB.
-
-    Returns:
-        ``{items, total, next_offset, items_path?, items_truncated?}``.
-        Les ``items`` sont la version :meth:`BimObject.compact_dict`.
-    """
-    _State.ensure_snapshot()
-    f = ObjectFilter.model_validate(filter or {})
-
-    matched, total, next_offset = apply_object_filter(iter_bim_objects(_State.snapshot), f)
-    payload = {
-        "items": [obj.compact_dict() for obj in matched],
-        "total": total,
-        "next_offset": next_offset,
-        "limit": f.limit,
-        "offset": f.offset,
-    }
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return _maybe_dump_to_disk(
-        payload, output_path=output_path, default_basename=f"filter_bim_objects_{ts}"
-    )
-
-
-@mcp.tool()
-def list_audit_findings(
-    filter: dict | None = None,
-    output_path: str | None = None,
-) -> dict:
-    """Filtre les anomalies de l'audit en cours sans recalculer l'audit.
-
-    Args:
-        filter: Dict mappé sur :class:`audit_bim.domain.FindingFilter`
-            (themes / severities / severity_min / error_types / ifc_types
-            / element_uuids / require_element_uuid + pagination).
-        output_path: Idem ``filter_bim_objects``.
-
-    Returns:
-        ``{items, total, next_offset, items_path?, items_truncated?}``.
-        Les ``items`` sont les Findings sérialisés en JSON compact.
-    """
-    _State.ensure_result()
-    f = FindingFilter.model_validate(filter or {})
-
-    matched, total, next_offset = apply_finding_filter(_State.result.findings, f)
-    payload = {
-        "items": [item.model_dump(mode="json") for item in matched],
-        "total": total,
-        "next_offset": next_offset,
-        "limit": f.limit,
-        "offset": f.offset,
-    }
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return _maybe_dump_to_disk(
-        payload, output_path=output_path, default_basename=f"list_audit_findings_{ts}"
-    )
-
-
-@mcp.tool()
-def get_object_detail(
-    uuid: str,
-    include_psets: bool = True,
-    include_quantities: bool = True,
-) -> dict:
-    """Renvoie le détail complet d'un objet BIM par UUID IFC.
-
-    Args:
-        uuid: GlobalId IFC de l'élément (clé ``uuid`` du snapshot).
-        include_psets: Inclure les propriétés Pset complètes
-            (``properties``).
-        include_quantities: Inclure les BaseQuantities (``base_quantities``).
-
-    Returns:
-        Dict :class:`BimObject` complet (ou compact selon les flags) +
-        liste éventuelle de findings concernant cet objet + suggestion
-        de classification courante si présente dans le store.
-    """
-    _State.ensure_snapshot()
-    element = _State.snapshot.element_by_uuid.get(uuid)
-    if element is None:
-        raise ValueError(f"UUID inconnu dans le snapshot actif : {uuid!r}")
-    obj = bim_object_from_element(element, _State.snapshot)
-
-    data = obj.model_dump(mode="json")
-    if not include_psets:
-        data.pop("properties", None)
-    if not include_quantities:
-        data.pop("base_quantities", None)
-
-    # Enrichissement contextuel : findings + suggestion sur cet UUID.
-    related_findings: list[dict] = []
-    if _State.result is not None:
-        related_findings = [
-            f.model_dump(mode="json") for f in _State.result.findings if f.element_uuid == uuid
-        ]
-
-    suggestion: dict | None = None
-    if _State.suggestion_store is not None:
-        entry = _State.suggestion_store.get(uuid)
-        if entry is not None:
-            suggestion = entry.model_dump(mode="json")
-
-    return {
-        "object": data,
-        "findings": related_findings,
-        "n_findings": len(related_findings),
-        "suggestion": suggestion,
-    }
-
-
-@mcp.tool()
-def list_classification_suggestions(
-    filter: dict | None = None,
-    populate: bool = True,
-    output_path: str | None = None,
-) -> dict:
-    """Filtre les suggestions de classification stockées (indexées par UUID).
-
-    Lazy-populate : au premier appel sur une session active avec un audit
-    en cours, le store est rempli depuis les findings
-    ``classification_missing`` / ``classification_invalid``. Les statuts
-    non-``proposed`` (accepted / rejected / applied) sont préservés
-    entre appels.
-
-    Args:
-        filter: Dict mappé sur :class:`audit_bim.domain.SuggestionFilter`
-            (codes proposés, niveau 3, confiance min/max, bandes,
-            statuts, mismatches uniquement, missing current uniquement).
-        populate: Si True (défaut), peuple le store depuis l'audit en
-            cours si vide. Mettre à False pour ne consulter que ce qui
-            est déjà présent (utile en revue manuelle).
-        output_path: Idem ``filter_bim_objects``.
-
-    Returns:
-        ``{items, total, next_offset, store_counts: {by_status, by_band,
-        by_proposed_level_3}, items_path?, items_truncated?}``.
-    """
-    if populate:
-        _ensure_suggestion_store(populate_if_empty=True)
-    store = _State.suggestion_store or ClassificationSuggestionStore()
-
-    f = SuggestionFilter.model_validate(filter or {})
-    matched, total, next_offset = apply_suggestion_filter(store, f)
-
-    payload = {
-        "items": [e.model_dump(mode="json") for e in matched],
-        "total": total,
-        "next_offset": next_offset,
-        "limit": f.limit,
-        "offset": f.offset,
-        "store_counts": {
-            "by_status": store.counts_by_status(),
-            "by_band": store.counts_by_band(),
-            "by_proposed_level_3": store.counts_by_proposed_level_3(),
-            "total": len(store),
-        },
-    }
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return _maybe_dump_to_disk(
-        payload,
-        output_path=output_path,
-        default_basename=f"list_classification_suggestions_{ts}",
-    )
-
-
-# ── Pattern prepare → apply ────────────────────────────────────────────────
-
-
-def _current_target() -> dict:
-    """Snapshot de la cible BIMData courante, pour ``WritePlan.target``."""
-    model_name = None
-    if _State.snapshot is not None:
-        model_name = (_State.snapshot.model or {}).get("name")
-    return {
-        "cloud_id": _State.cloud_id,
-        "project_id": _State.project_id,
-        "model_id": _State.model_id,
-        "model_name": model_name,
-    }
-
-
-def _plan_summary_response(plan, path) -> dict:
-    """Réponse compacte pour les tools ``prepare_*``."""
-    return {
-        "plan_id": plan.plan_id,
-        "plan_path": str(path),
-        "kind": plan.kind.value,
-        "target": plan.target,
-        "summary": plan.summary,
-        "risks": plan.risks,
-        "n_items": len(plan.items),
-        "requires_confirm": True,
-        "created_at": plan.created_at,
-    }
-
-
-def _refused_without_confirm(action: str) -> dict:
-    return {
-        "refused": True,
-        "action": action,
-        "reason": (
-            "confirm=False — exécution refusée. Repassez le tool avec "
-            "confirm=True pour exécuter le plan."
-        ),
-    }
-
-
-@mcp.tool()
-def prepare_bcf_topics(
-    finding_filter: dict | None = None,
-    prefix: str = "I3F Audit — ",
-    include_overview: bool = True,
-) -> dict:
-    """Construit et scelle un :class:`WritePlan` BCF Topics — **sans écrire**.
-
-    Args:
-        finding_filter: Dict :class:`FindingFilter` pour cibler une sous-
-            partie des findings (ex: ``{"severity_min": "HIGH"}``).
-        prefix: Préfixe des titres BCF.
-        include_overview: Inclure le topic « Vue d'ensemble » en tête.
-
-    Returns:
-        Dict compact ``{plan_id, plan_path, kind, target, summary, risks,
-        n_items, requires_confirm}``. Réutiliser ``plan_path`` dans
-        ``apply_bcf_topics(plan_path=..., confirm=True)``.
-    """
-    _State.ensure_result()
-    _State.ensure_client()
-    ff = FindingFilter.model_validate(finding_filter) if finding_filter else None
-    plan = prepare_bcf(
-        _State.result,
-        finding_filter=ff,
-        target=_current_target(),
-        prefix=prefix,
-        include_overview=include_overview,
-    )
-    path = save_plan(plan)
-    return _plan_summary_response(plan, path)
-
-
-@mcp.tool()
-def apply_bcf_topics(plan_path: str, confirm: bool = False) -> dict:
-    """Exécute un plan BCF préalablement préparé.
-
-    Args:
-        plan_path: Chemin du plan retourné par ``prepare_bcf_topics``.
-        confirm: **Obligatoire** ``True`` pour exécuter. ``False``
-            renvoie un refus explicite sans toucher à BIMData.
-
-    Returns:
-        :class:`ActionResult` sérialisé (succeeded / failed / errors /
-        impacted_uuids).
-    """
-    if not confirm:
-        return _refused_without_confirm("apply_bcf_topics")
-    _State.ensure_client()
-    ensure_writes_allowed("apply_bcf_topics")
-    try:
-        plan = load_plan(plan_path)
-    except (FileNotFoundError, PlanIntegrityError) as exc:
-        return {"refused": True, "action": "apply_bcf_topics", "reason": str(exc)}
-    try:
-        result = apply_bcf(plan, _State.client, actual_target=_current_target())
-    except PlanTargetMismatchError as exc:
-        return {"refused": True, "action": "apply_bcf_topics", "reason": str(exc)}
-    return result.model_dump(mode="json")
-
-
-@mcp.tool()
-def prepare_smart_views_plan(
-    finding_filter: dict | None = None,
-    prefix: str = "I3F Audit — ",
-    include_overview: bool = True,
-) -> dict:
-    """Construit et scelle un :class:`WritePlan` Smart Views — **sans écrire**.
-
-    Idem ``prepare_bcf_topics`` mais format ``bimdata-smartview`` (panneau
-    Smart Views du viewer, pas BCF Issues).
-    """
-    _State.ensure_result()
-    _State.ensure_client()
-    ff = FindingFilter.model_validate(finding_filter) if finding_filter else None
-    plan = prepare_smart_views(
-        _State.result,
-        finding_filter=ff,
-        target=_current_target(),
-        prefix=prefix,
-        include_overview=include_overview,
-    )
-    path = save_plan(plan)
-    return _plan_summary_response(plan, path)
-
-
-@mcp.tool()
-def apply_smart_views_plan(plan_path: str, confirm: bool = False) -> dict:
-    """Exécute un plan Smart Views préalablement préparé."""
-    if not confirm:
-        return _refused_without_confirm("apply_smart_views_plan")
-    _State.ensure_client()
-    ensure_writes_allowed("apply_smart_views_plan")
-    try:
-        plan = load_plan(plan_path)
-    except (FileNotFoundError, PlanIntegrityError) as exc:
-        return {"refused": True, "action": "apply_smart_views_plan", "reason": str(exc)}
-    try:
-        result = apply_smart_views(plan, _State.client, actual_target=_current_target())
-    except PlanTargetMismatchError as exc:
-        return {"refused": True, "action": "apply_smart_views_plan", "reason": str(exc)}
-    return result.model_dump(mode="json")
-
-
-@mcp.tool()
-def prepare_classification_update_plan(
-    suggestion_filter: dict | None = None,
-    default_to_accepted_only: bool = True,
-) -> dict:
-    """Construit et scelle un :class:`WritePlan` d'application de classifications.
-
-    Args:
-        suggestion_filter: Dict :class:`SuggestionFilter`. Si absent, on
-            filtre implicitement sur ``status=ACCEPTED`` (cf.
-            ``default_to_accepted_only``).
-        default_to_accepted_only: Quand ``suggestion_filter=None``, prend
-            uniquement les suggestions ``accepted`` (recommandé). Mettre
-            ``False`` pour considérer toutes les suggestions ; risque
-            d'appliquer des codes basse confiance.
-
-    Returns:
-        Dict compact (cf. ``prepare_bcf_topics``). ``risks`` signale
-        notamment le nombre d'éléments dont la classification serait
-        écrasée.
-    """
-    _State.ensure_client()
-    store = _ensure_suggestion_store(populate_if_empty=True)
-    sf = SuggestionFilter.model_validate(suggestion_filter) if suggestion_filter else None
-    scope = SuggestionStatus.ACCEPTED if default_to_accepted_only else None
-    plan = prepare_classification_update(
-        store,
-        suggestion_filter=sf,
-        target=_current_target(),
-        default_status_scope=scope,
-    )
-    path = save_plan(plan)
-    return _plan_summary_response(plan, path)
-
-
-@mcp.tool()
-def apply_classification_update_plan(plan_path: str, confirm: bool = False) -> dict:
-    """Exécute un plan de classifications préalablement préparé.
-
-    Met à jour les statuts ``proposed/accepted`` → ``applied`` dans le
-    store de session pour les éléments effectivement modifiés.
-    """
-    if not confirm:
-        return _refused_without_confirm("apply_classification_update_plan")
-    _State.ensure_client()
-    ensure_writes_allowed("apply_classification_update_plan")
-    try:
-        plan = load_plan(plan_path)
-    except (FileNotFoundError, PlanIntegrityError) as exc:
-        return {
-            "refused": True,
-            "action": "apply_classification_update_plan",
-            "reason": str(exc),
-        }
-    try:
-        result = apply_classification_update(
-            plan,
-            _State.client,
-            store=_State.suggestion_store,
-            actual_target=_current_target(),
-        )
-    except PlanTargetMismatchError as exc:
-        return {
-            "refused": True,
-            "action": "apply_classification_update_plan",
-            "reason": str(exc),
-        }
-    return result.model_dump(mode="json")
-
-
-@mcp.tool()
-def list_write_plans(limit: int = 20) -> dict:
-    """Liste les plans d'écriture sous ``AUDIT_OUTPUT_DIR/plans/``.
-
-    Args:
-        limit: Nombre max de plans (les plus récents).
-
-    Returns:
-        ``{plans: [...], total: int}`` — chaque plan a ``plan_id``,
-        ``kind``, ``created_at``, ``path``, ``summary``, ``n_items``.
-    """
-    plans = _list_plans(limit=limit)
-    return {"plans": plans, "total": len(plans)}
-
-
-@mcp.tool()
-def update_suggestion_status(
-    element_uuid: str,
-    status: str,
-) -> dict:
-    """Bascule le statut d'une suggestion (``proposed`` / ``accepted`` /
-    ``rejected`` / ``applied``).
-
-    À utiliser avant ``prepare_classification_update_plan`` pour ne
-    pousser que ce qui est validé par l'AMO.
-
-    Args:
-        element_uuid: UUID IFC.
-        status: Cible (``"accepted"``, ``"rejected"``, ``"proposed"``,
-            ``"applied"``).
-
-    Returns:
-        Suggestion mise à jour sérialisée, ou erreur si UUID inconnu.
-    """
-    store = _ensure_suggestion_store(populate_if_empty=True)
-    try:
-        new_status = SuggestionStatus(status)
-    except ValueError as exc:
-        raise ValueError(
-            f"status invalide {status!r}. Valeurs admises : {[s.value for s in SuggestionStatus]}."
-        ) from exc
-    updated = store.update_status(element_uuid, new_status)
-    if updated is None:
-        raise ValueError(f"UUID inconnu dans le store : {element_uuid!r}.")
-    return updated.model_dump(mode="json")
-
-
-@mcp.tool()
-def audit_trail(limit: int = 20) -> dict:
-    """Renvoie les ``limit`` dernières entrées du journal d'écritures.
-
-    Permet la revue post-exécution de tous les ``apply_*`` qui ont
-    touché BIMData. Lecture seule.
-    """
-    entries = get_journal().tail(n=limit)
-    return {
-        "entries": [e.model_dump(mode="json") for e in entries],
-        "total_returned": len(entries),
-    }
-
-
-# ── Wrappers de dépréciation douce ────────────────────────────────────────
-
-
-_DEPRECATION_NOTE = (
-    "Tool conservé pour compatibilité. Préférer le pattern "
-    "prepare_*/apply_* (cf. champ `use_instead`)."
+# ── Enregistrement des tools des modules dédiés ──────────────────────────
+#
+# L'import déclenche l'exécution des décorateurs ``@mcp.tool()`` sur les
+# fonctions définies dans chaque module. Ordre : les query/actions
+# d'abord, puis les wrappers legacy (qui dépendent des planners), puis
+# les aliases (qui re-dispatchent vers tools_actions).
+#
+# Cette indirection permet de garder server.py < 1 000 lignes tout en
+# préservant le registre FastMCP unique.
+
+from . import aliases  # noqa: E402, F401, I001
+from . import tools_actions  # noqa: E402, F401
+from . import tools_legacy  # noqa: E402, F401
+from . import tools_query  # noqa: E402, F401
+
+# Re-export des tools déplacés pour préserver l'API publique :
+# ``from audit_bim.mcp import server; server.prepare_bcf_topics(...)``
+# reste valide (utilisé par les tests et certains scripts).
+from .aliases import (  # noqa: E402, F401
+    apply_bcf_plan,
+    apply_classification_corrections,
+    apply_smartviews_plan,
+    prepare_bcf_from_findings,
+    prepare_classification_corrections,
+    prepare_smartviews_from_findings,
 )
-
-
-def _add_deprecation_marker(payload: dict, use_instead: str) -> dict:
-    """Ajoute les marqueurs de dépréciation à un retour MCP existant.
-
-    On ne lève PAS de DeprecationWarning Python — les warnings ne se
-    propagent pas proprement en JSON-RPC. À la place :
-
-    - on logge serveur côté `_server_logger`,
-    - on ajoute `deprecated=True` + `use_instead` au payload.
-    """
-    if not isinstance(payload, dict):
-        payload = {"result": payload}
-    payload["deprecated"] = True
-    payload["use_instead"] = use_instead
-    payload["deprecation_note"] = _DEPRECATION_NOTE
-    return payload
+from .tools_actions import (  # noqa: E402, F401
+    apply_bcf_topics,
+    apply_classification_update_plan,
+    apply_smart_views_plan,
+    audit_trail,
+    list_write_plans,
+    prepare_bcf_topics,
+    prepare_classification_update_plan,
+    prepare_smart_views_plan,
+    update_suggestion_status,
+)
+from .tools_legacy import (  # noqa: E402, F401
+    apply_suggested_classifications,
+    create_bcf_topics,
+    create_smart_views,
+    suggest_classifications,
+)
+from .tools_query import (  # noqa: E402, F401
+    filter_bim_objects,
+    get_object_detail,
+    list_audit_findings,
+    list_classification_suggestions,
+)
 
 
 # ── Prompt MCP ─────────────────────────────────────────────────────────────
