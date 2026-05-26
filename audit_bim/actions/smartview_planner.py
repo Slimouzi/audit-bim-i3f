@@ -15,6 +15,7 @@ from ..domain.filters import FindingFilter
 from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
 from ..query.filtering import finding_matches
+from ..security.redaction import redact_secrets
 from ..security.write_journal import get_journal
 from ..smartview.builder import build_smartview_payloads
 from .plans import validate_target
@@ -106,7 +107,7 @@ def apply_smart_views(
             impacted_titles.append(title)
         except Exception as exc:  # noqa: BLE001
             failed += 1
-            errors.append({"title": str(title), "message": str(exc)})
+            errors.append({"title": str(title), "message": redact_secrets(str(exc))})
 
     get_journal().record(
         action="apply_smart_views",

@@ -37,6 +37,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..safe_paths import get_export_root
+from .redaction import redact_secrets
 
 logger = logging.getLogger("audit_bim.security.write_journal")
 
@@ -147,6 +148,12 @@ class WriteJournal:
         entry_extra = dict(extra or {})
         if echo_uuids and impacted_uuids is not None:
             entry_extra["impacted_uuids"] = impacted_uuids
+
+        # Defense-in-depth : redaction systématique des secrets dans
+        # ``extra`` même si l'appelant a déjà scrubé. Évite la fuite
+        # d'un Bearer / access_token / Authorization qu'un nouveau
+        # planner oublierait de scruber explicitement.
+        entry_extra = redact_secrets(entry_extra)
 
         entry = WriteJournalEntry(
             action=action,

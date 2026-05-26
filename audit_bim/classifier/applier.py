@@ -125,6 +125,12 @@ def apply_classifications(
     n_created = 0
     n_reused = 0
     preview = []
+    # UUIDs candidats au link (ont survécu à la création). Si bulk-link
+    # réussit → linked_uuids ; si bulk-link échoue → failed_uuids.
+    candidate_uuids: list[str] = []
+    # UUIDs déjà perdus côté création (groupe en erreur — leur
+    # classification n'a jamais été créée).
+    failed_uuids: list[str] = []
     for (code, system, label), uuids in grouped.items():
         key = (code, system)
         cid: int | None = cache.get(key)
@@ -141,12 +147,16 @@ def apply_classifications(
                 status = "created"
             except Exception as e:
                 errors.append(f"create {system}/{code}: {e}")
+                # Toutes les UUIDs du groupe sont en échec : leur
+                # classification cible n'a pas pu être créée.
+                failed_uuids.extend(uuids)
                 continue
         # En dry_run, le cid réel n'existe pas encore — on utilise un
         # placeholder négatif pour le comptage des liens à créer.
         cid_for_link = cid if cid is not None else -1
         for u in uuids:
             relations.append({"element_uuid": u, "classification_id": cid_for_link})
+            candidate_uuids.append(u)
         if status == "reused":
             n_reused += 1
         preview.append(
@@ -208,6 +218,17 @@ def apply_classifications(
             if p["status"] == "created"
         ]
 
+    # Décision finale linked vs failed :
+    # - bulk-link succès → candidate_uuids passent en linked_uuids
+    # - bulk-link échec  → candidate_uuids basculent en failed_uuids
+    #   (l'API peut avoir traité une partie du bulk avant l'erreur,
+    #   mais on ne peut pas savoir lesquels — défensif).
+    if link_failed:
+        failed_uuids.extend(candidate_uuids)
+        linked_uuids: list[str] = []
+    else:
+        linked_uuids = list(candidate_uuids)
+
     return {
         "dry_run": False,
         "n_items": len(items_list),
@@ -216,6 +237,12 @@ def apply_classifications(
         "n_links_created": n_linked,
         "link_failed": link_failed,
         "orphan_classifications": orphan_classifications,
+        # UUIDs effectivement liés à leur classification cible (sûrs à
+        # basculer en ``APPLIED`` côté store de suggestions).
+        "linked_uuids": linked_uuids,
+        # UUIDs qui n'ont pas pu être liés (création de classif KO, ou
+        # bulk-link KO). À conserver en ``ACCEPTED`` pour rerun manuel.
+        "failed_uuids": failed_uuids,
         # Renommé du précédent ``rerun_safe`` (trop optimiste) :
         # - création : oui, idempotente via cache ``(code, système)``.
         # - liens : à vérifier — l'API BIMData peut avoir traité une

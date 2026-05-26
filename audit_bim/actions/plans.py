@@ -30,7 +30,12 @@ from pathlib import Path
 from typing import Any
 
 from ..domain.write_plan import WritePlan
-from ..safe_paths import get_export_root, safe_export_dir, safe_export_path
+from ..safe_paths import (
+    get_export_root,
+    safe_export_dir,
+    safe_export_path,
+    safe_export_read_path,
+)
 
 PLANS_SUBDIR = "plans"
 
@@ -112,12 +117,12 @@ def load_plan(path: str | Path, *, verify_checksum: bool = True) -> WritePlan:
     Raises:
         FileNotFoundError: Plan inexistant.
         PlanIntegrityError: Checksum invalide.
+        UnsafePathError: Chemin hors ``AUDIT_OUTPUT_DIR`` ou contenant ``..``.
     """
-    p = Path(path)
-    if not p.is_absolute():
-        p = get_export_root() / p
-    if not p.exists():
-        raise FileNotFoundError(p)
+    # Sandbox strict : tout chemin (absolu ou relatif) doit être
+    # contenu sous AUDIT_OUTPUT_DIR. Un client MCP ne doit pas pouvoir
+    # faire pointer apply_* vers un fichier hors racine via plan_path.
+    p = safe_export_read_path(path, must_exist=True)
     payload = json.loads(p.read_text(encoding="utf-8"))
     stored_checksum = payload.pop(CHECKSUM_FIELD, None)
     plan = WritePlan.model_validate(payload)

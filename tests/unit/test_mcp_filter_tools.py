@@ -117,9 +117,13 @@ def _result_with_two_walls() -> AuditResult:
 
 
 class TestToolsRegistered:
-    @pytest.mark.asyncio
-    async def test_new_filter_tools_registered(self):
-        tools = await mcp_server.mcp.list_tools()
+    def test_new_filter_tools_registered(self):
+        # ``mcp.list_tools`` est async côté FastMCP. On l'exécute via
+        # ``anyio.run`` (déjà transitivement disponible via FastMCP)
+        # pour éviter d'ajouter pytest-asyncio uniquement pour ce test.
+        import anyio
+
+        tools = anyio.run(mcp_server.mcp.list_tools)
         names = {t.name for t in tools}
         assert "filter_bim_objects" in names
         assert "list_audit_findings" in names

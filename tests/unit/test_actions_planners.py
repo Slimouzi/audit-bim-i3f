@@ -299,7 +299,8 @@ class TestApplyClassificationUpdate:
         from audit_bim.actions import classification_planner
 
         # Mock apply_classifications côté planner pour ne pas exécuter
-        # de POST réel.
+        # de POST réel. Le contrat retourne désormais linked_uuids /
+        # failed_uuids (cf. revue CTO P2).
         fake_api = MagicMock(
             return_value={
                 "dry_run": False,
@@ -309,6 +310,8 @@ class TestApplyClassificationUpdate:
                 "n_links_created": 2,
                 "link_failed": False,
                 "orphan_classifications": [],
+                "linked_uuids": ["W1", "W3"],
+                "failed_uuids": [],
                 "errors": [],
             }
         )
@@ -321,7 +324,7 @@ class TestApplyClassificationUpdate:
 
         assert result.succeeded == 2
         assert result.failed == 0
-        # Statuts mis à jour vers APPLIED pour les UUIDs traités.
+        # Statuts mis à jour vers APPLIED pour les UUIDs réellement liés.
         assert store.get("W1").status == SuggestionStatus.APPLIED
         assert store.get("W3").status == SuggestionStatus.APPLIED
         # W2 (non touché par le plan ACCEPTED-only) reste PROPOSED.
@@ -345,6 +348,8 @@ class TestApplyClassificationUpdate:
                 "n_links_created": 0,
                 "link_failed": True,
                 "orphan_classifications": [],
+                "linked_uuids": [],
+                "failed_uuids": ["W1", "W3"],
                 "errors": ["bulk link failed: 500"],
             }
         )
@@ -358,3 +363,71 @@ class TestApplyClassificationUpdate:
         # Sur link_failed, on ne bascule PAS vers APPLIED.
         assert store.get("W1").status == SuggestionStatus.ACCEPTED
         assert store.get("W3").status == SuggestionStatus.ACCEPTED
+
+    def test_partial_creation_failure_only_marks_linked(self, monkeypatch):
+        """W1 lié, W3 perdu côté création de sa classification (groupe KO).
+
+        On vérifie que seul W1 passe à APPLIED ; W3 reste ACCEPTED pour
+        permettre un rerun ciblé.
+        """
+        from audit_bim.actions import classification_planner
+
+        fake_api = MagicMock(
+            return_value={
+                "dry_run": False,
+                "n_items": 2,
+                "n_classifications_created": 1,
+                "n_classifications_reused": 0,
+                "n_links_created": 1,
+                "link_failed": False,
+                "orphan_classifications": [],
+                "linked_uuids": ["W1"],
+                "failed_uuids": ["W3"],
+                "errors": ["create uniformat/B2010: 422 Unprocessable Entity"],
+            }
+        )
+        monkeypatch.setattr(classification_planner, "apply_classifications", fake_api)
+
+        store = _store_with_entries()
+        plan = prepare_classification_update(store, target=_target())
+        client = _mock_client()
+        result = apply_classification_update(plan, client, store=store)
+
+        assert result.succeeded == 1
+        assert result.failed == 1
+        # W1 effectivement lié → APPLIED
+        assert store.get("W1").status == SuggestionStatus.APPLIED
+        # W3 KO côté création → conserve ACCEPTED pour rerun
+        assert store.get("W3").status == SuggestionStatus.ACCEPTED
+
+    def test_error_messages_redacted_in_action_result(self, monkeypatch):
+        """Les exceptions API contenant des secrets ne doivent jamais
+        fuiter dans ``ActionResult.errors`` ou dans le journal."""
+        from audit_bim.actions import classification_planner
+
+        fake_api = MagicMock(
+            return_value={
+                "dry_run": False,
+                "n_items": 2,
+                "n_classifications_created": 1,
+                "n_classifications_reused": 0,
+                "n_links_created": 0,
+                "link_failed": True,
+                "orphan_classifications": [],
+                "linked_uuids": [],
+                "failed_uuids": ["W1", "W3"],
+                "errors": [
+                    "HTTPError 401 for url: https://api.example/x?access_token=eyJabcdefgh12345678",
+                ],
+            }
+        )
+        monkeypatch.setattr(classification_planner, "apply_classifications", fake_api)
+
+        store = _store_with_entries()
+        plan = prepare_classification_update(store, target=_target())
+        client = _mock_client()
+        result = apply_classification_update(plan, client, store=store)
+
+        joined_errors = " ".join(e["message"] for e in result.errors)
+        assert "eyJabcdefgh12345678" not in joined_errors
+        assert "<scrub:" in joined_errors

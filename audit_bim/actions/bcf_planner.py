@@ -16,6 +16,7 @@ from ..domain.filters import FindingFilter
 from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
 from ..query.filtering import finding_matches
+from ..security.redaction import redact_secrets
 from ..security.write_journal import get_journal
 from .plans import validate_target
 
@@ -140,7 +141,9 @@ def apply_bcf(
             impacted_titles.append(title)
         except Exception as exc:  # noqa: BLE001 (on capture tout pour journaliser)
             failed += 1
-            errors.append({"title": str(title), "message": str(exc)})
+            # Redaction systématique : un message HTTP peut embarquer une
+            # URL signée ou un en-tête Authorization.
+            errors.append({"title": str(title), "message": redact_secrets(str(exc))})
 
     get_journal().record(
         action="apply_bcf_topics",
