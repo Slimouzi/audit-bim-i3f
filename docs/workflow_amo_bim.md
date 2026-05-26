@@ -348,6 +348,53 @@ audit_trail(limit=10)
 # }
 ```
 
+## Rapport Word — contexte projet enrichi
+
+Depuis cette version, le rapport Word généré par `generate_word_report`
+intègre un **contexte projet enrichi** :
+
+```
+1. Page de garde
+2. Résumé exécutif (+ explication des figures)
+3. Contexte de la mission        ← NOUVEAU
+4. Description du projet         ← NOUVEAU
+5. Référentiels et documents
+6. Attendus du projet            ← NOUVEAU
+7. Objectifs BIM                 ← NOUVEAU
+8. Liste des contrôles réalisés  ← NOUVEAU (tableau 4 colonnes)
+9. Synthèse par thème
+10. Détail des anomalies par thème
+11. Recommandations AMO BIM
+12. Informations non disponibles ← NOUVEAU (si applicable)
+13. Annexes
+```
+
+Chaque section porte un **paragraphe d'introduction professionnel** qui
+explique au lecteur non technique ce qu'il y trouve.
+
+**Garantie** : si une information contextuelle (description projet,
+maîtrise d'ouvrage, adresse, objectifs BIM) n'est pas disponible dans
+les sources analysées (BIMData + 3 documents MOA), la mention
+*« Information non disponible dans les documents fournis. »* est
+affichée plutôt qu'une valeur inférée. Les données manquantes sont
+également listées dans la section *« Informations non disponibles »*
+pour transparence.
+
+Côté API Python, le caller peut pré-builder un contexte enrichi (ex.
+avec une adresse extraite via `enrich_with_public_data`) :
+
+```python
+from audit_bim.reporting.context import build_report_context
+from audit_bim.reporting.word_report import write_word_report
+
+ctx = build_report_context(result)
+# Optionnel : enrichir ctx avec des données externes (DPE, PLU, etc.)
+write_word_report(result, output_path="...", context=ctx)
+```
+
+L'appel historique sans `context` reste valable — le contexte est
+construit automatiquement.
+
 ## Garanties transverses
 
 | Garantie | Implémentation |

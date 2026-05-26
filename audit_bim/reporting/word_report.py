@@ -1,14 +1,26 @@
 """Rapport d'audit Word (livrable AMO BIM I3F).
 
-Structure du document :
-1. Page de garde (titre, programme, phase, date, auditeur)
-2. Résumé exécutif (KPIs + verdict global)
-3. Méthodologie et périmètre
-4. Synthèse par thème (camembert + tableau)
-5. Synthèse par sévérité (barres + tableau)
-6. Détail des anomalies (groupées par thème, paginées si volumineuses)
-7. Recommandations
-8. Annexes (renvoi vers le xlsx détaillé)
+Structure du document (enrichie depuis 0.2.2) :
+
+1. Page de garde
+2. Résumé exécutif
+3. Contexte de la mission (NOUVEAU)
+4. Description du projet (NOUVEAU)
+5. Référentiels et documents analysés
+6. Attendus du projet (NOUVEAU)
+7. Objectifs BIM (NOUVEAU)
+8. Liste des contrôles réalisés (NOUVEAU)
+9. Synthèse par thème (camembert + tableau)
+10. Détail des anomalies par thème
+11. Recommandations AMO BIM (enrichies)
+12. Informations non disponibles (NOUVEAU si applicable)
+13. Annexes
+
+Les nouvelles sections (3, 4, 6, 7, 8, 12) sont alimentées par
+:class:`audit_bim.reporting.context.ReportProjectContext`. Si aucune
+information n'est disponible pour une section donnée, la mention
+« Information non disponible dans les documents fournis. » est
+affichée — **on n'invente jamais**.
 
 Les graphes sont générés via matplotlib et insérés en PNG.
 """
@@ -33,7 +45,12 @@ from docx.shared import Cm, Pt, RGBColor
 from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity, Theme
 from ..classifier import suggest_for_findings
+from .context import ReportProjectContext, build_report_context
 from .theming import I3F_BLUE, I3F_GREY, SEVERITY_COLORS, THEME_COLORS
+
+# Phrase de fallback : utilisée chaque fois qu'une donnée contextuelle
+# manque, pour éviter toute hallucination et garder un ton AMO BIM.
+NOT_AVAILABLE = "Information non disponible dans les documents fournis."
 
 MAX_FINDINGS_PER_THEME = 25  # cap par thème pour garder un rendu équilibré
 PIE_OTHER_THRESHOLD = 0.02  # tranches < 2 % regroupées en « Autres »
@@ -236,8 +253,22 @@ def write_word_report(
     output_path: str | Path,
     auditor: str = "AMO BIM (audit automatisé)",
     xlsx_annex_path: str | Path | None = None,
+    context: ReportProjectContext | None = None,
 ) -> Path:
-    """Génère le rapport Word d'audit."""
+    """Génère le rapport Word d'audit.
+
+    Args:
+        result: ``AuditResult`` complet (snapshot + catalog + findings).
+        output_path: Destination ``.docx`` (parents créés si nécessaire).
+        auditor: Nom affiché sur la page de garde.
+        xlsx_annex_path: Chemin de l'annexe XLSX (référencé en annexe).
+        context: ``ReportProjectContext`` enrichi. Si ``None`` (défaut),
+            on appelle :func:`build_report_context` pour le construire
+            automatiquement depuis ``result``. Cette indirection permet
+            au caller de précharger un contexte enrichi (ex: adresse
+            depuis ``enrich_with_public_data``) avant de générer le
+            rapport.
+    """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -253,8 +284,12 @@ def write_word_report(
     style.font.size = Pt(10)
     style.font.color.rgb = _hex_to_rgb(I3F_GREY)
 
-    project_name = (result.snapshot.project or {}).get("name", "?")
-    model_name = (result.snapshot.model or {}).get("name", "?")
+    # Contexte projet enrichi : auto-build si non fourni par le caller.
+    if context is None:
+        context = build_report_context(result)
+
+    project_name = context.project_name or (result.snapshot.project or {}).get("name", "?")
+    model_name = context.model_name or (result.snapshot.model or {}).get("name", "?")
 
     # 1. Page de garde — un paragraphe par ligne pour un rendu propre (pas
     # de '\n' dans les runs qui produisent des marqueurs visuels).
@@ -317,6 +352,15 @@ def write_word_report(
         ],
     )
 
+    doc.add_paragraph(
+        "Les deux figures ci-dessous synthétisent le profil global des "
+        "anomalies. La répartition par thème indique quels domaines "
+        "métier (nommage, classifications, propriétés…) concentrent les "
+        "écarts ; la répartition par sévérité permet d'identifier "
+        "rapidement si les écarts relèvent principalement de points "
+        "bloquants ou d'améliorations de qualité.",
+        style="Intense Quote",
+    )
     doc.add_paragraph()
     doc.add_picture(
         _pie_chart(by_theme, THEME_COLORS, "Répartition des anomalies par thème"),
@@ -333,41 +377,36 @@ def write_word_report(
 
     _section_break(doc)
 
-    # 3. Méthodologie
-    _add_heading(doc, "2. Méthodologie et périmètre", level=1)
-    doc.add_paragraph(
-        "L'audit est conduit conformément au Cahier des Charges BIM I3F "
-        f"(version {result.catalog.cch_version or '—'}). Les exigences sont "
-        "extraites de trois sources :"
-    )
-    doc.add_paragraph(
-        "• Cahier des annexes CCH (PDF) — référence éditoriale et listes de valeurs ;",
-        style="List Bullet",
-    )
-    doc.add_paragraph(
-        "• Annexe « Spécification des données » (XLSX) — propriétés requises par "
-        "objet IFC et par phase BIM ;",
-        style="List Bullet",
-    )
-    doc.add_paragraph(
-        "• Annexe « Nommage » (XLSX) — règles de nommage des sites, bâtiments, "
-        "étages, zones et pièces.",
-        style="List Bullet",
-    )
-    doc.add_paragraph(
-        f"Le périmètre audité est la maquette « {model_name} » du programme "
-        f"« {project_name} », exposée via l'API BIMData. La phase BIM retenue est "
-        f"{result.phase.value}."
-    )
-    doc.add_paragraph(
-        "Les contrôles couvrent : hiérarchie spatiale, nommage IFC (site / "
-        "bâtiment / étage / zone / pièce), classifications, propriétés "
-        "(Psets attendus à la phase), quantités (surfaces et volumes) et "
-        "documents de référence."
-    )
+    # ── 2. Contexte de la mission ────────────────────────────────────────
+    _write_section_mission_context(doc, context, result)
+    _section_break(doc)
 
-    # 4. Synthèse par thème
-    _add_heading(doc, "3. Synthèse par thème", level=1)
+    # ── 3. Description du projet ─────────────────────────────────────────
+    _write_section_project_description(doc, context, result)
+    _section_break(doc)
+
+    # ── 4. Référentiels et documents analysés ────────────────────────────
+    _write_section_references(doc, context, result)
+
+    # ── 5. Attendus du projet ────────────────────────────────────────────
+    _write_section_expected_deliverables(doc, context, result)
+
+    # ── 6. Objectifs BIM ─────────────────────────────────────────────────
+    _write_section_bim_objectives(doc, context)
+
+    # ── 7. Liste des contrôles réalisés ──────────────────────────────────
+    _write_section_controls_performed(doc, context)
+
+    _section_break(doc)
+
+    # ── 8. Synthèse par thème (numérotation conservée + 5) ──────────────
+    _add_heading(doc, "8. Synthèse par thème", level=1)
+    doc.add_paragraph(
+        "Cette synthèse regroupe les écarts par famille de contrôle. Elle "
+        "aide à distinguer les problèmes structurels de modélisation des "
+        "problèmes ponctuels de renseignement.",
+        style="Intense Quote",
+    )
     if not by_theme:
         doc.add_paragraph("Aucune anomalie détectée — la maquette est conforme.")
     else:
@@ -389,9 +428,15 @@ def write_word_report(
 
     _section_break(doc)
 
-    # 5. Détail par thème — on cap PAR thème pour qu'on voit un échantillon
+    # 9. Détail par thème — on cap PAR thème pour qu'on voit un échantillon
     # de chacun, plutôt que de remplir le quota global avec un seul thème.
-    _add_heading(doc, "4. Détail des anomalies par thème", level=1)
+    _add_heading(doc, "9. Détail des anomalies par thème", level=1)
+    doc.add_paragraph(
+        "Ce chapitre détaille les objets concernés par les écarts détectés, "
+        "thème par thème. Il constitue la base de travail pour les "
+        "corrections à mener dans la maquette ou dans les données sources.",
+        style="Intense Quote",
+    )
 
     by_theme_all: dict[str, list[Finding]] = {}
     for f in result.findings:
@@ -426,8 +471,14 @@ def write_word_report(
 
     _section_break(doc)
 
-    # 6. Recommandations
-    _add_heading(doc, "5. Recommandations", level=1)
+    # 10. Recommandations AMO BIM
+    _add_heading(doc, "10. Recommandations AMO BIM", level=1)
+    doc.add_paragraph(
+        "Cette section propose des actions correctives priorisées à mener "
+        "avant le prochain dépôt de maquette. Les recommandations sont "
+        "déduites des anomalies détectées et organisées par lot/thème.",
+        style="Intense Quote",
+    )
     recs = _generate_recommendations(result)
     if not recs:
         doc.add_paragraph("Aucune action corrective majeure ne semble nécessaire à ce stade.")
@@ -435,8 +486,35 @@ def write_word_report(
         for r in recs:
             doc.add_paragraph(r, style="List Bullet")
 
-    # 7. Annexes
-    _add_heading(doc, "6. Annexes", level=1)
+    # 11. Limites de l'audit
+    _add_heading(doc, "11. Limites de l'audit", level=1)
+    doc.add_paragraph(
+        "L'audit est exécuté de façon automatisée à partir des données "
+        "exposées par l'API BIMData et des trois documents MOA chargés. "
+        "Les limites suivantes doivent être prises en compte à la lecture "
+        "du rapport :"
+    )
+    for a in context.assumptions or [
+        "Les exigences sont interprétées selon le référentiel chargé au moment de l'audit.",
+        "Le périmètre est limité aux objets présents dans le snapshot.",
+    ]:
+        doc.add_paragraph(f"• {a}", style="List Bullet")
+
+    # 12. Informations non disponibles (si applicable)
+    if context.missing_information:
+        _add_heading(doc, "12. Informations non disponibles ou non explicites", level=1)
+        doc.add_paragraph(
+            "Cette section liste les éléments contextuels qui n'ont pas pu "
+            "être extraits des sources analysées. Ils ne constituent pas "
+            "des anomalies de la maquette, mais éclairent le lecteur sur "
+            "ce que l'agent d'audit sait — et ce qu'il ne sait pas.",
+            style="Intense Quote",
+        )
+        for item in context.missing_information:
+            doc.add_paragraph(f"• {item}", style="List Bullet")
+
+    # 13. Annexes
+    _add_heading(doc, "13. Annexes", level=1)
     if xlsx_annex_path:
         doc.add_paragraph(
             f"Annexe détaillée (Excel) : « {Path(xlsx_annex_path).name} ». "
@@ -450,6 +528,207 @@ def write_word_report(
 
     doc.save(str(output_path))
     return output_path
+
+
+# ── Helpers de sections contextuelles ────────────────────────────────────
+
+
+def _para_intro(doc: Document, text: str) -> None:
+    """Paragraphe d'introduction (italique / Intense Quote) pour situer
+    une section auprès du lecteur non technique."""
+    doc.add_paragraph(text, style="Intense Quote")
+
+
+def _para_or_na(doc: Document, value: str | None) -> None:
+    """Insère ``value`` si fourni, sinon la mention NOT_AVAILABLE."""
+    if value and value.strip():
+        doc.add_paragraph(value)
+    else:
+        doc.add_paragraph(NOT_AVAILABLE)
+
+
+def _kv_or_na(doc: Document, label: str, value: str | None) -> None:
+    """Bullet « Label : valeur » avec fallback NOT_AVAILABLE.
+
+    Garde la valeur sur la même ligne pour produire un rendu compact
+    (utile pour les sections Contexte / Description du projet).
+    """
+    rendered = value.strip() if value and value.strip() else NOT_AVAILABLE
+    doc.add_paragraph(f"• {label} : {rendered}", style="List Bullet")
+
+
+def _write_section_mission_context(
+    doc: Document, context: ReportProjectContext, result: AuditResult
+) -> None:
+    """Section 2 — Contexte de la mission."""
+    _add_heading(doc, "2. Contexte de la mission", level=1)
+    _para_intro(
+        doc,
+        "Cette section précise le cadre dans lequel l'audit BIM a été "
+        "réalisé. Elle permet de comprendre le périmètre contrôlé, les "
+        "documents de référence utilisés et les limites éventuelles "
+        "d'interprétation.",
+    )
+    _kv_or_na(doc, "Programme", context.project_name)
+    _kv_or_na(doc, "Maquette auditée", context.model_name)
+    _kv_or_na(doc, "Phase BIM", context.project_phase)
+    _kv_or_na(doc, "Référentiel appliqué", context.bim_reference)
+    _kv_or_na(
+        doc,
+        "Périmètre",
+        (
+            f"{context.n_elements} éléments / {context.n_storeys} étage(s) / "
+            f"{context.n_spaces} espace(s) / {context.n_zones} zone(s) — extraction "
+            f"BIMData"
+        )
+        if context.n_elements
+        else None,
+    )
+
+
+def _write_section_project_description(
+    doc: Document, context: ReportProjectContext, result: AuditResult
+) -> None:
+    """Section 3 — Description du projet."""
+    _add_heading(doc, "3. Description du projet", level=1)
+    _para_intro(
+        doc,
+        "Cette section rassemble les informations générales disponibles "
+        "sur l'opération. Elle distingue les données explicitement "
+        "fournies des informations absentes afin d'éviter toute "
+        "interprétation non justifiée.",
+    )
+    _add_heading(doc, "Description", level=2)
+    _para_or_na(doc, context.project_description)
+
+    _add_heading(doc, "Identification", level=2)
+    _kv_or_na(doc, "Site", context.site_name)
+    _kv_or_na(doc, "Bâtiment", context.building_name)
+    _kv_or_na(doc, "Adresse", context.address)
+    _kv_or_na(doc, "Maîtrise d'ouvrage", context.client_name or context.owner_name)
+
+
+def _write_section_references(
+    doc: Document, context: ReportProjectContext, result: AuditResult
+) -> None:
+    """Section 4 — Référentiels et documents analysés."""
+    _add_heading(doc, "4. Référentiels et documents analysés", level=1)
+    _para_intro(
+        doc,
+        "Cette section liste les documents normatifs et MOA qui ont "
+        "servi de base à l'audit. Elle permet à la maîtrise d'ouvrage "
+        "de vérifier que les bonnes versions ont été utilisées et que "
+        "la traçabilité est garantie.",
+    )
+    doc.add_paragraph(
+        "L'audit est conduit conformément au Cahier des Charges BIM I3F "
+        f"({context.bim_reference or '—'}). Les exigences sont extraites de "
+        "trois sources :"
+    )
+    src_cch = context.cch_source or "non précisé"
+    src_data = context.data_spec_source or "non précisé"
+    src_naming = context.naming_spec_source or "non précisé"
+    doc.add_paragraph(
+        f"• Cahier des annexes CCH (PDF) — référence éditoriale et listes de valeurs : {src_cch}.",
+        style="List Bullet",
+    )
+    doc.add_paragraph(
+        "• Annexe « Spécification des données » (XLSX) — propriétés requises "
+        f"par objet IFC et par phase BIM : {src_data}.",
+        style="List Bullet",
+    )
+    doc.add_paragraph(
+        "• Annexe « Nommage » (XLSX) — règles de nommage des sites, "
+        f"bâtiments, étages, zones et pièces : {src_naming}.",
+        style="List Bullet",
+    )
+    if context.n_property_specs or context.n_naming_rules:
+        doc.add_paragraph(
+            f"Le catalogue d'exigences chargé contient "
+            f"{context.n_property_specs} spécification(s) de propriétés et "
+            f"{context.n_naming_rules} règle(s) de nommage."
+        )
+
+
+def _write_section_expected_deliverables(
+    doc: Document, context: ReportProjectContext, result: AuditResult
+) -> None:
+    """Section 5 — Attendus du projet."""
+    _add_heading(doc, "5. Attendus du projet", level=1)
+    _para_intro(
+        doc,
+        "Cette section synthétise les exigences utilisées comme base de "
+        "contrôle. Elle explicite les attendus documentaires et "
+        "informationnels retenus pour juger la conformité de la "
+        "maquette.",
+    )
+    if context.expected_deliverables:
+        for d in context.expected_deliverables:
+            doc.add_paragraph(f"• {d}", style="List Bullet")
+    else:
+        doc.add_paragraph(
+            "Les attendus opérationnels du projet ne sont pas explicitement "
+            "détaillés dans les documents fournis. Les exigences retenues "
+            "comme base de contrôle sont celles du Cahier des Charges BIM "
+            f"I3F ({context.bim_reference or '—'}) et de ses annexes, à "
+            f"savoir notamment {context.n_property_specs} spécification(s) de "
+            f"propriétés par classe IFC et phase BIM, et "
+            f"{context.n_naming_rules} règle(s) de nommage."
+        )
+
+
+def _write_section_bim_objectives(doc: Document, context: ReportProjectContext) -> None:
+    """Section 6 — Objectifs BIM."""
+    _add_heading(doc, "6. Objectifs BIM", level=1)
+    _para_intro(
+        doc,
+        "Cette section présente les objectifs BIM associés au contrôle de "
+        "la maquette. Elle permet de relier les anomalies détectées aux "
+        "usages attendus du modèle numérique.",
+    )
+    if context.bim_objectives:
+        for o in context.bim_objectives:
+            doc.add_paragraph(f"• {o}", style="List Bullet")
+    else:
+        doc.add_paragraph(
+            "Aucun objectif BIM explicite n'a été identifié dans les "
+            "documents analysés. L'audit est donc limité à la vérification "
+            "de conformité au référentiel chargé et aux données "
+            "disponibles dans la maquette."
+        )
+
+
+def _write_section_controls_performed(doc: Document, context: ReportProjectContext) -> None:
+    """Section 7 — Liste des contrôles réalisés (tableau)."""
+    _add_heading(doc, "7. Liste des contrôles réalisés", level=1)
+    _para_intro(
+        doc,
+        "Cette section liste les contrôles effectivement exécutés par "
+        "l'agent d'audit. Elle donne une vision transparente du périmètre "
+        "de vérification avant la lecture détaillée des anomalies.",
+    )
+    if not context.controls_performed:
+        doc.add_paragraph(NOT_AVAILABLE)
+        return
+    tbl = doc.add_table(rows=1, cols=4)
+    tbl.style = "Light Grid Accent 1"
+    head = tbl.rows[0].cells
+    head[0].text = "Thème de contrôle"
+    head[1].text = "Objectif"
+    head[2].text = "Données contrôlées"
+    head[3].text = "Source de la règle"
+    for c in head:
+        _shade_cell(c, I3F_BLUE)
+        for p in c.paragraphs:
+            for r in p.runs:
+                r.font.color.rgb = RGBColor(255, 255, 255)
+                r.bold = True
+    for ctrl in context.controls_performed:
+        row = tbl.add_row().cells
+        row[0].text = ctrl.theme
+        row[1].text = ctrl.objective
+        row[2].text = ctrl.checked_items
+        row[3].text = ctrl.rule_source or "—"
 
 
 def _generate_recommendations(result: AuditResult) -> list[str]:
