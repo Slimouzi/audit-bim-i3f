@@ -95,13 +95,77 @@ QUERY_PRESETS: dict[str, dict] = {
             "numéro de série, tag, localisation."
         ),
         "filter": {
+            # ``ObjectFilter`` matche les types IFC en exact. On liste donc
+            # explicitement les classes "parent" abstraites ET les classes
+            # concrètes les plus fréquentes en CVC / Plomberie / Électricité.
+            # (Limitation connue : un IfcXxxStandardCase non listé sera
+            # raté ; à terme, ajouter ``include_ifc_subclasses=True`` à
+            # ``ObjectFilter`` pour résoudre via une table IFC4 supertypes.)
             "ifc_types": [
+                # Classes parent abstraites
                 "IfcDistributionElement",
+                "IfcDistributionFlowElement",
+                "IfcDistributionControlElement",
+                "IfcEnergyConversionDevice",
                 "IfcFlowTerminal",
                 "IfcFlowController",
                 "IfcFlowSegment",
                 "IfcFlowFitting",
-                "IfcEnergyConversionDevice",
+                "IfcFlowStorageDevice",
+                "IfcFlowMovingDevice",
+                "IfcFlowTreatmentDevice",
+                # CVC — Énergie / chaud / froid
+                "IfcBoiler",
+                "IfcChiller",
+                "IfcCoil",
+                "IfcCoolingTower",
+                "IfcHeatExchanger",
+                "IfcSpaceHeater",
+                "IfcUnitaryEquipment",
+                "IfcEvaporator",
+                "IfcCondenser",
+                # CVC — Air
+                "IfcAirTerminal",
+                "IfcAirTerminalBox",
+                "IfcDuctFitting",
+                "IfcDuctSegment",
+                "IfcDuctSilencer",
+                "IfcDamper",
+                "IfcFan",
+                "IfcFilter",
+                # Plomberie / fluide
+                "IfcPump",
+                "IfcValve",
+                "IfcPipeFitting",
+                "IfcPipeSegment",
+                "IfcSanitaryTerminal",
+                "IfcWasteTerminal",
+                "IfcStackTerminal",
+                "IfcTank",
+                # Électricité / éclairage / signal
+                "IfcElectricAppliance",
+                "IfcElectricDistributionBoard",
+                "IfcElectricFlowStorageDevice",
+                "IfcElectricGenerator",
+                "IfcElectricMotor",
+                "IfcLightFixture",
+                "IfcLamp",
+                "IfcOutlet",
+                "IfcSwitchingDevice",
+                "IfcCableSegment",
+                "IfcCableFitting",
+                "IfcCableCarrierSegment",
+                "IfcCableCarrierFitting",
+                "IfcJunctionBox",
+                "IfcProtectiveDevice",
+                # Sécurité / détection
+                "IfcAlarm",
+                "IfcSensor",
+                "IfcController",
+                "IfcActuator",
+                "IfcFireSuppressionTerminal",
+                # Transport
+                "IfcTransportElement",
             ]
         },
         "fields": [
@@ -399,11 +463,19 @@ def query_bim_data(
     payload["items"] = payload["rows"]
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return maybe_dump_to_disk(
+    compact = maybe_dump_to_disk(
         payload,
         output_path=output_path,
         default_basename=f"query_bim_data_{ts}",
     )
+    # ``maybe_dump_to_disk`` ne tronque que la clé ``items`` ; on doit
+    # forcer ``rows`` à matcher pour ne PAS exposer le payload complet
+    # via la clé spécifique à ``query_bim_data``. Sinon le retour MCP
+    # peut dépasser 1 MB malgré ``items_path`` (bug P1 review).
+    if compact.get("items_truncated"):
+        compact["rows"] = list(compact.get("items") or [])
+        compact["rows_truncated"] = True
+    return compact
 
 
 @mcp.tool()

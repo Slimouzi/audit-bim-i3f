@@ -187,12 +187,116 @@ class TestQueryBimData:
         )
         # Avec output_path, le payload retourné est compact.
         assert res.get("items_truncated") is True
+        # Le fix P1 (review PR #15) garantit que rows est aussi tronqué
+        # quand items_truncated est posé, pour respecter < 1 MB côté MCP.
+        assert res.get("rows_truncated") is True
+        assert len(res["rows"]) == len(res["items"]) <= 5
         path = tmp_path / "bim_data.json"
         assert path.exists()
         payload = json.loads(path.read_text(encoding="utf-8"))
         assert payload["total"] == 1
         assert len(payload["rows"]) == 1
         assert payload["rows"][0]["name"] == "Porte palière"
+
+    def test_large_result_dumps_and_truncates_both_rows_and_items(self, tmp_path, monkeypatch):
+        """Garde-fou P1 review PR #15.
+
+        Quand le payload dépasse le seuil 256 KB (ou que output_path est
+        fourni), le dump disque est déclenché. Avant le fix, ``rows``
+        restait intact dans le retour MCP — donc dépassement possible
+        des 1 MB. Test : forcer un dump, vérifier que ``rows`` ET
+        ``items`` sont tronqués à 5 lignes max, et que le fichier
+        disque contient l'intégralité.
+        """
+        monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
+        sess = _Session()
+        token = current_session.set(sess)
+        try:
+            # Snapshot avec 60 portes → assez pour forcer le dump si
+            # on demande des champs verbeux ; et de toute façon on
+            # passe output_path explicite.
+            elements = []
+            for i in range(60):
+                elements.append(
+                    {
+                        "uuid": f"DR{i:03d}",
+                        "type": "IfcDoor",
+                        "name": f"Porte {i}",
+                        "materials": [
+                            {"name": "Acier"},
+                            {"name": "Verre feuilleté"},
+                            {"name": "Joint EPDM"},
+                        ],
+                        "property_sets": [
+                            {
+                                "name": "Pset_DoorCommon",
+                                "properties": [
+                                    {
+                                        "definition": {"name": "AcousticRating"},
+                                        "value": f"Rw={30 + i % 20}dB",
+                                    },
+                                    {
+                                        "definition": {"name": "FireRating"},
+                                        "value": "EI30",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                )
+            snap = ModelSnapshot(
+                project={"name": "P"},
+                model={"name": "BIG.ifc"},
+                sites=[],
+                buildings=[],
+                storeys=[],
+                spaces=[],
+                zones=[],
+                elements=elements,
+            ).index()
+            sess.snapshot = snap
+
+            res = mcp_server.query_bim_data(
+                filter={"ifc_types": ["IfcDoor"]},
+                fields=[
+                    "name",
+                    "materials",
+                    "acoustic_performance",
+                    "fire_rating",
+                ],
+                limit=200,
+                output_path="big_dump.json",
+            )
+
+            # ── Garanties critiques ────────────────────────────────────
+            assert res.get("items_truncated") is True
+            assert res.get("rows_truncated") is True
+            assert "items_path" in res
+            # rows ET items ≤ 5 lignes dans le retour MCP
+            assert len(res["rows"]) <= 5
+            assert len(res["items"]) <= 5
+            assert len(res["rows"]) == len(res["items"])
+            # total reste exact (annonce 60)
+            assert res["total"] == 60
+
+            # ── Le fichier disque contient TOUT ────────────────────────
+            on_disk = json.loads((tmp_path / "big_dump.json").read_text(encoding="utf-8"))
+            assert on_disk["total"] == 60
+            assert len(on_disk["rows"]) == 60
+            assert on_disk["rows"][0]["name"] == "Porte 0"
+            assert on_disk["rows"][59]["name"] == "Porte 59"
+
+            # ── Sanity : taille du retour MCP raisonnable ──────────────
+            # On ne peut pas atteindre 1 MB pile sans Click + json.dumps,
+            # mais on vérifie que le payload reste « petit » (< 64 KB).
+            import json as _json
+
+            response_size = len(_json.dumps(res, ensure_ascii=False).encode("utf-8"))
+            assert response_size < 64 * 1024, (
+                f"retour MCP trop gros : {response_size} bytes (devrait être < 64 KB)"
+            )
+        finally:
+            current_session.reset(token)
 
     def test_output_path_rejects_traversal(self, _isolated):
         sess, _ = _isolated
