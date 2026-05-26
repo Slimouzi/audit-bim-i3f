@@ -96,14 +96,26 @@ def suggest_classifications(
         min_confidence=min_confidence,
         top_n=top_n,
     )
-    # On garde le contrat list[dict] historique mais on signale la
-    # dépréciation via la première entrée (échappable côté caller).
-    if out:
-        out[0] = dict(out[0])
-        out[0].setdefault("_meta", {})
-        out[0]["_meta"]["deprecated"] = True
-        out[0]["_meta"]["use_instead"] = info.use_instead
-        out[0]["_meta"]["removal_version"] = info.removal_version
+    # Contrat historique : list[dict]. On préserve ce shape tout en
+    # garantissant que le marqueur de dépréciation est **toujours
+    # détectable** côté client (review CTO PR #9) — même quand l'audit
+    # ne produit aucune suggestion (liste vide).
+    meta = {
+        "deprecated": True,
+        "use_instead": info.use_instead,
+        "removal_version": info.removal_version,
+        "migration_hint": info.migration_hint,
+    }
+    if not out:
+        # Cas liste vide : on retourne une entrée *sentinel* unique qui
+        # ne porte QUE le marqueur de dépréciation (pas d'``element_uuid``,
+        # pas de ``suggestions`` — le caller doit traiter ``_meta.empty_result``
+        # comme « rien à proposer »).
+        return [{"_meta": {**meta, "empty_result": True}}]
+    # Cas non vide : on injecte le marqueur sur la 1ère entrée.
+    out[0] = dict(out[0])
+    out[0].setdefault("_meta", {})
+    out[0]["_meta"].update(meta)
     return out[:limit]
 
 

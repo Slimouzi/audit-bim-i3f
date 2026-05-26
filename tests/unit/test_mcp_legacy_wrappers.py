@@ -108,17 +108,55 @@ def _wire_session(sess):
 
 
 class TestDeprecationMarkers:
-    def test_suggest_classifications_marked(self, _isolated):
+    def test_suggest_classifications_marked_when_non_empty(self, _isolated):
         sess, _ = _isolated
         _wire_session(sess)
         out = mcp_server.suggest_classifications()
-        # Le contrat historique est list[dict] ; le marker est sur out[0]._meta.
-        # Si pas de suggestions, on accepte une liste vide.
-        if out:
-            meta = out[0].get("_meta", {})
-            assert meta.get("deprecated") is True
-            assert "list_classification_suggestions" in meta.get("use_instead", "")
-            assert meta.get("removal_version") == "0.3.0"
+        # Cas non-vide : marker sur la 1ère entrée. Le wire de test n'a
+        # pas systématiquement des suggestions ; on tolère donc le cas
+        # empty_result (couvert par le test dédié ci-dessous).
+        assert isinstance(out, list)
+        assert len(out) >= 1
+        meta = out[0].get("_meta", {})
+        assert meta.get("deprecated") is True
+        assert "list_classification_suggestions" in meta.get("use_instead", "")
+        assert meta.get("removal_version") == "0.3.0"
+
+    def test_suggest_classifications_marker_on_empty_list(self, _isolated):
+        """Garantit que le marqueur est posé même quand le suggester
+        ne retourne aucune entrée (review CTO PR #9 → fix follow-up).
+        """
+        sess, _ = _isolated
+        # Pas de findings classification_missing → out = [] avant le fix.
+        from audit_bim.audit.engine import AuditResult
+        from audit_bim.extraction.model_data import ModelSnapshot
+        from audit_bim.requirements.models import BIMPhase
+
+        empty_snap = ModelSnapshot(
+            project={},
+            model={},
+            sites=[],
+            buildings=[],
+            storeys=[],
+            spaces=[],
+            zones=[],
+            elements=[],
+        ).index()
+        sess.result = AuditResult(
+            phase=BIMPhase.PRO,
+            catalog=_empty_catalog(),
+            snapshot=empty_snap,
+            findings=[],
+        )
+        out = mcp_server.suggest_classifications()
+        assert isinstance(out, list)
+        assert len(out) == 1  # sentinel entry
+        meta = out[0]["_meta"]
+        assert meta["deprecated"] is True
+        assert meta["empty_result"] is True
+        assert "list_classification_suggestions" in meta["use_instead"]
+        assert meta["removal_version"] == "0.3.0"
+        assert "migration_hint" in meta
 
     def test_create_bcf_topics_marked(self, _isolated):
         sess, _ = _isolated
