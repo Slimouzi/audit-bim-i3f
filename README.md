@@ -438,6 +438,23 @@ Dans `AUDIT_OUTPUT_DIR` (`./out` par défaut) :
 - `audit_<projet>_<phase>_<date>_findings.json` — sortie machine
 - `audit_<projet>_<phase>_<date>_smart_views.json` — payloads des Smart Views
 
+### Charte graphique Korhus.ai
+
+Les rapports Word + Excel suivent la **charte Korhus.ai 2025 v1.0**
+(couverture sombre `#0C101B`, accent cyan `#59F4FF`, police Roboto avec
+fallback Arial, logo Korhus en couverture du `.docx`).
+
+Configuration du brand kit (logos + tokens) — premier match :
+
+1. **Recommandé** : `export KORHUS_BRAND_KIT_DIR=/chemin/vers/korhus_brand_kit`
+2. **Confort local** : dossier `korhus_brand_kit/` *voisin* de la racine
+   du repo (sibling).
+
+Si aucun brand kit n'est trouvé (CI sans assets, autre poste), le
+rapport reste générable : la couverture dégrade en wordmark texte
+« KORHUS.AI ». La charte de couleurs et la typographie restent
+appliquées dans tous les cas (pas de dépendance au brand kit).
+
 ## Couverture des règles d'audit
 
 | Thème | Règles |

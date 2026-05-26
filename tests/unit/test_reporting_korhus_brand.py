@@ -100,19 +100,18 @@ class TestFindBrandKitDir:
         monkeypatch.setenv("KORHUS_BRAND_KIT_DIR", str(tmp_path))
         assert korhus_brand.find_brand_kit_dir() == tmp_path
 
-    def test_env_invalid_falls_back(self, tmp_path, monkeypatch):
+    def test_env_invalid_falls_back_to_sibling_or_none(self, tmp_path, monkeypatch):
         # Variable pointant vers un chemin inexistant : on tombe sur le
-        # défaut (ou None si le poste n'a pas le brand kit).
+        # scan sibling (ou None si aucun voisin nommé korhus_brand_kit).
         monkeypatch.setenv("KORHUS_BRAND_KIT_DIR", str(tmp_path / "ghost"))
         result = korhus_brand.find_brand_kit_dir()
-        # Soit le défaut local existe (poste dev), soit None (CI).
-        assert result is None or result == korhus_brand.DEFAULT_BRAND_KIT_DIR
+        # Soit un voisin existe (poste dev avec korhus_brand_kit cloné
+        # à côté), soit None (CI). Dans les deux cas, le module n'a
+        # plus de chemin hardcodé qui pourrait fausser le résultat.
+        assert result is None or (result.is_dir() and result.name == "korhus_brand_kit")
 
     def test_returns_none_when_nothing_found(self, monkeypatch):
         monkeypatch.setenv("KORHUS_BRAND_KIT_DIR", "/nonexistent/path/x")
-        # Patch le défaut et la recherche de sibling pour simuler une
-        # absence totale (poste CI sans brand kit).
-        monkeypatch.setattr(korhus_brand, "DEFAULT_BRAND_KIT_DIR", Path("/nonexistent/default"))
         # Le scan sibling pourrait remonter à un dossier existant — on
         # patch ``Path.is_dir`` pour qu'il ne dise jamais True.
         monkeypatch.setattr(Path, "is_dir", lambda self: False)

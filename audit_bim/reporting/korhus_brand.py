@@ -7,24 +7,23 @@ la charte ne nécessite pas un nouveau release de ``audit-bim-i3f``.
 
 Résolution du chemin (premier match) :
 
-1. Variable d'environnement ``KORHUS_BRAND_KIT_DIR`` si définie.
-2. Chemin par défaut ``/Users/stani/code/MCP/korhus_brand_kit`` (cas
-   poste local).
-3. Sous-dossier ``korhus_brand_kit/`` voisin du repo audit-bim-i3f.
+1. Variable d'environnement ``KORHUS_BRAND_KIT_DIR`` si définie et
+   pointant vers un dossier existant. **Mode recommandé** — explicite,
+   portable, testable.
+2. Sous-dossier ``korhus_brand_kit/`` voisin du repo audit-bim-i3f
+   (sibling de la racine du package). Fallback de confort pour un
+   workflow local où le brand kit est cloné à côté.
 
 Le module reste **silencieux** quand le brand kit n'est pas
 disponible : la génération de rapport ne doit pas planter sur un poste
-de CI sans assets, elle dégrade gracieusement (titre texte à la place
-du logo).
+de CI sans assets, elle dégrade gracieusement (wordmark texte à la
+place du logo).
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-
-# Chemin par défaut sur le poste de développement (cf. brief).
-DEFAULT_BRAND_KIT_DIR = Path("/Users/stani/code/MCP/korhus_brand_kit")
 
 # Variantes de logo, mappées vers leur nom de fichier dans assets/.
 # Sémantique : ``primary`` pour fonds clairs, ``light`` (inversé blanc)
@@ -43,7 +42,7 @@ _LOGO_FILES: dict[str, str] = {
 def find_brand_kit_dir() -> Path | None:
     """Renvoie le dossier racine du brand kit Korhus ou ``None``.
 
-    L'ordre de résolution suit la doctstring du module. Aucun side
+    L'ordre de résolution suit la docstring du module. Aucun side
     effect ; ne lève pas. Un caller qui *exige* le brand kit doit
     vérifier le retour et lever lui-même.
     """
@@ -53,11 +52,9 @@ def find_brand_kit_dir() -> Path | None:
         if p.is_dir():
             return p
 
-    if DEFAULT_BRAND_KIT_DIR.is_dir():
-        return DEFAULT_BRAND_KIT_DIR
-
-    # Sibling du repo audit-bim-i3f (utile en environnement CI / autres
-    # postes où le brand kit est cloné à côté).
+    # Sibling du repo audit-bim-i3f (utile pour les setups locaux où le
+    # brand kit est cloné à côté). On remonte depuis l'emplacement de
+    # ce fichier jusqu'à trouver un voisin nommé ``korhus_brand_kit``.
     here = Path(__file__).resolve()
     for parent in here.parents:
         candidate = parent.parent / "korhus_brand_kit"
