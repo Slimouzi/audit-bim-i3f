@@ -52,6 +52,31 @@ from .theming import I3F_BLUE, I3F_GREY, SEVERITY_COLORS, THEME_COLORS
 # manque, pour éviter toute hallucination et garder un ton AMO BIM.
 NOT_AVAILABLE = "Information non disponible dans les documents fournis."
 
+# Suffixe affiché en fin de valeur pour les données extraites des
+# sources documentaires sans validation utilisateur. Indique au
+# lecteur que la valeur est issue d'une déduction automatique et
+# doit être confirmée par la MOA / MOE.
+SOURCE_SUFFIX_EXTRACTED = "(déduit de la maquette — à confirmer)"
+SOURCE_SUFFIX_DEDUCED = "(déduit par heuristique — à confirmer)"
+
+
+def _render_with_source(value: str, source: str) -> str:
+    """Ajoute un suffixe de traçabilité selon la source du champ.
+
+    - ``"user"`` → valeur brute (fiable, fournie par l'utilisateur).
+    - ``"extracted"`` → valeur + ``(déduit de la maquette — à confirmer)``.
+    - ``"deduced"`` → valeur + ``(déduit par heuristique — à confirmer)``.
+    - autre / ``"missing"`` → valeur brute (le caller a déjà géré le None).
+    """
+    if not value:
+        return value
+    if source == "extracted":
+        return f"{value} {SOURCE_SUFFIX_EXTRACTED}"
+    if source == "deduced":
+        return f"{value} {SOURCE_SUFFIX_DEDUCED}"
+    return value
+
+
 MAX_FINDINGS_PER_THEME = 25  # cap par thème pour garder un rendu équilibré
 PIE_OTHER_THRESHOLD = 0.02  # tranches < 2 % regroupées en « Autres »
 
@@ -291,6 +316,19 @@ def write_word_report(
     project_name = context.project_name or (result.snapshot.project or {}).get("name", "?")
     model_name = context.model_name or (result.snapshot.model or {}).get("name", "?")
 
+    # L'auditeur affiché sur la page de garde et dans les KPIs vient en
+    # priorité du contexte (fourni explicitement par l'utilisateur),
+    # sinon du paramètre kwargs ``auditor`` (compat). Si l'utilisateur
+    # a fourni auditor mais que ``context.auditor_name`` est vide, on
+    # propage côté contexte pour que la section "Contexte de la
+    # mission" l'affiche aussi.
+    display_auditor = context.auditor_name or auditor
+    if not context.auditor_name and auditor and auditor != "AMO BIM (audit automatisé)":
+        # On garde le contexte cohérent avec ce qui est affiché.
+        new_sources = dict(context.field_sources)
+        new_sources["auditor_name"] = "user"
+        context = context.model_copy(update={"auditor_name": auditor, "field_sources": new_sources})
+
     # 1. Page de garde — un paragraphe par ligne pour un rendu propre (pas
     # de '\n' dans les runs qui produisent des marqueurs visuels).
     def _cover_line(text: str, *, size: int, bold: bool = False, color: str = I3F_GREY):
@@ -316,7 +354,7 @@ def write_word_report(
     _cover_line(f"Modèle audité : {model_name}", size=12)
     _cover_line(f"Phase BIM : {result.phase.value}", size=12)
     _cover_line(f"Date : {date.today().isoformat()}", size=11)
-    _cover_line(f"Auditeur : {auditor}", size=11)
+    _cover_line(f"Auditeur : {display_auditor}", size=11)
 
     _section_break(doc)
 
@@ -547,13 +585,30 @@ def _para_or_na(doc: Document, value: str | None) -> None:
         doc.add_paragraph(NOT_AVAILABLE)
 
 
-def _kv_or_na(doc: Document, label: str, value: str | None) -> None:
+def _kv_or_na(
+    doc: Document,
+    label: str,
+    value: str | None,
+    *,
+    source: str = "user",
+) -> None:
     """Bullet « Label : valeur » avec fallback NOT_AVAILABLE.
+
+    Args:
+        doc: Document Word en cours.
+        label: Libellé du champ (ex: ``"Adresse"``).
+        value: Valeur à afficher (``None`` ou vide → ``NOT_AVAILABLE``).
+        source: Source de la valeur (``"user"`` / ``"extracted"`` /
+            ``"deduced"`` / ``"missing"``). Détermine si un suffixe
+            de traçabilité ``(déduit — à confirmer)`` est ajouté.
 
     Garde la valeur sur la même ligne pour produire un rendu compact
     (utile pour les sections Contexte / Description du projet).
     """
-    rendered = value.strip() if value and value.strip() else NOT_AVAILABLE
+    if value and value.strip():
+        rendered = _render_with_source(value.strip(), source)
+    else:
+        rendered = NOT_AVAILABLE
     doc.add_paragraph(f"• {label} : {rendered}", style="List Bullet")
 
 
@@ -569,10 +624,26 @@ def _write_section_mission_context(
         "documents de référence utilisés et les limites éventuelles "
         "d'interprétation.",
     )
-    _kv_or_na(doc, "Programme", context.project_name)
-    _kv_or_na(doc, "Maquette auditée", context.model_name)
-    _kv_or_na(doc, "Phase BIM", context.project_phase)
-    _kv_or_na(doc, "Référentiel appliqué", context.bim_reference)
+    _kv_or_na(doc, "Programme", context.project_name, source=context.source_of("project_name"))
+    _kv_or_na(doc, "Maquette auditée", context.model_name, source=context.source_of("model_name"))
+    _kv_or_na(
+        doc,
+        "Phase BIM",
+        context.project_phase,
+        source=context.source_of("project_phase"),
+    )
+    _kv_or_na(
+        doc,
+        "Référentiel appliqué",
+        context.bim_reference,
+        source=context.source_of("bim_reference"),
+    )
+    _kv_or_na(
+        doc,
+        "Auditeur",
+        context.auditor_name,
+        source=context.source_of("auditor_name"),
+    )
     _kv_or_na(
         doc,
         "Périmètre",
@@ -583,6 +654,7 @@ def _write_section_mission_context(
         )
         if context.n_elements
         else None,
+        source="extracted",
     )
 
 
@@ -602,10 +674,20 @@ def _write_section_project_description(
     _para_or_na(doc, context.project_description)
 
     _add_heading(doc, "Identification", level=2)
-    _kv_or_na(doc, "Site", context.site_name)
-    _kv_or_na(doc, "Bâtiment", context.building_name)
-    _kv_or_na(doc, "Adresse", context.address)
-    _kv_or_na(doc, "Maîtrise d'ouvrage", context.client_name or context.owner_name)
+    _kv_or_na(doc, "Site", context.site_name, source=context.source_of("site_name"))
+    _kv_or_na(
+        doc,
+        "Bâtiment",
+        context.building_name,
+        source=context.source_of("building_name"),
+    )
+    _kv_or_na(doc, "Adresse", context.address, source=context.source_of("address"))
+    # MOA : on prend client_name en priorité ; sa source aussi.
+    moa_value = context.client_name or context.owner_name
+    moa_source = (
+        context.source_of("client_name") if context.client_name else context.source_of("owner_name")
+    )
+    _kv_or_na(doc, "Maîtrise d'ouvrage", moa_value, source=moa_source)
 
 
 def _write_section_references(
