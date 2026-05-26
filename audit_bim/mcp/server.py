@@ -20,6 +20,21 @@ from pathlib import Path
 from fastmcp import FastMCP
 
 from .. import config
+from ..actions import (
+    PlanIntegrityError,
+    PlanTargetMismatchError,
+    apply_bcf,
+    apply_classification_update,
+    apply_smart_views,
+    load_plan,
+    prepare_bcf,
+    prepare_classification_update,
+    prepare_smart_views,
+    save_plan,
+)
+from ..actions import (
+    list_plans as _list_plans,
+)
 from ..audit.comparator import compare_audits_from_files
 from ..audit.engine import AuditResult, run_audit
 from ..bcf.builder import push_bcf_topics
@@ -45,6 +60,7 @@ from ..domain.filters import (
     FindingFilter,
     ObjectFilter,
     SuggestionFilter,
+    SuggestionStatus,
 )
 from ..enrichment import enrich_with_public_data as _enrich_with_public_data
 from ..extraction.client import BIMDataClient
@@ -61,6 +77,7 @@ from ..reporting.xlsx_annex import write_xlsx_annex
 from ..requirements.catalog import build_catalog
 from ..requirements.models import BIMPhase, RequirementsCatalog
 from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
+from ..security.write_journal import get_journal
 from ..smartview.builder import push_smart_views
 from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
 from .prompts import AMO_BIM_I3F_PROMPT
@@ -603,12 +620,22 @@ def suggest_classifications(
         limit: cap du nombre d'éléments retournés (pour préserver le canal MCP).
     """
     _State.ensure_result()
+    _server_logger.info(
+        "deprecated tool called: suggest_classifications — prefer list_classification_suggestions"
+    )
     out = suggest_for_findings(
         _State.result.findings,
         _State.result.snapshot,
         min_confidence=min_confidence,
         top_n=top_n,
     )
+    # On garde le contrat list[dict] historique mais on signale la
+    # dépréciation via la première entrée (échappable côté caller).
+    if out:
+        out[0] = dict(out[0])
+        out[0].setdefault("_meta", {})
+        out[0]["_meta"]["deprecated"] = True
+        out[0]["_meta"]["use_instead"] = "list_classification_suggestions"
     return out[:limit]
 
 
@@ -642,6 +669,10 @@ def apply_suggested_classifications(
     _State.ensure_client()
     if not dry_run:
         ensure_writes_allowed("apply_suggested_classifications")
+    _server_logger.info(
+        "deprecated tool called: apply_suggested_classifications — prefer "
+        "prepare_classification_update_plan + apply_classification_update_plan"
+    )
     suggestions = suggest_for_findings(
         _State.result.findings,
         _State.result.snapshot,
@@ -649,7 +680,14 @@ def apply_suggested_classifications(
         top_n=1,
     )
     items = items_from_suggestions(suggestions, min_confidence=min_confidence)
-    return apply_classifications(_State.client, items, dry_run=dry_run)
+    payload = apply_classifications(_State.client, items, dry_run=dry_run)
+    return _add_deprecation_marker(
+        payload,
+        use_instead=(
+            "prepare_classification_update_plan(...) "
+            "puis apply_classification_update_plan(plan_path=..., confirm=True)"
+        ),
+    )
 
 
 @mcp.tool()
@@ -815,8 +853,14 @@ def create_bcf_topics(
     _State.ensure_client()
     if not dry_run:
         ensure_writes_allowed("create_bcf_topics")
+    _server_logger.info(
+        "deprecated tool called: create_bcf_topics — prefer prepare_bcf_topics + apply_bcf_topics"
+    )
     out = push_bcf_topics(_State.result, _State.client, prefix=prefix, dry_run=dry_run)
-    return {"n_topics": len(out), "dry_run": dry_run, "topics": out}
+    return _add_deprecation_marker(
+        {"n_topics": len(out), "dry_run": dry_run, "topics": out},
+        use_instead="prepare_bcf_topics(...) puis apply_bcf_topics(plan_path=..., confirm=True)",
+    )
 
 
 @mcp.tool()
@@ -839,12 +883,17 @@ def create_smart_views(
     _State.ensure_client()
     if not dry_run:
         ensure_writes_allowed("create_smart_views")
+    _server_logger.info(
+        "deprecated tool called: create_smart_views — prefer "
+        "prepare_smart_views_plan + apply_smart_views_plan"
+    )
     out = push_smart_views(_State.result, _State.client, prefix=prefix, dry_run=dry_run)
-    return {
-        "n_views": len(out),
-        "dry_run": dry_run,
-        "views": out,
-    }
+    return _add_deprecation_marker(
+        {"n_views": len(out), "dry_run": dry_run, "views": out},
+        use_instead=(
+            "prepare_smart_views_plan(...) puis apply_smart_views_plan(plan_path=..., confirm=True)"
+        ),
+    )
 
 
 @mcp.tool()
@@ -1295,6 +1344,309 @@ def list_classification_suggestions(
         output_path=output_path,
         default_basename=f"list_classification_suggestions_{ts}",
     )
+
+
+# ── Pattern prepare → apply ────────────────────────────────────────────────
+
+
+def _current_target() -> dict:
+    """Snapshot de la cible BIMData courante, pour ``WritePlan.target``."""
+    model_name = None
+    if _State.snapshot is not None:
+        model_name = (_State.snapshot.model or {}).get("name")
+    return {
+        "cloud_id": _State.cloud_id,
+        "project_id": _State.project_id,
+        "model_id": _State.model_id,
+        "model_name": model_name,
+    }
+
+
+def _plan_summary_response(plan, path) -> dict:
+    """Réponse compacte pour les tools ``prepare_*``."""
+    return {
+        "plan_id": plan.plan_id,
+        "plan_path": str(path),
+        "kind": plan.kind.value,
+        "target": plan.target,
+        "summary": plan.summary,
+        "risks": plan.risks,
+        "n_items": len(plan.items),
+        "requires_confirm": True,
+        "created_at": plan.created_at,
+    }
+
+
+def _refused_without_confirm(action: str) -> dict:
+    return {
+        "refused": True,
+        "action": action,
+        "reason": (
+            "confirm=False — exécution refusée. Repassez le tool avec "
+            "confirm=True pour exécuter le plan."
+        ),
+    }
+
+
+@mcp.tool()
+def prepare_bcf_topics(
+    finding_filter: dict | None = None,
+    prefix: str = "I3F Audit — ",
+    include_overview: bool = True,
+) -> dict:
+    """Construit et scelle un :class:`WritePlan` BCF Topics — **sans écrire**.
+
+    Args:
+        finding_filter: Dict :class:`FindingFilter` pour cibler une sous-
+            partie des findings (ex: ``{"severity_min": "HIGH"}``).
+        prefix: Préfixe des titres BCF.
+        include_overview: Inclure le topic « Vue d'ensemble » en tête.
+
+    Returns:
+        Dict compact ``{plan_id, plan_path, kind, target, summary, risks,
+        n_items, requires_confirm}``. Réutiliser ``plan_path`` dans
+        ``apply_bcf_topics(plan_path=..., confirm=True)``.
+    """
+    _State.ensure_result()
+    _State.ensure_client()
+    ff = FindingFilter.model_validate(finding_filter) if finding_filter else None
+    plan = prepare_bcf(
+        _State.result,
+        finding_filter=ff,
+        target=_current_target(),
+        prefix=prefix,
+        include_overview=include_overview,
+    )
+    path = save_plan(plan)
+    return _plan_summary_response(plan, path)
+
+
+@mcp.tool()
+def apply_bcf_topics(plan_path: str, confirm: bool = False) -> dict:
+    """Exécute un plan BCF préalablement préparé.
+
+    Args:
+        plan_path: Chemin du plan retourné par ``prepare_bcf_topics``.
+        confirm: **Obligatoire** ``True`` pour exécuter. ``False``
+            renvoie un refus explicite sans toucher à BIMData.
+
+    Returns:
+        :class:`ActionResult` sérialisé (succeeded / failed / errors /
+        impacted_uuids).
+    """
+    if not confirm:
+        return _refused_without_confirm("apply_bcf_topics")
+    _State.ensure_client()
+    ensure_writes_allowed("apply_bcf_topics")
+    try:
+        plan = load_plan(plan_path)
+    except (FileNotFoundError, PlanIntegrityError) as exc:
+        return {"refused": True, "action": "apply_bcf_topics", "reason": str(exc)}
+    try:
+        result = apply_bcf(plan, _State.client, actual_target=_current_target())
+    except PlanTargetMismatchError as exc:
+        return {"refused": True, "action": "apply_bcf_topics", "reason": str(exc)}
+    return result.model_dump(mode="json")
+
+
+@mcp.tool()
+def prepare_smart_views_plan(
+    finding_filter: dict | None = None,
+    prefix: str = "I3F Audit — ",
+    include_overview: bool = True,
+) -> dict:
+    """Construit et scelle un :class:`WritePlan` Smart Views — **sans écrire**.
+
+    Idem ``prepare_bcf_topics`` mais format ``bimdata-smartview`` (panneau
+    Smart Views du viewer, pas BCF Issues).
+    """
+    _State.ensure_result()
+    _State.ensure_client()
+    ff = FindingFilter.model_validate(finding_filter) if finding_filter else None
+    plan = prepare_smart_views(
+        _State.result,
+        finding_filter=ff,
+        target=_current_target(),
+        prefix=prefix,
+        include_overview=include_overview,
+    )
+    path = save_plan(plan)
+    return _plan_summary_response(plan, path)
+
+
+@mcp.tool()
+def apply_smart_views_plan(plan_path: str, confirm: bool = False) -> dict:
+    """Exécute un plan Smart Views préalablement préparé."""
+    if not confirm:
+        return _refused_without_confirm("apply_smart_views_plan")
+    _State.ensure_client()
+    ensure_writes_allowed("apply_smart_views_plan")
+    try:
+        plan = load_plan(plan_path)
+    except (FileNotFoundError, PlanIntegrityError) as exc:
+        return {"refused": True, "action": "apply_smart_views_plan", "reason": str(exc)}
+    try:
+        result = apply_smart_views(plan, _State.client, actual_target=_current_target())
+    except PlanTargetMismatchError as exc:
+        return {"refused": True, "action": "apply_smart_views_plan", "reason": str(exc)}
+    return result.model_dump(mode="json")
+
+
+@mcp.tool()
+def prepare_classification_update_plan(
+    suggestion_filter: dict | None = None,
+    default_to_accepted_only: bool = True,
+) -> dict:
+    """Construit et scelle un :class:`WritePlan` d'application de classifications.
+
+    Args:
+        suggestion_filter: Dict :class:`SuggestionFilter`. Si absent, on
+            filtre implicitement sur ``status=ACCEPTED`` (cf.
+            ``default_to_accepted_only``).
+        default_to_accepted_only: Quand ``suggestion_filter=None``, prend
+            uniquement les suggestions ``accepted`` (recommandé). Mettre
+            ``False`` pour considérer toutes les suggestions ; risque
+            d'appliquer des codes basse confiance.
+
+    Returns:
+        Dict compact (cf. ``prepare_bcf_topics``). ``risks`` signale
+        notamment le nombre d'éléments dont la classification serait
+        écrasée.
+    """
+    _State.ensure_client()
+    store = _ensure_suggestion_store(populate_if_empty=True)
+    sf = SuggestionFilter.model_validate(suggestion_filter) if suggestion_filter else None
+    scope = SuggestionStatus.ACCEPTED if default_to_accepted_only else None
+    plan = prepare_classification_update(
+        store,
+        suggestion_filter=sf,
+        target=_current_target(),
+        default_status_scope=scope,
+    )
+    path = save_plan(plan)
+    return _plan_summary_response(plan, path)
+
+
+@mcp.tool()
+def apply_classification_update_plan(plan_path: str, confirm: bool = False) -> dict:
+    """Exécute un plan de classifications préalablement préparé.
+
+    Met à jour les statuts ``proposed/accepted`` → ``applied`` dans le
+    store de session pour les éléments effectivement modifiés.
+    """
+    if not confirm:
+        return _refused_without_confirm("apply_classification_update_plan")
+    _State.ensure_client()
+    ensure_writes_allowed("apply_classification_update_plan")
+    try:
+        plan = load_plan(plan_path)
+    except (FileNotFoundError, PlanIntegrityError) as exc:
+        return {
+            "refused": True,
+            "action": "apply_classification_update_plan",
+            "reason": str(exc),
+        }
+    try:
+        result = apply_classification_update(
+            plan,
+            _State.client,
+            store=_State.suggestion_store,
+            actual_target=_current_target(),
+        )
+    except PlanTargetMismatchError as exc:
+        return {
+            "refused": True,
+            "action": "apply_classification_update_plan",
+            "reason": str(exc),
+        }
+    return result.model_dump(mode="json")
+
+
+@mcp.tool()
+def list_write_plans(limit: int = 20) -> dict:
+    """Liste les plans d'écriture sous ``AUDIT_OUTPUT_DIR/plans/``.
+
+    Args:
+        limit: Nombre max de plans (les plus récents).
+
+    Returns:
+        ``{plans: [...], total: int}`` — chaque plan a ``plan_id``,
+        ``kind``, ``created_at``, ``path``, ``summary``, ``n_items``.
+    """
+    plans = _list_plans(limit=limit)
+    return {"plans": plans, "total": len(plans)}
+
+
+@mcp.tool()
+def update_suggestion_status(
+    element_uuid: str,
+    status: str,
+) -> dict:
+    """Bascule le statut d'une suggestion (``proposed`` / ``accepted`` /
+    ``rejected`` / ``applied``).
+
+    À utiliser avant ``prepare_classification_update_plan`` pour ne
+    pousser que ce qui est validé par l'AMO.
+
+    Args:
+        element_uuid: UUID IFC.
+        status: Cible (``"accepted"``, ``"rejected"``, ``"proposed"``,
+            ``"applied"``).
+
+    Returns:
+        Suggestion mise à jour sérialisée, ou erreur si UUID inconnu.
+    """
+    store = _ensure_suggestion_store(populate_if_empty=True)
+    try:
+        new_status = SuggestionStatus(status)
+    except ValueError as exc:
+        raise ValueError(
+            f"status invalide {status!r}. Valeurs admises : {[s.value for s in SuggestionStatus]}."
+        ) from exc
+    updated = store.update_status(element_uuid, new_status)
+    if updated is None:
+        raise ValueError(f"UUID inconnu dans le store : {element_uuid!r}.")
+    return updated.model_dump(mode="json")
+
+
+@mcp.tool()
+def audit_trail(limit: int = 20) -> dict:
+    """Renvoie les ``limit`` dernières entrées du journal d'écritures.
+
+    Permet la revue post-exécution de tous les ``apply_*`` qui ont
+    touché BIMData. Lecture seule.
+    """
+    entries = get_journal().tail(n=limit)
+    return {
+        "entries": [e.model_dump(mode="json") for e in entries],
+        "total_returned": len(entries),
+    }
+
+
+# ── Wrappers de dépréciation douce ────────────────────────────────────────
+
+
+_DEPRECATION_NOTE = (
+    "Tool conservé pour compatibilité. Préférer le pattern "
+    "prepare_*/apply_* (cf. champ `use_instead`)."
+)
+
+
+def _add_deprecation_marker(payload: dict, use_instead: str) -> dict:
+    """Ajoute les marqueurs de dépréciation à un retour MCP existant.
+
+    On ne lève PAS de DeprecationWarning Python — les warnings ne se
+    propagent pas proprement en JSON-RPC. À la place :
+
+    - on logge serveur côté `_server_logger`,
+    - on ajoute `deprecated=True` + `use_instead` au payload.
+    """
+    if not isinstance(payload, dict):
+        payload = {"result": payload}
+    payload["deprecated"] = True
+    payload["use_instead"] = use_instead
+    payload["deprecation_note"] = _DEPRECATION_NOTE
+    return payload
 
 
 # ── Prompt MCP ─────────────────────────────────────────────────────────────

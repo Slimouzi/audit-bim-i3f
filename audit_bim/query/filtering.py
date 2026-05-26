@@ -262,11 +262,26 @@ def apply_suggestion_filter(
     return _paginate(matched, f.offset, f.limit)
 
 
+# ── Prédicats publics (sans pagination, hors limite MAX_LIMIT) ───────────
+
+# Alias publics utilisés par les planners de la couche actions/ pour
+# parcourir l'intégralité d'une collection sans contrainte de pagination
+# (l'API MCP utilise apply_*_filter qui borne à MAX_LIMIT=500 ; un
+# planner peut légitimement traiter plus d'éléments).
+
+object_matches = _object_matches
+finding_matches = _finding_matches
+suggestion_matches = _suggestion_matches
+
+
 # Re-exports pour confort de test
 __all__ = [
     "apply_object_filter",
     "apply_finding_filter",
     "apply_suggestion_filter",
+    "object_matches",
+    "finding_matches",
+    "suggestion_matches",
     "ConfidenceBand",
     "SuggestionStatus",
 ]
