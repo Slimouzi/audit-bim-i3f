@@ -99,8 +99,12 @@ class TestRealisticHttpErrors:
         out = redact_secrets(msg)
         assert "eyJabcd12345678efgh" not in out
         assert "access_token=<scrub:" in out
-        # Le reste de l'URL reste lisible pour debug
-        assert "api.example.com" in out
+        # Le code HTTP et le path de l'URL doivent rester lisibles pour
+        # le debug (on vérifie le path /cloud? plutôt que le host, pour
+        # éviter un faux positif CodeQL py/incomplete-url-substring-sanitization
+        # — ce test n'a pas pour but de valider l'origine d'une URL).
+        assert "/cloud?" in out
+        assert "HTTPError: 401" in out
 
     def test_curl_like_header(self):
         msg = "curl: (60) -H 'Authorization: Bearer eyJabcd12345678'"
