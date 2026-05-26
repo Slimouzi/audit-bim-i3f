@@ -46,7 +46,21 @@ from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity, Theme
 from ..classifier import suggest_for_findings
 from .context import ReportProjectContext, build_report_context
-from .theming import I3F_BLUE, I3F_GREY, SEVERITY_COLORS, THEME_COLORS
+from .korhus_brand import find_logo
+from .theming import (
+    I3F_BLUE,
+    I3F_BLUE_LIGHT,
+    I3F_GREY,
+    KORHUS_FONT_FALLBACK,
+    KORHUS_FONT_PRIMARY,
+    KORHUS_GRANITE_LIGHT,
+    KORHUS_PRIMARY,
+    KORHUS_SECONDARY,
+    KORHUS_TERTIARY,
+    KORHUS_WHITE,
+    SEVERITY_COLORS,
+    THEME_COLORS,
+)
 
 # Phrase de fallback : utilisée chaque fois qu'une donnée contextuelle
 # manque, pour éviter toute hallucination et garder un ton AMO BIM.
@@ -95,9 +109,40 @@ def _shade_cell(cell, hex_color: str):
 
 
 def _add_heading(doc: Document, text: str, level: int = 1):
+    """H1/H2/... colorés en Korhus Primary, font Roboto/Arial.
+
+    Pour les H1, on ajoute un filet d'accent cyan (Korhus Secondary)
+    sous le titre — la marque demande explicitement le cyan en accent,
+    pas en couleur dominante.
+    """
     h = doc.add_heading(text, level=level)
     for run in h.runs:
-        run.font.color.rgb = _hex_to_rgb(I3F_BLUE)
+        run.font.color.rgb = _hex_to_rgb(KORHUS_PRIMARY)
+        run.font.name = KORHUS_FONT_PRIMARY
+        # rFonts est nécessaire pour que Word applique vraiment la
+        # police (le nom dans run.font.name ne suffit pas seul).
+        rpr = run._element.get_or_add_rPr()
+        rfonts = rpr.find(qn("w:rFonts"))
+        if rfonts is None:
+            rfonts = OxmlElement("w:rFonts")
+            rpr.append(rfonts)
+        rfonts.set(qn("w:ascii"), KORHUS_FONT_PRIMARY)
+        rfonts.set(qn("w:hAnsi"), KORHUS_FONT_PRIMARY)
+        rfonts.set(qn("w:cs"), KORHUS_FONT_FALLBACK)
+    if level == 1:
+        # Filet d'accent cyan : paragraphe minuscule entièrement shadé.
+        accent = doc.add_paragraph()
+        accent.paragraph_format.space_before = Pt(0)
+        accent.paragraph_format.space_after = Pt(6)
+        pPr = accent._p.get_or_add_pPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), KORHUS_SECONDARY)
+        pPr.append(shd)
+        # On force une hauteur de ligne ultra-courte pour obtenir un filet.
+        run = accent.add_run(" ")
+        run.font.size = Pt(2)
     return h
 
 
@@ -213,7 +258,8 @@ def _kpi_table(doc: Document, kpis: list[tuple[str, str]]):
         c1.text = str(v)
         c0.width = Cm(8)
         c1.width = Cm(6)
-        _shade_cell(c0, "D9E2F3")
+        # Colonne libellé sur fond Blue Neutral Light (charte Korhus).
+        _shade_cell(c0, I3F_BLUE_LIGHT)
         for run in c0.paragraphs[0].runs:
             run.bold = True
 
@@ -273,6 +319,133 @@ def _findings_table(
                 row[6].text = ""
 
 
+def _write_cover_page(
+    doc: Document,
+    *,
+    project_name: str,
+    model_name: str,
+    phase_value: str,
+    cch_version: str | None,
+    auditor: str,
+) -> None:
+    """Rend la page de couverture brandée Korhus.
+
+    Structure :
+
+    - **Hero sombre** (Korhus Primary ``#0C101B``) : logo Korhus
+      (variante claire/inversée) centré, supertitle « AUDIT BIM » en
+      cyan accent, titre du programme en blanc.
+    - **Filet cyan** plein-largeur (Korhus Secondary).
+    - **Bloc métadonnées** (Blue Neutral Light) : modèle, phase,
+      référentiel, date, auditeur — alignés gauche, hiérarchie nette.
+    """
+    # ── Hero sombre ───────────────────────────────────────────────────
+    hero = doc.add_table(rows=1, cols=1)
+    hero.autofit = False
+    hero_cell = hero.rows[0].cells[0]
+    hero_cell.width = Cm(17)
+    _shade_cell(hero_cell, KORHUS_PRIMARY)
+    # Vider le paragraphe par défaut puis ajouter notre contenu.
+    hero_cell.text = ""
+
+    # Logo Korhus (variante claire/inversée pour fond sombre).
+    logo_path = find_logo("light")
+    logo_para = hero_cell.paragraphs[0]
+    logo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    logo_para.paragraph_format.space_before = Pt(36)
+    if logo_path is not None:
+        # Si le logo est introuvable on dégrade en wordmark texte.
+        run = logo_para.add_run()
+        try:
+            run.add_picture(str(logo_path), width=Cm(6.5))
+        except Exception:
+            # Fichier corrompu ou format inattendu : fallback texte.
+            run.text = "KORHUS.AI"
+            run.font.color.rgb = _hex_to_rgb(KORHUS_WHITE)
+            run.font.size = Pt(22)
+            run.bold = True
+    else:
+        run = logo_para.add_run("KORHUS.AI")
+        run.font.color.rgb = _hex_to_rgb(KORHUS_WHITE)
+        run.font.size = Pt(22)
+        run.bold = True
+
+    # Espacement.
+    spacer = hero_cell.add_paragraph()
+    spacer.paragraph_format.space_after = Pt(10)
+
+    # Supertitle cyan.
+    supertitle = hero_cell.add_paragraph()
+    supertitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = supertitle.add_run("AUDIT BIM")
+    run.bold = True
+    run.font.size = Pt(11)
+    run.font.color.rgb = _hex_to_rgb(KORHUS_SECONDARY)
+
+    # Titre principal blanc.
+    title = hero_cell.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = title.add_run(project_name)
+    run.bold = True
+    run.font.size = Pt(28)
+    run.font.color.rgb = _hex_to_rgb(KORHUS_WHITE)
+
+    # Sous-titre référentiel (blanc cassé via tertiaire).
+    subtitle = hero_cell.add_paragraph()
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    subtitle.paragraph_format.space_after = Pt(48)
+    run = subtitle.add_run(f"Conformité au Cahier des Charges BIM I3F — V{cch_version or '—'}")
+    run.font.size = Pt(12)
+    run.font.color.rgb = _hex_to_rgb(KORHUS_TERTIARY)
+
+    # ── Filet cyan ────────────────────────────────────────────────────
+    accent = doc.add_table(rows=1, cols=1)
+    accent_cell = accent.rows[0].cells[0]
+    accent_cell.width = Cm(17)
+    _shade_cell(accent_cell, KORHUS_SECONDARY)
+    accent_para = accent_cell.paragraphs[0]
+    accent_para.paragraph_format.space_before = Pt(0)
+    accent_para.paragraph_format.space_after = Pt(0)
+    accent_run = accent_para.add_run(" ")
+    accent_run.font.size = Pt(2)
+
+    # ── Bloc métadonnées sur fond clair ───────────────────────────────
+    meta = doc.add_table(rows=1, cols=1)
+    meta_cell = meta.rows[0].cells[0]
+    meta_cell.width = Cm(17)
+    _shade_cell(meta_cell, I3F_BLUE_LIGHT)
+    meta_cell.text = ""
+
+    def _meta_line(label: str, value: str) -> None:
+        para = meta_cell.add_paragraph()
+        para.paragraph_format.space_before = Pt(2)
+        para.paragraph_format.space_after = Pt(2)
+        lbl = para.add_run(f"{label} : ")
+        lbl.bold = True
+        lbl.font.size = Pt(11)
+        lbl.font.color.rgb = _hex_to_rgb(KORHUS_PRIMARY)
+        val = para.add_run(value or "—")
+        val.font.size = Pt(11)
+        val.font.color.rgb = _hex_to_rgb(I3F_GREY)
+
+    # Premier paragraphe : padding haut.
+    first = meta_cell.paragraphs[0]
+    first.paragraph_format.space_before = Pt(14)
+    first_run = first.add_run("Synthèse de mission")
+    first_run.bold = True
+    first_run.font.size = Pt(10)
+    first_run.font.color.rgb = _hex_to_rgb(KORHUS_GRANITE_LIGHT)
+
+    _meta_line("Programme", project_name)
+    _meta_line("Modèle audité", model_name)
+    _meta_line("Phase BIM", phase_value)
+    _meta_line("Date", date.today().isoformat())
+    _meta_line("Auditeur", auditor)
+
+    closing = meta_cell.add_paragraph()
+    closing.paragraph_format.space_after = Pt(14)
+
+
 def write_word_report(
     result: AuditResult,
     output_path: str | Path,
@@ -305,9 +478,19 @@ def write_word_report(
     section.right_margin = Cm(2.0)
 
     style = doc.styles["Normal"]
-    style.font.name = "Calibri"
+    style.font.name = KORHUS_FONT_PRIMARY  # Roboto (cf. charte Korhus)
     style.font.size = Pt(10)
     style.font.color.rgb = _hex_to_rgb(I3F_GREY)
+    # rFonts pour propager la police à tous les scripts (ASCII, hAnsi, CS).
+    # Sans ces attributs, Word retombe sur la police par défaut du doc.
+    style_rpr = style.element.get_or_add_rPr()
+    rfonts = style_rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = OxmlElement("w:rFonts")
+        style_rpr.append(rfonts)
+    rfonts.set(qn("w:ascii"), KORHUS_FONT_PRIMARY)
+    rfonts.set(qn("w:hAnsi"), KORHUS_FONT_PRIMARY)
+    rfonts.set(qn("w:cs"), KORHUS_FONT_FALLBACK)
 
     # Contexte projet enrichi : auto-build si non fourni par le caller.
     if context is None:
@@ -329,32 +512,21 @@ def write_word_report(
         new_sources["auditor_name"] = "user"
         context = context.model_copy(update={"auditor_name": auditor, "field_sources": new_sources})
 
-    # 1. Page de garde — un paragraphe par ligne pour un rendu propre (pas
-    # de '\n' dans les runs qui produisent des marqueurs visuels).
-    def _cover_line(text: str, *, size: int, bold: bool = False, color: str = I3F_GREY):
-        para = doc.add_paragraph()
-        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = para.add_run(text)
-        run.bold = bold
-        run.font.size = Pt(size)
-        run.font.color.rgb = _hex_to_rgb(color)
-        return para
-
-    for _ in range(4):
-        doc.add_paragraph()  # espacement vertical en haut
-    _cover_line("AUDIT BIM", size=32, bold=True, color=I3F_BLUE)
-    _cover_line("Cahier des Charges BIM I3F (CCH)", size=14, color=I3F_BLUE)
-    _cover_line(
-        f"Version référentiel : {result.catalog.cch_version or '—'}",
-        size=11,
+    # 1. Page de garde — bandeau sombre Korhus Primary + logo, suivi
+    # d'un bloc de métadonnées sur fond clair (Blue Neutral Light).
+    #
+    # Implémentation : on utilise des tables 1-cellule pour le shading
+    # (python-docx ne sait pas peindre un fond de page complet ; cette
+    # technique est portable et donne le rendu attendu sur Word /
+    # Pages / LibreOffice).
+    _write_cover_page(
+        doc,
+        project_name=project_name,
+        model_name=model_name,
+        phase_value=result.phase.value,
+        cch_version=result.catalog.cch_version,
+        auditor=display_auditor,
     )
-    doc.add_paragraph()
-    doc.add_paragraph()
-    _cover_line(f"Programme : {project_name}", size=16, bold=True)
-    _cover_line(f"Modèle audité : {model_name}", size=12)
-    _cover_line(f"Phase BIM : {result.phase.value}", size=12)
-    _cover_line(f"Date : {date.today().isoformat()}", size=11)
-    _cover_line(f"Auditeur : {display_auditor}", size=11)
 
     _section_break(doc)
 
