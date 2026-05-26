@@ -10,6 +10,12 @@ Tools enregistrés ici :
   findings + suggestion).
 - ``list_classification_suggestions`` — filtre les entrées du store de
   suggestions via :class:`audit_bim.domain.SuggestionFilter`.
+- ``query_bim_data`` — requête tabulaire sémantique sur le snapshot,
+  avec projection de N champs métier (matériaux, performance acoustique,
+  dimensions, fabricant…).
+- ``query_bim_preset`` — variantes pré-configurées pour les cas d'usage
+  fréquents (portes acoustique, murs feu/acoustique, équipements
+  maintenance).
 
 Aucune écriture, aucun appel API. Le pattern overflow-to-disk
 (:func:`payloads.maybe_dump_to_disk`) est appliqué systématiquement.
@@ -26,10 +32,92 @@ from ..query.filtering import (
     apply_object_filter,
     apply_suggestion_filter,
 )
+from ..query.table_query import BimQuery, query_bim_table
 from ..query.views import bim_object_from_element, iter_bim_objects
 from .payloads import ensure_suggestion_store, maybe_dump_to_disk
 from .server import mcp
 from .session import _State
+
+# ── Presets métier pour query_bim_preset ────────────────────────────────
+#
+# Volontairement placés en module-level pour être listables / testables
+# indépendamment du tool.
+
+QUERY_PRESETS: dict[str, dict] = {
+    "doors_acoustic_dimensions": {
+        "description": (
+            "Portes — matériaux, performance acoustique, dimensions, "
+            "résistance au feu, localisation."
+        ),
+        "filter": {"ifc_types": ["IfcDoor", "IfcDoorStandardCase"]},
+        "fields": [
+            "uuid",
+            "name",
+            "object_type",
+            "materials",
+            "acoustic_performance",
+            "height",
+            "width",
+            "thickness",
+            "fire_rating",
+            "storey",
+            "space",
+        ],
+    },
+    "walls_fire_acoustic": {
+        "description": (
+            "Murs — matériaux, résistance au feu, performance acoustique, "
+            "épaisseur, IsExternal, LoadBearing."
+        ),
+        "filter": {
+            "ifc_types": [
+                "IfcWall",
+                "IfcWallStandardCase",
+                "IfcWallElementedCase",
+                "IfcCurtainWall",
+            ]
+        },
+        "fields": [
+            "uuid",
+            "name",
+            "materials",
+            "fire_rating",
+            "acoustic_performance",
+            "thickness",
+            "is_external",
+            "load_bearing",
+            "storey",
+        ],
+    },
+    "equipment_maintenance": {
+        "description": (
+            "Équipements techniques — fabricant, référence, ID maintenance, "
+            "numéro de série, tag, localisation."
+        ),
+        "filter": {
+            "ifc_types": [
+                "IfcDistributionElement",
+                "IfcFlowTerminal",
+                "IfcFlowController",
+                "IfcFlowSegment",
+                "IfcFlowFitting",
+                "IfcEnergyConversionDevice",
+            ]
+        },
+        "fields": [
+            "uuid",
+            "name",
+            "ifc_type",
+            "manufacturer",
+            "reference",
+            "maintenance_id",
+            "serial_number",
+            "tag",
+            "space",
+            "zone",
+        ],
+    },
+}
 
 
 @mcp.tool()
@@ -214,3 +302,176 @@ def list_classification_suggestions(
         output_path=output_path,
         default_basename=f"list_classification_suggestions_{ts}",
     )
+
+
+# ── query_bim_data + query_bim_preset ────────────────────────────────────
+
+
+_DEFAULT_QUERY_FIELDS = ["uuid", "ifc_type", "name"]
+
+
+def _serialize_query_result(result, *, include_cells: bool = False) -> dict:
+    """Sérialise un :class:`BimQueryResult` en payload MCP.
+
+    Par défaut on n'expose pas les ``cells`` (qui doublent les valeurs
+    avec leurs métadonnées source/matched_key) pour rester compact.
+    L'agent qui veut la traçabilité passe ``include_cells=True``.
+    """
+    rows: list[dict] = []
+    for row in result.rows:
+        d = dict(row.values)
+        d["__uuid"] = row.uuid
+        if include_cells:
+            d["__cells"] = row.cells
+        rows.append(d)
+    return {
+        "columns": result.columns,
+        "rows": rows,
+        "total": result.total,
+        "next_offset": result.next_offset,
+        "warnings": result.warnings,
+    }
+
+
+@mcp.tool()
+def query_bim_data(
+    filter: dict | None = None,
+    fields: list[str] | None = None,
+    include_empty: bool = True,
+    flatten_lists: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+    output_path: str | None = None,
+    include_cells: bool = False,
+) -> dict:
+    """Requête tabulaire sémantique sur les objets BIM du snapshot actif.
+
+    Permet à un agent IA de poser des questions type :
+
+        « Liste les portes avec leurs matériaux, performance acoustique
+        et dimensions. »
+
+    Le résultat est un tableau ``{columns, rows, total, next_offset,
+    warnings}`` où chaque ligne contient les valeurs des champs demandés.
+
+    Args:
+        filter: Dict mappé sur :class:`audit_bim.domain.ObjectFilter`.
+            Ex: ``{"ifc_types": ["IfcDoor"]}``.
+        fields: Liste des champs à projeter. Défaut :
+            ``["uuid", "ifc_type", "name"]``. Voir
+            :data:`audit_bim.query.table_query.KNOWN_FIELDS` pour la liste
+            officielle ; n'importe quel ``Pset.Prop`` ou alias projet est
+            accepté en fallback.
+        include_empty: Si False, n'inclut une ligne que si au moins un
+            champ projeté (hors identité) a une valeur non-``None``.
+        flatten_lists: Si True, joint les valeurs liste en chaîne
+            ``", "`` (utile pour export CSV / agents simples).
+        limit / offset: Pagination (limit ≤ 500).
+        output_path: Si fourni OU si payload > 256 KB, dump JSON complet
+            sur disque (sandbox ``AUDIT_OUTPUT_DIR``) et retour compact.
+        include_cells: Si True, inclut ``__cells`` (métadonnées
+            source/matched_key par cellule) dans chaque ligne — utile
+            pour debug / traçabilité, alourdit le payload.
+
+    Returns:
+        Dict ``{columns, rows, total, next_offset, warnings,
+        items_path?, items_truncated?}``.
+    """
+    _State.ensure_snapshot()
+
+    obj_filter = ObjectFilter.model_validate(filter or {})
+    # Override pagination de l'ObjectFilter (gérée côté BimQuery).
+    obj_filter = obj_filter.model_copy(update={"limit": 500, "offset": 0})
+
+    query = BimQuery(
+        object_filter=obj_filter,
+        fields=fields if fields else list(_DEFAULT_QUERY_FIELDS),
+        include_empty=include_empty,
+        flatten_lists=flatten_lists,
+        limit=limit,
+        offset=offset,
+    )
+    result = query_bim_table(_State.snapshot, query)
+    payload = _serialize_query_result(result, include_cells=include_cells)
+    # On expose ``items`` en miroir de ``rows`` pour cohérence avec les
+    # autres tools de filtrage (et avec ``maybe_dump_to_disk`` qui
+    # cherche ``items`` pour la troncature).
+    payload["items"] = payload["rows"]
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return maybe_dump_to_disk(
+        payload,
+        output_path=output_path,
+        default_basename=f"query_bim_data_{ts}",
+    )
+
+
+@mcp.tool()
+def query_bim_preset(
+    preset: str,
+    filter: dict | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    output_path: str | None = None,
+    include_empty: bool = True,
+    flatten_lists: bool = False,
+) -> dict:
+    """Variantes pré-configurées de :func:`query_bim_data` pour les cas
+    d'usage métier fréquents.
+
+    Args:
+        preset: Nom du preset. Valeurs admises (cf. :data:`QUERY_PRESETS`) :
+            - ``"doors_acoustic_dimensions"`` — portes : matériaux,
+              acoustique, dimensions, feu, localisation.
+            - ``"walls_fire_acoustic"`` — murs : matériaux, feu,
+              acoustique, épaisseur, externe/porteur.
+            - ``"equipment_maintenance"`` — équipements : fabricant,
+              référence, ID maintenance, série, tag, localisation.
+        filter: Filtre additionnel **fusionné** avec le filtre du
+            preset (les listes ``ifc_types`` etc. sont remplacées si
+            spécifiées ; les autres champs s'ajoutent).
+        limit / offset: Pagination.
+        output_path: Idem ``query_bim_data``.
+        include_empty / flatten_lists: Idem ``query_bim_data``.
+
+    Returns:
+        Idem :func:`query_bim_data` + métadonnée ``preset`` dans le retour.
+    """
+    if preset not in QUERY_PRESETS:
+        raise ValueError(f"preset inconnu {preset!r}. Valeurs admises : {sorted(QUERY_PRESETS)}.")
+    cfg = QUERY_PRESETS[preset]
+
+    # Fusion filtre preset + filtre utilisateur (user gagne).
+    merged_filter = dict(cfg.get("filter") or {})
+    if filter:
+        merged_filter.update(filter)
+
+    result = query_bim_data(
+        filter=merged_filter,
+        fields=list(cfg["fields"]),
+        include_empty=include_empty,
+        flatten_lists=flatten_lists,
+        limit=limit,
+        offset=offset,
+        output_path=output_path,
+    )
+    result["preset"] = preset
+    result["preset_description"] = cfg.get("description", "")
+    return result
+
+
+@mcp.tool()
+def list_query_presets() -> dict:
+    """Liste les presets disponibles pour :func:`query_bim_preset`."""
+    return {
+        "presets": [
+            {
+                "name": name,
+                "description": cfg.get("description", ""),
+                "default_filter": cfg.get("filter", {}),
+                "fields": list(cfg["fields"]),
+            }
+            for name, cfg in QUERY_PRESETS.items()
+        ],
+        "total": len(QUERY_PRESETS),
+    }

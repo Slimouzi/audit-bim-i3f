@@ -847,6 +847,9 @@ from .tools_query import (  # noqa: E402, F401
     get_object_detail,
     list_audit_findings,
     list_classification_suggestions,
+    list_query_presets,
+    query_bim_data,
+    query_bim_preset,
 )
 
 

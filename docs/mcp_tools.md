@@ -25,6 +25,19 @@ utilisateur et les contrôles de migration.
 | `list_classification_suggestions` | actif | R | — | aucun |
 | `query_findings` | actif (historique) | R | — | aucun |
 
+### Requête tabulaire sémantique sur la maquette (lecture seule)
+
+| Tool | Statut | R/W | `confirm=True` | Risque métier |
+|---|---|---|---|---|
+| `query_bim_data` | actif | R | — | aucun |
+| `query_bim_preset` | actif | R | — | aucun |
+| `list_query_presets` | actif | R | — | aucun |
+
+Permet à un agent IA / AMO de poser des questions sémantiques type
+*« Liste les portes avec matériaux, performance acoustique et
+dimensions »*. Voir [docs/workflow_amo_bim.md](workflow_amo_bim.md)
+section *Interroger la maquette*.
+
 ### Pattern `prepare → apply` (écriture contrôlée)
 
 | Tool | Statut | R/W | `confirm=True` | Risque métier |
