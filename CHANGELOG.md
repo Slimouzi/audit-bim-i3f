@@ -7,6 +7,28 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-05-26
+
+### Fixed
+
+- Corrige la release **0.2.0** incomplète : `uv.lock` n'était pas synchronisé
+  avec `pyproject.toml` (bloqué à `audit-bim-i3f v0.1.0`), ce qui faisait
+  échouer le workflow Release sur `uv lock --check` **avant** les étapes
+  build sdist/wheel + publication PyPI. Conséquences sur 0.2.0 :
+  - Aucun asset attaché à la release GitHub.
+  - Aucune publication PyPI.
+- Pas de changement fonctionnel par rapport à 0.2.0 — uniquement une
+  resynchronisation de `uv.lock` (`audit-bim-i3f 0.1.0 → 0.2.1`) pour
+  débloquer la pipeline de release. Voir le détail des changements
+  fonctionnels dans [0.2.0] ci-dessous.
+
+### Notes
+
+- Le tag `v0.2.0` reste en place comme jalon de référence ; il n'est pas
+  déplacé. **La release installable est `v0.2.1`**.
+- À l'avenir, le bump de version doit être suivi de `uv lock` dans le
+  même commit pour éviter ce désynchronisation.
+
 ## [0.2.0] — 2026-05-26
 
 Refonte architecturale autour du pattern **`prepare → validate → apply`** :
