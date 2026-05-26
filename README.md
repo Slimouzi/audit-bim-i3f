@@ -19,7 +19,7 @@ Ce MCP transforme cet audit en **5 agents** orchestrés par Claude :
 | Agent | Rôle | Tools MCP |
 |---|---|---|
 | Requirements Parser | Lit les 3 documents MOA → catalogue d'exigences | `set_owner_documents`, `parse_owner_requirements`, `get_catalog_properties` |
-| Model Extractor | Tire la maquette IFC depuis BIMData (auth OAuth2 ou API Key) | `set_active_model`, `extract_model_snapshot` |
+| Model Extractor | Tire la maquette IFC depuis BIMData (auth OAuth2 ou API Key) | `set_active_model`, `extract_model_snapshot`, `verify_active_model` |
 | Audit Engine | Joue les règles (nommage, propriétés, classifications, hiérarchie) | `run_audit_tool`, `query_findings` |
 | Reporter | Produit Word d'audit + annexe XLSX | `generate_word_report`, `generate_xlsx_annex` |
 | Smart View Builder | Crée 1 Smart View BIMData par thème en erreur | `create_smart_views` |
@@ -96,6 +96,78 @@ python -m audit_bim.mcp --transport http  --port 8765   # HTTP RPC (Node.js, app
 python -m audit_bim.mcp --transport sse   --port 8765   # Server-Sent Events
 python -m audit_bim.mcp --transport streamable-http --port 8765
 ```
+
+## Vérifier la bonne maquette avant audit
+
+`set_active_model` invalide bien `_State.snapshot` (ligne 318 de
+`server.py`) et le cache disque est keyé par `model_id` — il n'y a donc
+**pas** de risque de contamination entre maquettes côté infrastructure.
+
+Le risque résiduel est **humain** : l'auditeur copie-colle un mauvais
+`model_id` (vue BIMData voisine, ancien projet, mauvais build du DOE)
+et le pipeline génère un rapport parfaitement cohérent… **sur la
+mauvaise maquette**. C'est silencieux et coûteux à découvrir.
+
+Le tool `verify_active_model` ferme cette fenêtre : il rafraîchit le
+snapshot **sans cache** par défaut et confirme que `model.name`
+contient bien la chaîne attendue (insensible à la casse, aux accents
+et aux espaces multiples — ex: `"LIFFRE"` matche
+`"Maquette BIM - LIFFRÉ - DOE.ifc"`).
+
+### Workflow recommandé
+
+```text
+1. set_active_model(cloud_id, project_id, model_id, phase, ...)
+2. verify_active_model(expected_model_name="LIFFRE")
+   # rafraîchit le snapshot sans cache + bloque si mismatch
+3. parse_owner_requirements()
+4. run_audit_tool()
+5. generate_xlsx_annex()
+6. generate_word_report(
+       project_address="12 rue du Stade, 35340 Liffré",
+       project_phase="DOE",
+       auditor_name="Stanislas Mouzin (Korhus)",
+   )
+   # depuis v0.3.0 : project_address + project_phase + auditor_name
+   # sont obligatoires (ou passer confirm_context=True pour accepter
+   # "Information non disponible" dans le rapport)
+```
+
+Tant que `verify_active_model` ne renvoie pas `ok: true`, **ne lancez
+pas** `run_audit_tool` ni les générateurs de livrables.
+
+`generate_xlsx_annex` n'exige pas le contexte projet, mais
+`generate_word_report` le réclame (validation `_validate_audit_context`).
+Si vous l'oubliez, vous recevez en réponse :
+
+```json
+{"status": "needs_context", "missing": ["project_address", "auditor_name"], "questions": [...]}
+```
+
+et le rapport n'est pas généré — re-appeler avec les champs renseignés
+ou ajouter `confirm_context=True`.
+
+### Et `full_audit` ?
+
+Si vous avez le moindre doute sur la maquette active (changement de
+cible récent, environnement partagé), évitez `full_audit` à sec et
+préférez le workflow ci-dessus.
+
+Sinon, `full_audit` accepte les mêmes garde-fous :
+
+```python
+full_audit(
+    expected_model_name="LIFFRE",
+    force_refresh_snapshot=True,    # défaut
+    push_mode="none",
+)
+```
+
+- `expected_model_name` (optionnel) : si fourni, l'orchestrateur lève
+  `ValueError` avant toute génération de livrable en cas de mismatch.
+- `force_refresh_snapshot` (défaut `True`) : force une extraction sans
+  cache. Mettre à `False` uniquement quand `_State.snapshot` vient
+  d'être chargé volontairement.
 
 ## Déploiement sécurisé (transport réseau)
 
