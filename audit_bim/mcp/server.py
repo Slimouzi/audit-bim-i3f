@@ -37,6 +37,7 @@ from ..enrichment import enrich_with_public_data as _enrich_with_public_data
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot, extract_snapshot
 from ..extraction.snapshot_cache import cached_extract_snapshot
+from ..reporting.context import build_report_context, merge_user_context
 from ..reporting.word_report import write_word_report
 from ..reporting.xlsx_annex import write_xlsx_annex
 from ..requirements.catalog import build_catalog
@@ -543,26 +544,176 @@ def generate_xlsx_annex(output_path: str | None = None, overwrite: bool = False)
     return {"path": str(written), "size_bytes": written.stat().st_size}
 
 
+_VALID_PHASES = {p.value for p in BIMPhase}
+
+
+def _validate_audit_context(
+    *,
+    project_address: str | None,
+    project_phase: str | None,
+    auditor_name: str | None,
+    confirm_context: bool,
+) -> dict | None:
+    """Valide les 3 informations obligatoires de contexte avant audit.
+
+    Renvoie ``None`` si tout est OK ; renvoie un dict de refus
+    structuré (avec ``status='needs_context'``, ``missing`` et
+    ``questions``) si une info manque et que ``confirm_context``
+    n'est pas mis à ``True``.
+
+    Ne **jamais** inventer une valeur — l'utilisateur DOIT fournir.
+    """
+    missing: list[str] = []
+    questions: list[dict[str, str]] = []
+    if not project_address or not project_address.strip():
+        missing.append("project_address")
+        questions.append(
+            {
+                "key": "project_address",
+                "question": (
+                    "Quelle est l'adresse du projet ? "
+                    "(ex: « 12 rue de la Paix, 35340 LIFFRÉ »). "
+                    "Le rapport Word affichera cette adresse comme "
+                    "donnée fiable, fournie par l'utilisateur."
+                ),
+            }
+        )
+    if not project_phase or project_phase.upper() not in _VALID_PHASES:
+        missing.append("project_phase")
+        questions.append(
+            {
+                "key": "project_phase",
+                "question": (
+                    "Quelle est la phase BIM du projet ? Valeurs admises : "
+                    + ", ".join(sorted(_VALID_PHASES))
+                    + "."
+                ),
+            }
+        )
+    if not auditor_name or not auditor_name.strip():
+        missing.append("auditor_name")
+        questions.append(
+            {
+                "key": "auditor_name",
+                "question": (
+                    "Sous quel nom afficher l'auditeur sur la page de garde "
+                    "et dans la section « Contexte de la mission » du rapport "
+                    "Word ?"
+                ),
+            }
+        )
+
+    if not missing:
+        return None  # tout est OK
+
+    if confirm_context:
+        # L'utilisateur a explicitement confirmé qu'il accepte de lancer
+        # malgré l'absence de certaines infos. On le laisse passer mais
+        # le rapport affichera NOT_AVAILABLE pour les champs manquants.
+        return None
+
+    return {
+        "status": "needs_context",
+        "missing": missing,
+        "questions": questions,
+        "next_step": (
+            "Renseigner les informations manquantes puis re-appeler le tool "
+            "avec les paramètres ``project_address``, ``project_phase``, "
+            "``auditor_name``. Pour lancer malgré tout sans toutes les "
+            "infos (déconseillé), passer ``confirm_context=True``."
+        ),
+    }
+
+
 @mcp.tool()
 def generate_word_report(
     output_path: str | None = None,
     xlsx_annex_path: str | None = None,
     auditor: str = "AMO BIM (audit automatisé)",
     overwrite: bool = False,
+    project_address: str | None = None,
+    project_phase: str | None = None,
+    auditor_name: str | None = None,
+    confirm_context: bool = False,
 ) -> dict:
-    """Génère le rapport Word d'audit.
+    """Génère le rapport Word d'audit (enrichi avec contexte projet).
 
-    Le chemin de sortie est filtré par la sandbox d'export — cf.
-    :func:`generate_xlsx_annex`.
+    Le rapport Word produit inclut désormais les sections :
+    *Contexte de la mission*, *Description du projet*, *Référentiels*,
+    *Attendus du projet*, *Objectifs BIM*, *Liste des contrôles
+    réalisés*, *Informations non disponibles*. Voir
+    :mod:`audit_bim.reporting.context`.
+
+    Trois informations contextuelles sont **recommandées** pour un
+    livrable AMO BIM professionnel :
+
+    - ``project_address`` : adresse du projet (affichée dans
+      *Description du projet*).
+    - ``project_phase`` : APS / APD / PRO / DCE / EXE / DOE / GESTION.
+      Si fourni, écrase la phase déduite du ``AuditResult`` pour
+      l'affichage. **Ne change PAS** la phase utilisée pour exécuter
+      l'audit (qui a déjà tourné).
+    - ``auditor_name`` : nom de l'auditeur (page de garde + section
+      *Contexte de la mission*).
+
+    Si l'une de ces 3 infos est manquante **et** ``confirm_context``
+    est ``False``, le tool retourne ``{"status": "needs_context", ...}``
+    avec la liste des questions à poser à l'utilisateur, sans
+    régénérer le rapport.
+
+    Args:
+        output_path: Chemin de sortie (sandbox ``AUDIT_OUTPUT_DIR``).
+        xlsx_annex_path: Référence à l'annexe XLSX (mise en annexe).
+        auditor: Nom de l'auditeur (legacy param ; déprécié au profit
+            de ``auditor_name`` qui propage dans le contexte enrichi).
+        overwrite: Écraser le fichier existant.
+        project_address: Adresse projet (data fiable utilisateur).
+        project_phase: Phase BIM à afficher.
+        auditor_name: Nom de l'auditeur enrichi.
+        confirm_context: ``True`` pour passer outre la validation des
+            3 champs obligatoires (rapport généré avec
+            ``Information non disponible`` pour les manquants).
+
+    Returns:
+        - ``{"path": "...", "size_bytes": N}`` en cas de succès.
+        - ``{"status": "needs_context", "missing": [...], "questions":
+          [...]}`` si validation refusée.
     """
     _State.ensure_result()
+
+    # Validation contexte
+    refusal = _validate_audit_context(
+        project_address=project_address,
+        project_phase=project_phase,
+        auditor_name=auditor_name,
+        confirm_context=confirm_context,
+    )
+    if refusal is not None:
+        return refusal
+
     raw = Path(output_path) if output_path else _default_output_paths()[0]
     target = safe_export_path(raw, overwrite=overwrite)
+
+    # Construire le contexte enrichi avec les inputs utilisateur.
+    base_ctx = build_report_context(_State.result)
+    ctx = merge_user_context(
+        base_ctx,
+        project_address=project_address,
+        project_phase=project_phase,
+        auditor_name=auditor_name,
+    )
+
+    # Si auditor_name fourni, on l'utilise comme display ; sinon legacy
+    # param ``auditor`` reste fonctionnel (write_word_report gère la
+    # priorité contexte → kwargs).
+    display_auditor = auditor_name or auditor
+
     written = write_word_report(
         _State.result,
         target,
-        auditor=auditor,
+        auditor=display_auditor,
         xlsx_annex_path=xlsx_annex_path,
+        context=ctx,
     )
     return {"path": str(written), "size_bytes": written.stat().st_size}
 
@@ -652,6 +803,9 @@ def full_audit(
     output_dir: str | None = None,
     push_mode: str = "ask",
     access_token: str | None = None,
+    project_address: str | None = None,
+    auditor_name: str | None = None,
+    confirm_context: bool = False,
 ) -> dict:
     """Orchestrateur : parse documents → extract modèle → audit → reports.
 
@@ -680,6 +834,15 @@ def full_audit(
         output_dir: dossier de sortie (fallback ``AUDIT_OUTPUT_DIR`` env).
         push_mode: ``"ask"`` | ``"bcf"`` | ``"smartview"`` | ``"both"`` | ``"none"``.
         access_token: bearer optionnel.
+        project_address: **obligatoire** — adresse du projet (affichée
+            dans le rapport Word comme donnée fournie par l'utilisateur).
+            Si manquant et ``confirm_context=False``, le tool retourne
+            ``{status: needs_context, ...}`` sans lancer l'audit.
+        auditor_name: **obligatoire** — nom de l'auditeur (page de garde
+            + section *Contexte de la mission*). Idem validation.
+        confirm_context: ``True`` pour passer outre la validation et
+            lancer malgré les champs manquants (déconseillé — le
+            rapport affichera ``Information non disponible``).
     """
     # Refus en amont du token en paramètre sur transport réseau (même
     # garde que ``set_active_model``, dupliquée pour fail-fast clair
@@ -687,6 +850,19 @@ def full_audit(
     # milieu du pipeline (étape 2), masquant l'origine de l'erreur.
     if access_token:
         ensure_access_token_param_allowed()
+
+    # Validation contexte projet AVANT toute exécution coûteuse :
+    # adresse + phase + nom auditeur sont obligatoires pour un livrable
+    # AMO BIM exploitable. Si une info manque et ``confirm_context``
+    # n'est pas True, on refuse en posant des questions structurées.
+    context_refusal = _validate_audit_context(
+        project_address=project_address,
+        project_phase=phase,
+        auditor_name=auditor_name,
+        confirm_context=confirm_context,
+    )
+    if context_refusal is not None:
+        return context_refusal
 
     mode = (push_mode or "ask").lower()
     if mode == "ask":
@@ -751,7 +927,25 @@ def full_audit(
     word_path = safe_export_path(raw_word)
     xlsx_path = safe_export_path(raw_xlsx)
     xlsx_written = write_xlsx_annex(_State.result, xlsx_path)
-    word_written = write_word_report(_State.result, word_path, xlsx_annex_path=xlsx_written)
+
+    # Contexte enrichi : extraction auto + inputs utilisateur (adresse,
+    # phase, auditeur). Garantit que les valeurs fournies par l'AMO
+    # apparaissent comme données fiables (pas "déduit — à confirmer").
+    base_ctx = build_report_context(_State.result)
+    full_ctx = merge_user_context(
+        base_ctx,
+        project_address=project_address,
+        project_phase=phase,
+        auditor_name=auditor_name,
+    )
+
+    word_written = write_word_report(
+        _State.result,
+        word_path,
+        auditor=auditor_name or "AMO BIM (audit automatisé)",
+        xlsx_annex_path=xlsx_written,
+        context=full_ctx,
+    )
 
     # 6. Publication selon le mode
     bcf_result = push_bcf_topics(_State.result, _State.client, dry_run=not do_push_bcf)

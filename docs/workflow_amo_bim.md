@@ -348,6 +348,57 @@ audit_trail(limit=10)
 # }
 ```
 
+## Validation du contexte avant audit
+
+`full_audit` et `generate_word_report` **exigent désormais 3 informations
+obligatoires** avant de produire un livrable AMO BIM :
+
+| Paramètre | Description |
+|---|---|
+| `project_address` | Adresse du projet (ex: `« 12 rue de la Paix, 35340 LIFFRÉ »`) |
+| `project_phase` | Phase BIM — `APS` / `APD` / `PRO` / `DCE` / `EXE` / `DOE` / `GESTION` |
+| `auditor_name` | Nom de l'auditeur affiché sur la page de garde et en section *Contexte de la mission* |
+
+Comportement :
+
+- **Premier appel sans contexte complet** → le tool retourne
+  `{"status": "needs_context", "missing": [...], "questions": [...]}`
+  sans rien exécuter.
+- **Second appel avec les 3 champs renseignés** → audit / rapport lancés
+  normalement. Les valeurs sont injectées dans le rapport et marquées
+  comme « fournies par l'utilisateur » (pas de suffixe « déduit »).
+- **Bypass d'urgence** : `confirm_context=True` permet de lancer sans
+  toutes les infos (le rapport affichera `Information non disponible`).
+
+Marquage des sources dans le rapport :
+
+| Source | Suffixe ajouté |
+|---|---|
+| `user` (fourni explicitement) | (rien — valeur fiable) |
+| `extracted` (extrait du snapshot / catalog) | *(déduit de la maquette — à confirmer)* |
+| `deduced` (heuristique mots-clés) | *(déduit par heuristique — à confirmer)* |
+| `missing` | « Information non disponible dans les documents fournis. » |
+
+Exemple Python :
+
+```python
+# Premier appel — refus structuré
+result = full_audit(cloud_id=..., project_id=..., model_id=..., push_mode="none")
+# → {"status": "needs_context", "missing": ["project_address", "auditor_name"], ...}
+
+# Second appel — audit lancé
+result = full_audit(
+    cloud_id=...,
+    project_id=...,
+    model_id=...,
+    project_address="12 rue de la Paix, 35340 LIFFRÉ",
+    project_phase="PRO",
+    auditor_name="Stanislas Limouzi (BET Acme)",
+    push_mode="none",
+)
+# → {"summary": {...}, "deliverables": {"word": "...", ...}}
+```
+
 ## Rapport Word — contexte projet enrichi
 
 Depuis cette version, le rapport Word généré par `generate_word_report`

@@ -122,6 +122,41 @@ class ReportProjectContext(BaseModel):
     n_property_specs: int = 0
     n_naming_rules: int = 0
 
+    # ── Auditeur (page de garde + section contexte) ─────────────────────
+    auditor_name: str | None = Field(
+        None,
+        description=(
+            "Nom de l'auditeur AMO à afficher sur la page de garde et "
+            "dans le contexte de la mission. Fourni explicitement par "
+            "l'utilisateur ; pas de valeur déduite."
+        ),
+    )
+
+    # ── Traçabilité des sources de chaque champ ─────────────────────────
+    # Mapping ``nom_du_champ → source`` parmi :
+    #   - ``"user"`` : valeur fournie explicitement par l'utilisateur
+    #     (tool MCP, CLI) — réputée fiable.
+    #   - ``"extracted"`` : valeur extraite des sources documentaires /
+    #     BIMData (snapshot.project, IfcSite, catalog) — réputée
+    #     fiable mais sans validation explicite.
+    #   - ``"deduced"`` : valeur déduite par heuristique (mots-clés,
+    #     fallback) — à confirmer.
+    #   - ``"missing"`` : valeur absente.
+    #
+    # Le rapport Word affiche un suffixe "(déduit — à confirmer)" pour
+    # les champs en source ``"deduced"`` et — selon la sensibilité du
+    # champ — pour les champs en source ``"extracted"``.
+    field_sources: dict[str, str] = Field(
+        default_factory=dict,
+        description="Source par champ : 'user' / 'extracted' / 'deduced' / 'missing'.",
+    )
+
+    # ── Helper d'accès traçabilité ──────────────────────────────────────
+    def source_of(self, field_name: str) -> str:
+        """Renvoie la source d'un champ ('user' / 'extracted' /
+        'deduced' / 'missing'). 'missing' par défaut."""
+        return self.field_sources.get(field_name, "missing")
+
 
 # ── Builders ─────────────────────────────────────────────────────────────
 
@@ -464,13 +499,144 @@ def build_report_context(result: AuditResult) -> ReportProjectContext:
     ctx_data["missing_information"] = _build_missing_information(
         ctx_data, catalog, len(result.findings)
     )
+
+    # ── Renseigner field_sources ────────────────────────────────────────
+    # Tout champ scalaire non None vient des sources documentaires
+    # (snapshot.project, IfcSite, catalog). On les marque "extracted".
+    # ``bim_objectives`` détectés via mots-clés sont "deduced".
+    # ``project_phase`` vient explicitement de l'AuditResult — on le
+    # traite comme "extracted" puisqu'il est fourni au moment du
+    # ``run_audit`` ; un éventuel ``merge_user_context`` viendra
+    # l'écraser en "user" si l'utilisateur le re-confirme.
+    field_sources: dict[str, str] = {}
+    extracted_candidates = [
+        "project_name",
+        "model_name",
+        "project_description",
+        "project_phase",
+        "client_name",
+        "owner_name",
+        "site_name",
+        "building_name",
+        "address",
+        "bim_reference",
+        "cch_version",
+        "cch_source",
+        "data_spec_source",
+        "naming_spec_source",
+    ]
+    for f in extracted_candidates:
+        v = ctx_data.get(f)
+        if v is None or (isinstance(v, str) and not v.strip()):
+            field_sources[f] = "missing"
+        else:
+            field_sources[f] = "extracted"
+    # bim_objectives : déduits par heuristique (mots-clés)
+    field_sources["bim_objectives"] = "deduced" if bim_objectives else "missing"
+    # auditor_name : jamais renseigné par ``build_report_context``
+    # (vient toujours du paramètre utilisateur via ``merge_user_context``).
+    field_sources["auditor_name"] = "missing"
+    ctx_data["field_sources"] = field_sources
+
     return ReportProjectContext(**ctx_data)
+
+
+def merge_user_context(
+    context: ReportProjectContext,
+    *,
+    project_address: str | None = None,
+    project_phase: str | None = None,
+    auditor_name: str | None = None,
+    client_name: str | None = None,
+    project_description: str | None = None,
+) -> ReportProjectContext:
+    """Fusionne des informations fournies par l'utilisateur dans un
+    :class:`ReportProjectContext` existant.
+
+    Pour chaque champ non ``None`` fourni :
+
+    1. La valeur écrase celle du contexte initial.
+    2. ``field_sources[<champ>]`` est mis à ``"user"`` (donc le rapport
+       Word n'affichera **pas** la mention « déduit — à confirmer »).
+    3. Le champ correspondant disparaît de ``missing_information`` si
+       l'utilisateur a comblé le trou.
+
+    Les champs non fournis (``None``) sont laissés tels quels — le
+    contexte initial est respecté.
+
+    Args:
+        context: Contexte initial (typiquement issu de
+            :func:`build_report_context`).
+        project_address: Adresse du projet (à afficher dans la section
+            *Description du projet*).
+        project_phase: Phase BIM (APS/APD/PRO/DCE/EXE/DOE/GESTION).
+            **Important** : ce champ ne ré-exécute pas l'audit ; il
+            sert uniquement à confirmer la phase affichée dans le
+            rapport. Si vous voulez auditer une autre phase, relancez
+            ``full_audit`` avec un paramètre différent.
+        auditor_name: Nom de l'auditeur (page de garde + section contexte).
+        client_name: Maîtrise d'ouvrage (rare en MCP mais utile pour
+            les rapports manuels).
+        project_description: Description libre du projet (si la MOA
+            préfère fournir un texte au lieu de laisser l'extracteur
+            tenter de le deviner depuis BIMData).
+
+    Returns:
+        Nouveau ``ReportProjectContext`` (Pydantic frozen, donc copy).
+    """
+    updates: dict[str, object] = {}
+    new_sources = dict(context.field_sources)
+
+    user_inputs = {
+        "address": project_address,
+        "project_phase": project_phase,
+        "auditor_name": auditor_name,
+        "client_name": client_name,
+        "project_description": project_description,
+    }
+    for field, value in user_inputs.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        updates[field] = value.strip() if isinstance(value, str) else value
+        new_sources[field] = "user"
+
+    if not updates:
+        # Pas de modification réelle — on garde l'instance d'origine.
+        return context
+
+    updates["field_sources"] = new_sources
+
+    # Nettoyer missing_information : retire les entrées correspondant
+    # aux champs que l'utilisateur a comblés.
+    filters = {
+        "address": "Adresse du projet",
+        "project_description": "Description du projet",
+        "project_phase": "Phase BIM",  # peu probable d'apparaître, mais on filtre
+        "auditor_name": "Auditeur",  # idem, jamais dans missing par défaut
+        "client_name": "Maîtrise d'ouvrage",
+    }
+    keep: list[str] = []
+    for entry in context.missing_information:
+        skip = False
+        for field, marker in filters.items():
+            if field in updates and marker in entry:
+                skip = True
+                break
+        if not skip:
+            keep.append(entry)
+    if keep != list(context.missing_information):
+        updates["missing_information"] = keep
+
+    return context.model_copy(update=updates)
 
 
 __all__ = [
     "ControlDescription",
     "ReportProjectContext",
     "build_report_context",
+    "merge_user_context",
 ]
 
 
