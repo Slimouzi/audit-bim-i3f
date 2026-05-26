@@ -208,6 +208,96 @@ Exécute le plan Smart Views.
 apply_smartviews_plan(plan_path="...", confirm=True)
 ```
 
+### Interroger la maquette — requêtes sémantiques
+
+Au-delà du workflow d'audit, le MCP expose un moteur de requête
+**tabulaire sémantique** sur les objets de la maquette. Idéal pour
+qu'un agent IA réponde à des questions type :
+
+> *« Liste tous les matériaux des portes, leur performance acoustique
+> et leurs dimensions. »*
+
+Trois tools :
+
+- `query_bim_data(filter, fields, ...)` — requête générique.
+- `query_bim_preset(preset, ...)` — variante préconfigurée.
+- `list_query_presets()` — liste des presets disponibles.
+
+#### Exemples
+
+**Portes : matériaux, acoustique, dimensions, feu, localisation**
+
+```python
+query_bim_preset(preset="doors_acoustic_dimensions", limit=200)
+# Équivalent générique :
+query_bim_data(
+    filter={"ifc_types": ["IfcDoor", "IfcDoorStandardCase"]},
+    fields=[
+        "name", "object_type", "materials",
+        "acoustic_performance", "height", "width", "thickness",
+        "fire_rating", "storey", "space",
+    ],
+)
+```
+
+**Murs : matériaux, feu, acoustique, épaisseur, externe/porteur**
+
+```python
+query_bim_preset(preset="walls_fire_acoustic")
+```
+
+**Équipements : fabricant, référence, maintenance ID, série, tag**
+
+```python
+query_bim_preset(preset="equipment_maintenance")
+```
+
+**Requête ad-hoc sur n'importe quel Pset projet**
+
+```python
+query_bim_data(
+    filter={"ifc_types": ["IfcSpace"]},
+    fields=["name", "storey", "Pset_3F.Lot", "Pset_3F.UsageRevit"],
+    include_empty=False,
+)
+```
+
+#### Champs supportés
+
+Identité : `uuid`, `ifc_type`, `name`, `long_name`, `object_type`,
+`predefined_type`, `description`.
+
+Spatial : `storey`, `space`, `zone`.
+
+Classifications : `classification`, `classification_level_3`,
+`classifications`.
+
+Listes : `materials`, `layers`.
+
+Booléens : `is_external`, `load_bearing`.
+
+Dimensions : `dimensions` (dict), `height`, `width`, `thickness`,
+`area`, `volume`, `perimeter`, `length`. Lus depuis `BaseQuantities`
+en priorité, puis Psets en fallback.
+
+Sémantique métier : `acoustic_performance`, `fire_rating`,
+`manufacturer`, `reference`, `tag`, `maintenance_id`, `serial_number`.
+
+**Tout nom de Pset projet est accepté** en fallback dynamique
+(ex: `Pset_3F.Lot`).
+
+#### Garanties
+
+- **Aucun appel API BIMData** si le snapshot est déjà chargé.
+- **Pagination** : `limit` ≤ 500, `offset` libre.
+- **Overflow disque** automatique au-delà de 256 KB (le retour MCP
+  reste < 1 MB).
+- **Source par cellule** : chaque valeur retournée porte sa source
+  (`property` / `quantity` / `attribute` / `material` / `missing`)
+  pour la traçabilité. Activer via `include_cells=True`.
+- **Warnings explicites** : champs inconnus, ou champs vides sur > 80 %
+  des lignes (utile pour diagnostiquer une maquette mal renseignée).
+
 ### DOE workflow (variante en phase DOE/GESTION)
 
 Quand l'AMO dispose d'un dossier DOE (Excel ou PDF) à intégrer dans la

@@ -186,3 +186,108 @@ class BimObject(BaseModel):
             "n_properties": len(self.properties),
             "source": self.source,
         }
+
+    # ── Helpers sémantiques (utilisés par query/table_query) ─────────────
+
+    def get_property(self, name_or_alias: str) -> Any:
+        """Cherche une propriété par nom court ou clé ``Pset.Prop`` complète.
+
+        Matching :
+
+        1. **Exact** ``Pset.Prop`` (insensible à la casse) ;
+        2. **Suffixe** : ``"AcousticRating"`` matche
+           ``"Pset_DoorCommon.AcousticRating"`` ;
+        3. **Nom de propriété seul** : ``"FireRating"`` matche n'importe
+           quel ``"Pset_*.FireRating"``.
+
+        Args:
+            name_or_alias: Nom de propriété ou clé complète.
+
+        Returns:
+            Valeur trouvée (peut être bool/int/float/str), ou ``None`` si
+            absent ou vide.
+        """
+        if not name_or_alias:
+            return None
+        target = name_or_alias.lower()
+        # 1. Match exact d'abord
+        for k, v in self.properties.items():
+            if k.lower() == target:
+                return None if (isinstance(v, str) and not v.strip()) else v
+        # 2. Match suffixe (".prop" ou nom de prop seul, ex: "AcousticRating")
+        target_suffix = target if target.startswith(".") else f".{target}"
+        for k, v in self.properties.items():
+            if k.lower().endswith(target_suffix):
+                return None if (isinstance(v, str) and not v.strip()) else v
+        return None
+
+    def get_quantity(self, name_or_alias: str) -> float | None:
+        """Cherche une BaseQuantity par nom (insensible à la casse).
+
+        Args:
+            name_or_alias: ``"Height"``, ``"NetArea"`` etc. Accepte aussi
+                le préfixe ``"BaseQuantities.Height"``.
+
+        Returns:
+            Valeur numérique ou ``None`` si absente.
+        """
+        if not name_or_alias:
+            return None
+        # Strip préfixe BaseQuantities. si présent
+        target = name_or_alias.lower()
+        if target.startswith("basequantities."):
+            target = target[len("basequantities.") :]
+        for k, v in self.base_quantities.items():
+            if k.lower() == target:
+                return v
+        return None
+
+    def dimensions_summary(self) -> dict[str, float | None]:
+        """Résumé des dimensions standards (Height / Width / Thickness /
+        Area / Volume) lues dans ``base_quantities`` puis ``properties``
+        en fallback.
+
+        Returns:
+            Dict ``{height, width, thickness, area, volume}`` avec valeurs
+            numériques ou ``None`` si absentes.
+        """
+
+        # On essaie d'abord BaseQuantities (norme IFC) puis Properties en
+        # fallback (Pset_DoorCommon.Thickness par ex.).
+        def _first_match(*candidates: str) -> float | None:
+            for c in candidates:
+                v = self.get_quantity(c)
+                if v is not None:
+                    return v
+                pv = self.get_property(c)
+                if isinstance(pv, (int, float)) and not isinstance(pv, bool):
+                    return float(pv)
+            return None
+
+        return {
+            "height": _first_match("Height", "OverallHeight"),
+            "width": _first_match("Width", "OverallWidth"),
+            "thickness": _first_match("Thickness"),
+            "area": _first_match("NetArea", "GrossArea", "Area"),
+            "volume": _first_match("NetVolume", "GrossVolume", "Volume"),
+        }
+
+    def materials_summary(self) -> list[str]:
+        """Liste dédupliquée des matériaux (de ``materials``, puis fallback
+        ``Pset_*.Material`` / ``Pset_MaterialCommon.*``)."""
+        out: list[str] = []
+        seen: set[str] = set()
+        for m in self.materials:
+            if m and m not in seen:
+                seen.add(m)
+                out.append(m)
+        # Fallback : certaines maquettes ne renseignent que le Pset.
+        for k, v in self.properties.items():
+            kl = k.lower()
+            if not isinstance(v, str) or not v.strip():
+                continue
+            if kl.endswith(".material") or kl.endswith(".materialname"):
+                if v not in seen:
+                    seen.add(v)
+                    out.append(v)
+        return out
