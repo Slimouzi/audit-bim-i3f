@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..audit.engine import AuditResult
+    from ..classifier.suggestion_store import ClassificationSuggestionStore
     from ..extraction.client import BIMDataClient
     from ..extraction.model_data import ModelSnapshot
     from ..requirements.models import BIMPhase, RequirementsCatalog
@@ -93,6 +94,7 @@ class _Session:
 
         self.snapshot: ModelSnapshot | None = None
         self.result: AuditResult | None = None
+        self.suggestion_store: ClassificationSuggestionStore | None = None
 
     def ensure_catalog(self) -> None:
         if self.catalog is None:
