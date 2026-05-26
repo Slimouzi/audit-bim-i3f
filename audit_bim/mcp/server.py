@@ -45,6 +45,7 @@ from ..requirements.models import BIMPhase, RequirementsCatalog
 from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
 from ..smartview.builder import push_smart_views
 from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
+from .model_identity import model_matches_expected
 from .prompts import AMO_BIM_I3F_PROMPT
 from .security import ensure_access_token_param_allowed, ensure_writes_allowed
 from .security import scrub as _scrub
@@ -372,6 +373,95 @@ def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cach
     summary = _State.snapshot.summary()
     summary["from_cache"] = hit
     return summary
+
+
+@mcp.tool()
+def verify_active_model(
+    expected_model_name: str,
+    refresh_snapshot: bool = True,
+    use_cache: bool = False,
+) -> dict:
+    """Garde-fou d'identité : confirme que la maquette BIMData active est
+    bien celle attendue **avant** de lancer l'audit ou la génération des
+    livrables.
+
+    Pourquoi : un cache snapshot peut pointer vers un ancien modèle si
+    ``set_active_model`` a été ré-invoqué avec d'autres IDs entre-temps,
+    et ``modified_date`` ne suffit pas à détecter un changement de
+    cible. Cet outil rafraîchit (par défaut) le snapshot **sans cache**,
+    puis compare ``model.name`` à ``expected_model_name`` via une
+    correspondance insensible à la casse, aux accents et aux espaces
+    multiples (le pattern attendu doit être *inclus* dans le nom du
+    modèle).
+
+    Args:
+        expected_model_name: Fragment attendu dans le nom du modèle.
+            Exemple : ``"LIFFRE"`` matche ``"Maquette BIM - LIFFRÉ -
+            DOE.ifc"``.
+        refresh_snapshot: Si ``True`` (défaut), appelle
+            ``extract_model_snapshot`` pour rafraîchir
+            ``_State.snapshot``. Si ``False``, utilise le snapshot déjà
+            en session et lève une erreur claire s'il n'en existe pas.
+        use_cache: Si ``False`` (défaut), force une extraction
+            complète sans cache — la valeur recommandée pour ce
+            contrôle. À ne passer à ``True`` que si on accepte
+            explicitement de lire depuis le cache local.
+
+    Returns:
+        Dict ``{ok, expected_model_name, project_name, model_name,
+        model_id, modified_date, from_cache, message}``. Quand
+        ``ok=False`` l'audit ne doit pas être lancé ; cet outil ne
+        modifie jamais ``_State.result``.
+    """
+    _State.ensure_client()
+    expected = (expected_model_name or "").strip()
+    if not expected:
+        raise ValueError("expected_model_name est requis et ne peut pas être vide.")
+
+    from_cache: bool | None
+    if refresh_snapshot:
+        if use_cache:
+            _State.snapshot, hit = cached_extract_snapshot(
+                _State.client, cache_dir=".audit_cache", use_cache=True
+            )
+            from_cache = hit
+        else:
+            _State.snapshot = extract_snapshot(_State.client)
+            from_cache = False
+    else:
+        if _State.snapshot is None:
+            raise RuntimeError(
+                "Aucun snapshot disponible pour verify_active_model — "
+                "appelez extract_model_snapshot(use_cache=false) au préalable "
+                "ou laissez refresh_snapshot=true."
+            )
+        from_cache = None
+
+    model = _State.snapshot.model or {}
+    project = _State.snapshot.project or {}
+    model_name = model.get("name")
+    model_id = model.get("id") or _State.model_id
+    modified_date = model.get("modified_date") or model.get("modified")
+
+    ok = model_matches_expected(model_name, expected)
+    if ok:
+        message = f"Modèle actif conforme : '{model_name}' contient bien '{expected}'."
+    else:
+        message = (
+            f"Modèle actif inattendu : attendu '{expected}', "
+            f"reçu '{model_name}' (model_id={model_id}). "
+            "N'enchaînez PAS l'audit avant correction (set_active_model + verify_active_model)."
+        )
+    return {
+        "ok": ok,
+        "expected_model_name": expected,
+        "project_name": project.get("name"),
+        "model_name": model_name,
+        "model_id": model_id,
+        "modified_date": modified_date,
+        "from_cache": from_cache,
+        "message": message,
+    }
 
 
 @mcp.tool()
@@ -806,6 +896,8 @@ def full_audit(
     project_address: str | None = None,
     auditor_name: str | None = None,
     confirm_context: bool = False,
+    expected_model_name: str | None = None,
+    force_refresh_snapshot: bool = True,
 ) -> dict:
     """Orchestrateur : parse documents → extract modèle → audit → reports.
 
@@ -843,6 +935,16 @@ def full_audit(
         confirm_context: ``True`` pour passer outre la validation et
             lancer malgré les champs manquants (déconseillé — le
             rapport affichera ``Information non disponible``).
+        expected_model_name: si fourni, vérifie après extraction du
+            snapshot que ``model.name`` contient ce fragment (insensible
+            à casse / accents / espaces multiples). L'audit est
+            interrompu (``ValueError``) avant toute génération de
+            livrable en cas de mismatch.
+        force_refresh_snapshot: si ``True`` (défaut), force une
+            extraction sans cache pour s'assurer que la maquette
+            auditée est bien la version active côté BIMData. Mettre à
+            ``False`` pour réutiliser ``_State.snapshot`` ou le cache
+            (déconseillé quand ``expected_model_name`` est fourni).
     """
     # Refus en amont du token en paramètre sur transport réseau (même
     # garde que ``set_active_model``, dupliquée pour fail-fast clair
@@ -904,8 +1006,22 @@ def full_audit(
         access_token=access_token,
     )
 
-    # 3. Snapshot
-    _State.snapshot = extract_snapshot(_State.client)
+    # 3. Snapshot — refresh forcé par défaut pour éviter d'auditer une
+    # version périmée en cache. On garde une porte de sortie pour les
+    # workflows déjà cadrés (snapshot fraîchement chargé).
+    if force_refresh_snapshot or _State.snapshot is None:
+        _State.snapshot = extract_snapshot(_State.client)
+
+    # 3 bis. Garde-fou d'identité : si l'auditeur a déclaré la maquette
+    # attendue, on bloque AVANT toute génération de livrable.
+    if expected_model_name:
+        actual_name = (_State.snapshot.model or {}).get("name")
+        if not model_matches_expected(actual_name, expected_model_name):
+            actual_id = (_State.snapshot.model or {}).get("id") or _State.model_id
+            raise ValueError(
+                f"Modèle actif inattendu : attendu '{expected_model_name}', "
+                f"reçu '{actual_name}' (model_id={actual_id}). Audit interrompu."
+            )
 
     # 4. Audit
     _State.result = run_audit(_State.snapshot, _State.catalog, _State.phase)
