@@ -29,7 +29,6 @@ from ..classifier import (
     suggest_for_findings,  # noqa: F401  — re-export public (compat)
 )
 from ..doe import (
-    apply_matches_to_model,
     match_doe_records,
     parse_doe,
     summarize_matches,
@@ -603,77 +602,10 @@ def apply_classifications_from_xlsx(
     return result
 
 
-@mcp.tool()
-def doe_enrich_model(
-    doe_path: str,
-    dry_run: bool = True,
-    name_min_score: int = 75,
-    on_conflict: str = "report",
-    ocr_fallback: bool = True,
-    ocr_lang: str = "fra",
-) -> dict:
-    """Agent DOE → IFC : lit un fichier DOE (Excel, PDF natif ou scanné),
-    rapproche les équipements aux éléments IFC du modèle, et enrichit la
-    maquette BIMData avec gestion des conflits.
-
-    Workflow :
-
-    1. **Extraction** — auto-détection du format (xlsx / pdf), avec
-       fallback OCR Tesseract pour les PDF scannés.
-    2. **Matching** — 4 stratégies en cascade (GUID, Tag/Mark, Nom
-       fuzzy via rapidfuzz, Localisation).
-    3. **Détection des conflits** — pour chaque propriété DOE,
-       classification ``MATCH`` (= valeur déjà présente, skip),
-       ``NEW`` (absente, à écrire), ``UPGRADE`` (présente mais vide,
-       à écrire), ``CONFLICT`` (différente — voir ``on_conflict``).
-    4. **Enrichissement** — écrit les Psets sur les éléments matchés.
-
-    Conventions de colonnes (mêmes pour Excel et PDF) :
-
-    - **Identifiants** : ``UUID`` / ``Tag`` / ``Mark`` / ``Nom`` /
-      ``Type`` / ``Étage`` / ``Zone`` (insensible casse + accents).
-    - **Propriétés** : ``Pset_3F.Fabricant`` ou ``Pset_3F/Fabricant``
-      pour cibler un Pset précis, sinon ``Pset_DOE`` par défaut.
-
-    Args:
-        doe_path: Chemin du fichier DOE (.xlsx / .xlsm / .pdf).
-        dry_run: ``True`` (défaut) → simule sans POST. Renvoie payloads
-            et résumé. ``False`` pour pousser réellement les Psets.
-        name_min_score: Seuil fuzzy 0–100 pour le matching par nom
-            (défaut 75). Monter à 85+ pour réduire les faux positifs.
-        on_conflict: Stratégie quand la maquette a déjà une valeur
-            différente du DOE :
-
-            - ``"report"`` (défaut) : **n'écrase pas**. Signale les
-              conflits dans la réponse. Mode prudent recommandé.
-            - ``"skip"`` : comme report mais sans détail nominal.
-            - ``"overwrite"`` : écrase. À réserver au DOE autoritaire
-              (post-réception, validé MOA).
-        ocr_fallback: PDF scanné détecté → OCR Tesseract (défaut
-            ``True``). Nécessite ``pip install audit-bim-i3f[ocr]`` +
-            binaire Tesseract installé.
-        ocr_lang: Langue Tesseract (défaut ``"fra"``).
-    """
-    _State.ensure_client()
-    _State.ensure_snapshot()
-    if not dry_run:
-        ensure_writes_allowed("doe_enrich_model")
-    safe_doe = safe_input_path(doe_path)
-    records = parse_doe(str(safe_doe), ocr_fallback=ocr_fallback, ocr_lang=ocr_lang)
-    matches = match_doe_records(records, _State.snapshot, name_min_score=name_min_score)
-    summary = summarize_matches(matches)
-    application = apply_matches_to_model(
-        _State.client,
-        matches,
-        dry_run=dry_run,
-        snapshot=_State.snapshot,
-        on_conflict=on_conflict,
-    )
-    return {
-        "source": str(safe_doe),
-        "summary": summary,
-        "application": application,
-    }
+# Note : ``doe_enrich_model`` est désormais un wrapper de dépréciation
+# défini dans ``tools_legacy.py`` (legacy_execute=False par défaut →
+# prépare un plan, ne pousse rien sans confirm). Voir
+# ``docs/migration_prepare_apply.md`` pour le workflow recommandé.
 
 
 @mcp.tool()
@@ -881,19 +813,25 @@ from . import tools_query  # noqa: E402, F401
 from .aliases import (  # noqa: E402, F401
     apply_bcf_plan,
     apply_classification_corrections,
+    apply_doe_enrichment as apply_doe_enrichment_alias,
     apply_smartviews_plan,
     prepare_bcf_from_findings,
     prepare_classification_corrections,
+    prepare_doe_enrichment_from_file,
     prepare_smartviews_from_findings,
 )
 from .tools_actions import (  # noqa: E402, F401
     apply_bcf_topics,
     apply_classification_update_plan,
+    apply_doe_enrichment_plan,
     apply_smart_views_plan,
     audit_trail,
+    extract_doe_records,
     list_write_plans,
+    match_doe_to_ifc,
     prepare_bcf_topics,
     prepare_classification_update_plan,
+    prepare_doe_enrichment_plan,
     prepare_smart_views_plan,
     update_suggestion_status,
 )
@@ -901,6 +839,7 @@ from .tools_legacy import (  # noqa: E402, F401
     apply_suggested_classifications,
     create_bcf_topics,
     create_smart_views,
+    doe_enrich_model,
     suggest_classifications,
 )
 from .tools_query import (  # noqa: E402, F401

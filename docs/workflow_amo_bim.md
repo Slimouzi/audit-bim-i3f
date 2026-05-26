@@ -208,6 +208,35 @@ Exécute le plan Smart Views.
 apply_smartviews_plan(plan_path="...", confirm=True)
 ```
 
+### DOE workflow (variante en phase DOE/GESTION)
+
+Quand l'AMO dispose d'un dossier DOE (Excel ou PDF) à intégrer dans la
+maquette, le workflow d'enrichissement suit le même pattern
+prepare/apply :
+
+```
+DOE-1. extract_doe_records                                  [R] parse Excel/PDF
+DOE-2. match_doe_to_ifc                                     [R] rapproche aux éléments IFC
+DOE-3. prepare_doe_enrichment_plan                          [R+disque] pré-calcule les conflits
+DOE-4. apply_doe_enrichment_plan(confirm=True)              [W] pousse les Psets
+```
+
+Le pré-calcul des conflits classifie chaque propriété DOE comme
+``MATCH`` (valeur déjà présente, skip), ``NEW`` (absente, à écrire),
+``UPGRADE`` (présente mais vide, à écrire) ou ``CONFLICT`` (différente
+— traitement selon ``on_conflict``).
+
+```python
+prepare_doe_enrichment_plan(
+    doe_path="DOE_lot_CVC.xlsx",
+    on_conflict="report",  # n'écrase pas (recommandé)
+)
+# → summary.conflicts_summary = {n_total, by_type: {match, new, upgrade, conflict}}
+# → risks signale les conflits CONFLICT et le mode 'overwrite' éventuel
+```
+
+Alias métier : `prepare_doe_enrichment_from_file` / `apply_doe_enrichment`.
+
 ### 12. `audit_trail(limit=20)` — Revue post-exécution
 
 Liste les `apply_*` exécutés sur cette session (journal append-only

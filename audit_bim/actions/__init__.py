@@ -19,6 +19,7 @@ from .classification_planner import (
     apply_classification_update,
     prepare_classification_update,
 )
+from .doe_planner import apply_doe_enrichment, prepare_doe_enrichment
 from .plans import (
     PlanIntegrityError,
     PlanTargetMismatchError,
@@ -44,4 +45,6 @@ __all__ = [
     "apply_smart_views",
     "prepare_classification_update",
     "apply_classification_update",
+    "prepare_doe_enrichment",
+    "apply_doe_enrichment",
 ]

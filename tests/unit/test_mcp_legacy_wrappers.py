@@ -363,6 +363,7 @@ class TestListToolsSnapshot:
         "apply_suggested_classifications",
         "create_bcf_topics",
         "create_smart_views",
+        "doe_enrich_model",
     }
     EXPECTED_NEW_ALIASES = {
         "prepare_bcf_from_findings",

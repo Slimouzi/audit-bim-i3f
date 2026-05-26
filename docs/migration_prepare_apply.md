@@ -86,6 +86,48 @@ prepare_smartviews_from_findings()
 apply_smartviews_plan(plan_path="...", confirm=True)
 ```
 
+### Enrichissement DOE → IFC
+
+**Avant** :
+
+```python
+doe_enrich_model(
+    doe_path="DOE_lot_CVC.xlsx",
+    dry_run=False,
+    on_conflict="report",
+)
+```
+
+**Après** :
+
+```python
+# 1. (Optionnel) extraire et inspecter les records DOE.
+extract_doe_records(doe_path="DOE_lot_CVC.xlsx", limit=10)
+
+# 2. (Optionnel) voir le matching avant prepare.
+match_doe_to_ifc(doe_path="DOE_lot_CVC.xlsx", name_min_score=80)
+
+# 3. Préparer le plan d'enrichissement (aucune écriture BIMData).
+prepare_doe_enrichment_plan(
+    doe_path="DOE_lot_CVC.xlsx",
+    on_conflict="report",  # n'écrase pas les Psets existants
+)
+# → {"plan_id": "...", "plan_path": "/.../plans/<uuid>.json",
+#    "summary": {"n_psets_planned": 47, "conflicts_summary": {...}}, ...}
+
+# 4. Revoir les conflits MATCH/NEW/UPGRADE/CONFLICT dans le plan.json.
+
+# 5. Exécuter avec confirmation.
+apply_doe_enrichment_plan(plan_path="...", confirm=True)
+```
+
+Alias métier équivalents :
+
+```python
+prepare_doe_enrichment_from_file(doe_path="DOE_lot_CVC.xlsx")
+apply_doe_enrichment(plan_path="...", confirm=True)
+```
+
 ### Classifications IFC
 
 **Avant** :

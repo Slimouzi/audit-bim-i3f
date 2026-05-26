@@ -35,9 +35,11 @@ from .server import mcp
 from .tools_actions import (
     apply_bcf_topics,
     apply_classification_update_plan,
+    apply_doe_enrichment_plan,
     apply_smart_views_plan,
     prepare_bcf_topics,
     prepare_classification_update_plan,
+    prepare_doe_enrichment_plan,
     prepare_smart_views_plan,
 )
 
@@ -114,3 +116,37 @@ def apply_classification_corrections(plan_path: str, confirm: bool = False) -> d
     exécute le plan de correction des classifications.
     """
     return apply_classification_update_plan(plan_path=plan_path, confirm=confirm)
+
+
+# ── DOE → IFC enrichment aliases ─────────────────────────────────────────
+
+
+@mcp.tool()
+def prepare_doe_enrichment_from_file(
+    doe_path: str,
+    on_conflict: str = "report",
+    name_min_score: int = 75,
+    ocr_fallback: bool = True,
+    ocr_lang: str = "fra",
+) -> dict:
+    """Alias métier de :func:`prepare_doe_enrichment_plan` — prépare un
+    plan d'enrichissement DOE depuis un fichier source.
+
+    Workflow AMO : ``extract_doe_records → match_doe_to_ifc → prepare
+    DOE enrichment from file → review plan → apply DOE enrichment plan``.
+    """
+    return prepare_doe_enrichment_plan(
+        doe_path=doe_path,
+        on_conflict=on_conflict,
+        name_min_score=name_min_score,
+        ocr_fallback=ocr_fallback,
+        ocr_lang=ocr_lang,
+    )
+
+
+@mcp.tool()
+def apply_doe_enrichment(plan_path: str, confirm: bool = False) -> dict:
+    """Alias métier de :func:`apply_doe_enrichment_plan` — exécute le
+    plan d'enrichissement DOE préparé.
+    """
+    return apply_doe_enrichment_plan(plan_path=plan_path, confirm=confirm)
