@@ -7,6 +7,114 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-26
+
+Refonte architecturale autour du pattern **`prepare → validate → apply`** :
+aucune écriture BIMData sans plan scellé SHA-256 + `confirm=True` explicite.
+
+### Architecture
+
+- **Nouvelle couche `domain/`** — modèles stables indépendants des sources :
+  `BimObject` (Pydantic v2 frozen), `ObjectFilter` / `FindingFilter` /
+  `SuggestionFilter` déclaratifs, `WritePlan` + `ActionResult`.
+- **Moteur `query/`** — adaptateur lazy `ModelSnapshot → BimObject` (cache
+  index spatial via `structure_tree`) + 3 fonctions pures de filtrage
+  (`apply_object_filter` / `apply_finding_filter` / `apply_suggestion_filter`).
+- **Couche `actions/`** — 4 planners : BCF Topics, Smart Views,
+  Classifications, DOE Enrichment. Chacun expose `prepare_X` (scelle un
+  `WritePlan`) et `apply_X` (exécute après validation).
+- **`ClassificationSuggestionStore`** indexé par UUID avec statuts
+  `proposed/accepted/rejected/applied`, JSON roundtrip explicite,
+  préservation des statuts non-`proposed` entre re-runs du suggester.
+- **Modularisation `mcp/server.py`** — 1668 → 230 lignes. Nouveaux
+  modules : `deprecation.py`, `payloads.py`, `tools_query.py`,
+  `tools_actions.py`, `tools_legacy.py`, `aliases.py`.
+
+### Sécurité
+
+- **Pattern prepare/apply** — tous les `apply_*` refusent `confirm=False`
+  (retour `{"refused": True, ...}` sans toucher BIMData), valident
+  l'intégrité SHA-256 du plan, valident la cible BIMData courante.
+- **Journal d'écriture** (`audit_bim/security/write_journal.py`) — JSONL
+  append-only thread-safe sous `AUDIT_OUTPUT_DIR/write_log/journal.jsonl`,
+  consultable via le tool `audit_trail`.
+- **Redaction centralisée des secrets** (`audit_bim/security/redaction.py`)
+  — 11 patterns scrubés (Bearer, Token, access_token, refresh_token,
+  id_token, Authorization, api_key, apikey, BIMDATA_API_KEY,
+  client_secret, password), appliquée systématiquement dans
+  `ActionResult.errors` et `WriteJournal.extra`.
+- **Sandbox renforcée** — `safe_export_read_path` refuse les chemins
+  absolus hors `AUDIT_OUTPUT_DIR` + les `..` ; `load_plan` l'utilise
+  systématiquement.
+- **Statuts `APPLIED` précis** — sur partial failure côté API, seuls les
+  UUIDs effectivement liés passent en `APPLIED` ; les autres conservent
+  leur statut pour rerun ciblé (`apply_classifications` expose désormais
+  `linked_uuids` / `failed_uuids`).
+
+### Tools MCP (40 → 46)
+
+**13 nouveaux tools actifs** :
+- Filtrage : `filter_bim_objects`, `list_audit_findings`,
+  `get_object_detail`, `list_classification_suggestions`.
+- Pattern prepare/apply : `prepare_bcf_topics` / `apply_bcf_topics`,
+  `prepare_smart_views_plan` / `apply_smart_views_plan`,
+  `prepare_classification_update_plan` / `apply_classification_update_plan`,
+  `prepare_doe_enrichment_plan` / `apply_doe_enrichment_plan`.
+- DOE pur : `extract_doe_records`, `match_doe_to_ifc`.
+- Workflow : `update_suggestion_status`, `list_write_plans`, `audit_trail`.
+
+**8 aliases métier** (re-dispatch strict) :
+`prepare_bcf_from_findings` / `apply_bcf_plan`,
+`prepare_smartviews_from_findings` / `apply_smartviews_plan`,
+`prepare_classification_corrections` / `apply_classification_corrections`,
+`prepare_doe_enrichment_from_file` / `apply_doe_enrichment`.
+
+### Dépréciations
+
+Les 5 tools suivants sont **dépréciés** (`removal_version=0.3.0`) et
+transformés en wrappers sécurisés (`legacy_execute=False` par défaut →
+prépare un plan, aucune écriture BIMData) :
+
+| Tool déprécié | Remplaçant actif |
+|---|---|
+| `suggest_classifications` | `list_classification_suggestions` |
+| `create_bcf_topics` | `prepare_bcf_topics` + `apply_bcf_topics` |
+| `create_smart_views` | `prepare_smart_views_plan` + `apply_smart_views_plan` |
+| `apply_suggested_classifications` | `list_classification_suggestions` → `update_suggestion_status` → `prepare_classification_update_plan` → `apply_classification_update_plan` |
+| `doe_enrich_model` | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan` |
+
+Compatibilité préservée : aucun client MCP existant n'est cassé. Politique
+de suppression progressive (N → N+1 → N+2) documentée dans
+[docs/migration_prepare_apply.md](docs/migration_prepare_apply.md).
+
+### Documentation
+
+- [docs/mcp_tools.md](docs/mcp_tools.md) — référence des 46 tools (statut,
+  R/W, confirm requis, remplaçant, risque métier).
+- [docs/migration_prepare_apply.md](docs/migration_prepare_apply.md) —
+  guide migration avec exemples avant/après pour les 5 tools dépréciés.
+- [docs/workflow_amo_bim.md](docs/workflow_amo_bim.md) — workflow AMO BIM
+  cible (12 étapes + sous-workflow DOE 4 étapes), diagramme Mermaid,
+  politique de non-investissement sur `suggest_classifications`.
+
+### Tests
+
+- **+148 tests** (478 → 689) couvrant : domain filters, suggestion store,
+  query filtering, MCP filter tools, plans (SHA-256 + sandbox), write
+  journal, redaction secrets, 4 planners, classifier applier (linked/failed
+  uuids), MCP prepare/apply tools, deprecation helpers, legacy wrappers,
+  workflow E2E non destructif.
+- `tests/integration/test_workflow_amo_bim_e2e.py` — **garde-fou
+  architectural** : si une régression ré-introduit une écriture BIMData
+  hors du pattern `prepare → apply(confirm=True)`, ce test échoue.
+
+### PRs incluses
+
+- #8 [feat: couche domain/query + pattern prepare/apply (2 tranches)](https://github.com/Slimouzi/audit-bim-i3f/pull/8)
+- #9 [refactor(mcp): clean deprecated tools around prepare-apply workflow](https://github.com/Slimouzi/audit-bim-i3f/pull/9)
+- #10 [feat(workflow): stabilisation AMO BIM — fix marker empty list + guide + test E2E](https://github.com/Slimouzi/audit-bim-i3f/pull/10)
+- #11 [feat(doe): pattern prepare/apply pour l'enrichissement DOE → IFC](https://github.com/Slimouzi/audit-bim-i3f/pull/11)
+
 ## [0.1.0] — 2026-05-24
 
 Première version publiable du MCP `audit-bim-i3f`.
