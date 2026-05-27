@@ -957,13 +957,37 @@ def full_audit(
     if access_token:
         ensure_access_token_param_allowed()
 
+    # Phase effective : l'argument ``phase`` peut être un défaut hérité
+    # de la signature ("PRO") qui ne reflète pas la phase active posée
+    # par un ``set_active_model`` précédent. Quand aucun ID n'est
+    # fourni et qu'une cible est déjà configurée, on veut que la
+    # validation contexte ET le contexte Word reflètent la **phase
+    # réelle de l'audit**, pas le défaut ``"PRO"``. Règle :
+    #
+    #   - si l'appelant a passé ``phase`` explicitement non-vide
+    #     **et** différent du défaut "PRO" → cet argument gagne ;
+    #   - sinon, si ``_State.phase`` est posée → on l'utilise ;
+    #   - sinon, fallback "PRO".
+    #
+    # Note : on ne peut pas distinguer "PRO" explicite vs "PRO" par
+    # défaut au niveau Python (signature ``phase: str = "PRO"``). On
+    # privilégie donc ``_State.phase`` quand l'argument vaut "PRO" et
+    # qu'une phase active existe — c'est ce que l'auditeur attend dans
+    # le scénario de préservation de cible.
+    if phase and phase.upper() != "PRO":
+        effective_phase = phase
+    elif _State.phase is not None:
+        effective_phase = _State.phase.value
+    else:
+        effective_phase = phase or "PRO"
+
     # Validation contexte projet AVANT toute exécution coûteuse :
     # adresse + phase + nom auditeur sont obligatoires pour un livrable
     # AMO BIM exploitable. Si une info manque et ``confirm_context``
     # n'est pas True, on refuse en posant des questions structurées.
     context_refusal = _validate_audit_context(
         project_address=project_address,
-        project_phase=phase,
+        project_phase=effective_phase,
         auditor_name=auditor_name,
         confirm_context=confirm_context,
     )
@@ -1001,14 +1025,46 @@ def full_audit(
         naming_spec_xlsx=_State.naming_spec_xlsx,
     )
 
-    # 2. Cible
-    set_active_model(
-        cloud_id=cloud_id,
-        project_id=project_id,
-        model_id=model_id,
-        phase=phase,
-        access_token=access_token,
-    )
+    # 2. Cible — politique de préservation :
+    #   - si l'appelant a fourni au moins un ID → ``set_active_model``
+    #     explicite (l'utilisateur veut changer / poser la cible) ;
+    #   - sinon, si une cible est déjà active en session
+    #     (``_State.client``), on la **garde** ;
+    #   - sinon (pas de client en session, pas d'ID fourni) →
+    #     fallback ``.env`` via ``set_active_model``.
+    #
+    # Sans ce garde, un appel ``full_audit()`` (ou avec
+    # ``model_id=None``) **écrasait silencieusement** la cible posée par
+    # un précédent ``set_active_model`` + ``verify_active_model`` avec
+    # le ``BIMDATA_MODEL_ID`` du ``.env``. Risque concret : l'auditeur
+    # vérifie la bonne maquette puis se fait re-router sur l'ancienne
+    # cible de l'environnement.
+    # ``effective_phase`` est résolu en BIMPhase ici pour pouvoir
+    # l'aligner sur ``_State.phase`` ci-dessous (cible préservée). On
+    # passe en majuscules par robustesse vs entrée utilisateur.
+    effective_bim_phase = BIMPhase(effective_phase.upper())
+
+    explicit_target = any(v is not None for v in (cloud_id, project_id, model_id))
+    if explicit_target or _State.client is None:
+        set_active_model(
+            cloud_id=cloud_id,
+            project_id=project_id,
+            model_id=model_id,
+            phase=effective_phase,
+            access_token=access_token,
+        )
+    else:
+        # Cible préservée. On ne réinitialise ni le client BIMData, ni
+        # le ``_State.snapshot`` (déjà chargé par verify_active_model).
+        # En revanche, on **aligne ``_State.phase`` sur
+        # ``effective_bim_phase``** pour garder l'état session
+        # cohérent. Sans ce réalignement, un appel
+        # ``full_audit(phase="DCE", model_id=None)`` après
+        # ``set_active_model(phase="AVP")`` ferait tourner
+        # ``run_audit`` sur AVP (qui lit ``_State.phase``) tandis que
+        # le rapport serait étiqueté DCE — divergence audit/rapport
+        # silencieuse.
+        _State.phase = effective_bim_phase
 
     # 3. Snapshot — refresh forcé par défaut pour éviter d'auditer une
     # version périmée en cache. On garde une porte de sortie pour les
@@ -1055,7 +1111,7 @@ def full_audit(
     full_ctx = merge_user_context(
         base_ctx,
         project_address=project_address,
-        project_phase=phase,
+        project_phase=effective_phase,
         auditor_name=auditor_name,
     )
 
