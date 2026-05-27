@@ -101,7 +101,7 @@ class TestFullAuditPreservesActiveTarget:
             patch.object(mcp_server, "build_catalog"),
             patch.object(mcp_server, "set_active_model") as m_set,
             patch.object(mcp_server, "extract_snapshot", return_value=snap),
-            patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
+            patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()) as m_run,
             patch.object(mcp_server, "build_report_context") as m_ctx,
             patch.object(mcp_server, "merge_user_context") as m_merge,
             patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
@@ -124,6 +124,17 @@ class TestFullAuditPreservesActiveTarget:
 
             # **Vérification clé** : set_active_model n'a PAS été appelé.
             m_set.assert_not_called()
+
+            # run_audit a tourné avec la **phase active DOE**, pas le
+            # défaut "PRO" du paramètre.
+            m_run.assert_called_once()
+            assert m_run.call_args.args[2] == BIMPhase.DOE
+
+            # merge_user_context a reçu project_phase="DOE" — sinon le
+            # rapport Word afficherait PRO alors que l'audit a tourné
+            # en DOE (le bug que ce fix corrige).
+            m_merge.assert_called_once()
+            assert m_merge.call_args.kwargs["project_phase"] == "DOE"
 
         # Cible préservée — on n'est pas revenu sur les valeurs .env.
         assert _isolated_session.client.model_id == "1673781"
@@ -238,3 +249,53 @@ class TestFullAuditPreservesActiveTarget:
             )
 
             m_set.assert_called_once()  # fallback historique préservé
+
+    def test_explicit_phase_overrides_active_state(self, _isolated_session, tmp_path, monkeypatch):
+        """Si l'appelant passe ``phase=...`` explicitement et que cette
+        valeur diffère du défaut "PRO", elle gagne sur ``_State.phase``.
+        Évite que le bypass "préserver la phase active" piège un
+        utilisateur qui voulait délibérément changer de phase audit
+        (cas légitime : passage AVP → PRO d'une même cible).
+        """
+        _isolated_session.client = _FakeClient(model_id="1673781")
+        _isolated_session.phase = BIMPhase.AVP  # phase active
+        snap = _snapshot_with_model("maquette.ifc", model_id="1673781")
+        _isolated_session.snapshot = snap
+        monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
+
+        class _FakeAuditResult:
+            findings: list = []
+            snapshot = snap
+
+            def summary(self):
+                return {"n_findings": 0}
+
+        with (
+            patch.object(mcp_server, "build_catalog"),
+            patch.object(mcp_server, "set_active_model") as m_set,
+            patch.object(mcp_server, "extract_snapshot", return_value=snap),
+            patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
+            patch.object(mcp_server, "build_report_context") as m_ctx,
+            patch.object(mcp_server, "merge_user_context") as m_merge,
+            patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
+            patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
+            patch.object(mcp_server, "push_bcf_topics", return_value=[]),
+            patch.object(mcp_server, "push_smart_views", return_value=[]),
+        ):
+            m_ctx.return_value = object()
+            m_merge.return_value = object()
+
+            mcp_server.full_audit(
+                cloud_id=None,
+                project_id=None,
+                model_id=None,
+                phase="DCE",  # explicite, différent de PRO et de AVP
+                push_mode="none",
+                output_dir=str(tmp_path),
+                confirm_context=True,
+            )
+
+            # Cible toujours préservée (pas d'IDs fournis).
+            m_set.assert_not_called()
+            # Mais la phase explicite DCE gagne sur AVP pour le contexte.
+            assert m_merge.call_args.kwargs["project_phase"] == "DCE"
