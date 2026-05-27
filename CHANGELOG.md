@@ -7,6 +7,67 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-05-26
+
+Patch de sécurité opérationnelle : ``full_audit`` ne corrompt plus la
+cible active ni la phase de l'audit quand il est invoqué sans IDs ou
+sans phase.
+
+### Fixed
+
+#### `full_audit` préserve la cible active (PR #22)
+
+- **Bug** : ``full_audit(model_id=None)`` appelait inconditionnellement
+  ``set_active_model(model_id=None)`` qui retombait sur
+  ``config.MODEL_ID`` (lu depuis ``.env``). Conséquence concrète :
+  après ``set_active_model(model_id="1673781")`` +
+  ``verify_active_model(...)`` OK, un ``full_audit()`` écrasait
+  silencieusement la cible avec le ``BIMDATA_MODEL_ID`` d'environnement
+  → rapport généré sur la mauvaise maquette **malgré la vérification
+  d'identité**.
+- **Politique de préservation appliquée** :
+  - IDs explicites (au moins un de ``cloud_id/project_id/model_id``)
+    → ``set_active_model`` appelé (re-targeting volontaire).
+  - Aucun ID + ``_State.client`` présent → cible préservée, pas de
+    ``set_active_model``.
+  - Aucun ID + pas de client → fallback ``.env`` (comportement
+    historique des sessions fraîches).
+
+#### `full_audit` propage la phase active (PR #22, follow-up CTO)
+
+- **Bug** : la phase locale (argument ``phase: str = "PRO"`` de
+  signature) était propagée à ``_validate_audit_context``,
+  ``run_audit`` et ``merge_user_context``, même quand
+  ``_State.phase`` avait été posée précédemment par
+  ``set_active_model(phase="DOE")``. Le rapport Word affichait alors
+  "PRO" alors que l'audit avait tourné en DOE.
+- **Fix** : calcul d'une ``effective_phase`` au début de
+  ``full_audit`` :
+  - argument ``phase`` explicite non-"PRO" → gagne ;
+  - sinon ``_State.phase`` si posée → on l'utilise ;
+  - sinon fallback "PRO".
+- ``effective_phase`` est propagée à la validation de contexte, à
+  ``set_active_model`` (lors du re-targeting), et à
+  ``merge_user_context`` (contexte Word).
+- Quand la cible est préservée, ``_State.phase`` est désormais
+  **alignée** sur ``effective_phase`` (au lieu de n'être mise à jour
+  que si ``None``) — élimine la divergence audit/rapport quand un
+  ``full_audit(phase="DCE")`` est appelé après
+  ``set_active_model(phase="AVP")``.
+
+### Tests
+
+- **+4 tests unitaires** (``tests/unit/test_mcp_full_audit_target.py``) :
+  - préservation cible quand aucun ID fourni (scénario CTO complet,
+    vérifie que ``set_active_model`` n'est pas appelé et que les IDs
+    de session restent intacts face à un ``.env`` piège) ;
+  - re-targeting explicite via IDs fournis ;
+  - fallback ``.env`` quand session vierge ;
+  - cohérence triple ``run_audit`` / ``merge_user_context`` /
+    ``_State.phase`` quand ``phase`` est explicite et différente de
+    ``_State.phase``.
+- Suite unit : 835 → **839 passed**.
+
 ## [0.4.0] — 2026-05-26
 
 Release de durcissement du pipeline d'audit (verrou d'identité du
