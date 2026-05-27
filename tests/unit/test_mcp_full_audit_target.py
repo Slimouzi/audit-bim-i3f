@@ -274,7 +274,7 @@ class TestFullAuditPreservesActiveTarget:
             patch.object(mcp_server, "build_catalog"),
             patch.object(mcp_server, "set_active_model") as m_set,
             patch.object(mcp_server, "extract_snapshot", return_value=snap),
-            patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
+            patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()) as m_run,
             patch.object(mcp_server, "build_report_context") as m_ctx,
             patch.object(mcp_server, "merge_user_context") as m_merge,
             patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
@@ -297,5 +297,14 @@ class TestFullAuditPreservesActiveTarget:
 
             # Cible toujours préservée (pas d'IDs fournis).
             m_set.assert_not_called()
-            # Mais la phase explicite DCE gagne sur AVP pour le contexte.
+
+            # **Triple cohérence demandée par la revue CTO** : la phase
+            # explicite DCE doit gagner partout — sinon on a une
+            # divergence silencieuse entre l'audit exécuté et le rapport
+            # publié.
+            assert m_run.call_args.args[2] == BIMPhase.DCE
             assert m_merge.call_args.kwargs["project_phase"] == "DCE"
+
+        # _State.phase a été ré-aligné à BIMPhase.DCE pour rester
+        # cohérent avec l'audit qui vient de tourner.
+        assert _isolated_session.phase == BIMPhase.DCE

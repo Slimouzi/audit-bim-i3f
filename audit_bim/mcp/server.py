@@ -1039,6 +1039,11 @@ def full_audit(
     # le ``BIMDATA_MODEL_ID`` du ``.env``. Risque concret : l'auditeur
     # vérifie la bonne maquette puis se fait re-router sur l'ancienne
     # cible de l'environnement.
+    # ``effective_phase`` est résolu en BIMPhase ici pour pouvoir
+    # l'aligner sur ``_State.phase`` ci-dessous (cible préservée). On
+    # passe en majuscules par robustesse vs entrée utilisateur.
+    effective_bim_phase = BIMPhase(effective_phase.upper())
+
     explicit_target = any(v is not None for v in (cloud_id, project_id, model_id))
     if explicit_target or _State.client is None:
         set_active_model(
@@ -1051,11 +1056,15 @@ def full_audit(
     else:
         # Cible préservée. On ne réinitialise ni le client BIMData, ni
         # le ``_State.snapshot`` (déjà chargé par verify_active_model).
-        # ``_State.phase`` reste à la valeur posée précédemment ; on ne
-        # l'écrase avec ``effective_phase`` que si elle n'a jamais été
-        # fixée.
-        if _State.phase is None:
-            _State.phase = BIMPhase(effective_phase.upper())
+        # En revanche, on **aligne ``_State.phase`` sur
+        # ``effective_bim_phase``** pour garder l'état session
+        # cohérent. Sans ce réalignement, un appel
+        # ``full_audit(phase="DCE", model_id=None)`` après
+        # ``set_active_model(phase="AVP")`` ferait tourner
+        # ``run_audit`` sur AVP (qui lit ``_State.phase``) tandis que
+        # le rapport serait étiqueté DCE — divergence audit/rapport
+        # silencieuse.
+        _State.phase = effective_bim_phase
 
     # 3. Snapshot — refresh forcé par défaut pour éviter d'auditer une
     # version périmée en cache. On garde une porte de sortie pour les
