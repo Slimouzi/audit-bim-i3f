@@ -1001,14 +1001,36 @@ def full_audit(
         naming_spec_xlsx=_State.naming_spec_xlsx,
     )
 
-    # 2. Cible
-    set_active_model(
-        cloud_id=cloud_id,
-        project_id=project_id,
-        model_id=model_id,
-        phase=phase,
-        access_token=access_token,
-    )
+    # 2. Cible — politique de préservation :
+    #   - si l'appelant a fourni au moins un ID → ``set_active_model``
+    #     explicite (l'utilisateur veut changer / poser la cible) ;
+    #   - sinon, si une cible est déjà active en session
+    #     (``_State.client``), on la **garde** ;
+    #   - sinon (pas de client en session, pas d'ID fourni) →
+    #     fallback ``.env`` via ``set_active_model``.
+    #
+    # Sans ce garde, un appel ``full_audit()`` (ou avec
+    # ``model_id=None``) **écrasait silencieusement** la cible posée par
+    # un précédent ``set_active_model`` + ``verify_active_model`` avec
+    # le ``BIMDATA_MODEL_ID`` du ``.env``. Risque concret : l'auditeur
+    # vérifie la bonne maquette puis se fait re-router sur l'ancienne
+    # cible de l'environnement.
+    explicit_target = any(v is not None for v in (cloud_id, project_id, model_id))
+    if explicit_target or _State.client is None:
+        set_active_model(
+            cloud_id=cloud_id,
+            project_id=project_id,
+            model_id=model_id,
+            phase=phase,
+            access_token=access_token,
+        )
+    else:
+        # Cible préservée. On ne réinitialise ni le client BIMData, ni
+        # le ``_State.snapshot`` (déjà chargé par verify_active_model).
+        # ``phase`` reste à la valeur posée précédemment ; on ne l'écrase
+        # avec le défaut ``"PRO"`` que si elle n'a jamais été fixée.
+        if _State.phase is None:
+            _State.phase = BIMPhase(phase.upper())
 
     # 3. Snapshot — refresh forcé par défaut pour éviter d'auditer une
     # version périmée en cache. On garde une porte de sortie pour les
