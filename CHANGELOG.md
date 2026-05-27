@@ -55,6 +55,19 @@ sans phase.
   ``full_audit(phase="DCE")`` est appelé après
   ``set_active_model(phase="AVP")``.
 
+#### `audit_bim.__version__` lu depuis les métadonnées du package
+
+- **Bug historique** : ``audit_bim/__init__.py`` exposait
+  ``__version__ = "0.1.0"`` codé en dur depuis l'origine du projet,
+  jamais resynchronisé avec ``pyproject.toml`` (qui a déjà été bumpé
+  à 0.2.x / 0.3.0 / 0.4.0 sans toucher ``__init__.py``).
+- **Fix** : lecture dynamique via
+  ``importlib.metadata.version("audit-bim-i3f")``. Source unique de
+  vérité = ``pyproject.toml``. Les futures bumps n'ont plus à
+  toucher deux fichiers. Fallback explicite
+  ``"0.0.0+unknown"`` en cas de lecture du source sans
+  ``pip install`` (CI exotique).
+
 ### Tests
 
 - **+4 tests unitaires** (``tests/unit/test_mcp_full_audit_target.py``) :
