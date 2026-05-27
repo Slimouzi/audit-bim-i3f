@@ -144,7 +144,7 @@ jobs:
       - name: Check artifacts with twine
         run: twine check dist/*
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
