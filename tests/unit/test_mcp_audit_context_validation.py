@@ -288,10 +288,8 @@ class TestWordReportSourceMarking:
             auditor_name="Jean DUPONT (BET Acme)",
         )
         text = _doc_text(tmp_path / "rapport.docx")
-        # Page de garde
-        assert "Auditeur : Jean DUPONT (BET Acme)" in text
-        # Section Contexte de la mission (ligne « Auditeur : ... »)
-        assert text.count("Jean DUPONT") >= 2
+        # Page de garde : ligne « Auteur : ... »
+        assert "Auteur : Jean DUPONT (BET Acme)" in text
 
     def test_phase_user_provided_displayed_correctly(self, _isolated, tmp_path):
         sess, _ = _isolated
@@ -321,17 +319,18 @@ class TestEnrichedSectionsStillPresent:
             auditor_name="Stan",
         )
         text = _doc_text(tmp_path / "rapport.docx")
-        # Les 6 sections enrichies + les sections classiques
+        # Sections du modèle de rapport de conformité (structure 0.3)
         for section in (
-            "Contexte de la mission",
-            "Description du projet",
-            "Référentiels et documents",
-            "Attendus du projet",
-            "Objectifs BIM",
-            "Liste des contrôles réalisés",
-            "Synthèse par thème",
-            "Recommandations AMO BIM",
-            "Annexes",
+            "2. Synthèse exécutive",
+            "3. Périmètre de l'audit",
+            "Maquette auditée",
+            "4. Méthodologie",
+            "5. Résultats globaux",
+            "6. Résultats détaillés",
+            "7. Liste des non-conformités",
+            "8. Recommandations",
+            "9. Conclusion",
+            "10. Annexes",
         ):
             assert section in text, f"section manquante dans le rapport : {section!r}"
 

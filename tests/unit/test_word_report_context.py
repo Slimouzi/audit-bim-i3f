@@ -84,20 +84,36 @@ def _doc_text(path: str) -> str:
 
 class TestWordReportContextSections:
     def test_all_new_sections_present(self, tmp_path):
-        """Le rapport Word doit contenir les 6 nouvelles sections + la
-        section "Informations non disponibles" (déclenchée par les
-        données manquantes typiques d'un AuditResult minimal)."""
+        """Le rapport Word doit contenir les 9 sections numérotées du
+        modèle de rapport de conformité + la mention "Informations non
+        disponibles" (déclenchée par les données manquantes typiques
+        d'un AuditResult minimal)."""
         out = tmp_path / "report.docx"
         write_word_report(_result(), output_path=out, auditor="Test AMO")
         assert out.exists()
         text = _doc_text(str(out))
 
-        # Titres obligatoires
-        assert "Contexte de la mission" in text
-        assert "Description du projet" in text
-        assert "Attendus du projet" in text
-        assert "Objectifs BIM" in text
-        assert "Liste des contrôles réalisés" in text
+        # Titres obligatoires (structure refondue 0.3)
+        for heading in (
+            "2. Synthèse exécutive",
+            "3. Périmètre de l'audit",
+            "4. Méthodologie",
+            "5. Résultats globaux",
+            "6. Résultats détaillés",
+            "7. Liste des non-conformités",
+            "8. Recommandations",
+            "9. Conclusion",
+            "10. Annexes",
+        ):
+            assert heading in text, f"Section manquante : {heading}"
+        # Sous-sections 6.x du détail
+        for sub in ("6.1 Structure", "6.3 Classification", "6.7 Détection des conflits"):
+            assert sub in text, f"Sous-section manquante : {sub}"
+        # Page de garde : titre du rapport + référence CCBIM
+        assert "Rapport d'audit de conformité de la maquette numérique" in text
+        assert "Référence du CCBIM utilisé" in text
+        # Décision d'acceptation présente
+        assert "Décision finale" in text
         # Le contexte d'un projet minimal déclenche au moins une mention
         # manquante (description / MOA / adresse / objectifs).
         assert (
@@ -123,7 +139,7 @@ class TestWordReportContextSections:
         write_word_report(result, output_path=out, context=ctx)
         assert out.exists()
         text = _doc_text(str(out))
-        assert "Contexte de la mission" in text
+        assert "3. Périmètre de l'audit" in text
 
     def test_does_not_raise_when_no_findings(self, tmp_path):
         """Génération sans findings ne doit pas planter (la section
@@ -142,7 +158,7 @@ class TestWordReportContextSections:
         assert out.exists()
 
     def test_controls_table_has_expected_themes(self, tmp_path):
-        """La table des contrôles doit contenir au moins
+        """La table des contrôles (Méthodologie) doit contenir au moins
         Classification, Nommage, Propriétés, Spatial."""
         out = tmp_path / "report.docx"
         write_word_report(_result(), output_path=out)
@@ -153,74 +169,34 @@ class TestWordReportContextSections:
         assert "Propriétés attendues" in text
         assert "Hiérarchie spatiale" in text
 
-    def test_bim_objectives_keyword_propagates_to_doc(self, tmp_path):
-        """Si la description du projet contient des mots-clés BIM,
-        ils doivent apparaître dans la section Objectifs BIM."""
+    def test_out_of_scope_controls_flagged_not_conforming(self, tmp_path):
+        """Les familles de contrôles non couvertes (cohérence métier,
+        détection de conflits) doivent être explicitement signalées comme
+        hors périmètre — jamais présentées comme conformes."""
+        out = tmp_path / "report.docx"
+        write_word_report(_result(), output_path=out)
+        text = _doc_text(str(out))
+        assert "6.6 Cohérence métier" in text
+        assert "6.7 Détection des conflits" in text
+        assert "Contrôle non réalisé dans le périmètre" in text
+
+    def test_decision_reflects_severity(self, tmp_path):
+        """Une non-conformité critique force une décision « Refusée »."""
         result = _result(
-            project={
-                "name": "Programme Test",
-                "description": (
-                    "Programme social orienté DOE numérique et exploitation patrimoniale."
-                ),
-            }
+            findings=[
+                Finding(
+                    theme=Theme.CLASSIFICATION,
+                    severity=Severity.CRITICAL,
+                    error_type=ErrorType.CLASSIFICATION_MISSING,
+                    element_uuid="C1",
+                    ifc_type="IfcWall",
+                )
+            ]
         )
         out = tmp_path / "report.docx"
         write_word_report(result, output_path=out)
         text = _doc_text(str(out))
-        assert "DOE numérique" in text
-        assert "Exploitation patrimoniale" in text
-
-    def test_bim_objectives_fallback_message_when_absent(self, tmp_path):
-        """Sans mots-clés détectés, message explicite "Aucun objectif
-        BIM explicite" — et SURTOUT pas de termes inventés.
-
-        Garde-fou review CTO PR #16 : le rapport ne doit JAMAIS introduire
-        d'intention BIM (DOE numérique / exploitation / maintenance /
-        fiabilisation patrimoniale) dans le fallback. Si les objectifs
-        sont absents, on reste factuel.
-        """
-        out = tmp_path / "report.docx"
-        write_word_report(_result(project={"name": "Anonyme"}), output_path=out)
-        text = _doc_text(str(out))
-        # Section présente, message factuel.
-        assert "Aucun objectif BIM explicite" in text
-        assert (
-            "limité à la vérification de conformité" in text
-            or "limite a la verification de conformite" in text  # fallback sans accents
-        )
-
-        # ── Termes hallucinés interdits dans la SECTION Objectifs BIM ──
-        # On localise la section pour ne pas faire un check global sur
-        # tout le doc (les termes "maintenance", "DOE" peuvent
-        # légitimement apparaître ailleurs : preset DOE, contrôles, etc.)
-        from docx import Document
-
-        doc = Document(str(out))
-        in_section = False
-        section_paragraphs: list[str] = []
-        for para in doc.paragraphs:
-            t = para.text.strip()
-            if "Objectifs BIM" in t and "6." in t:
-                in_section = True
-                continue
-            if in_section and t.startswith("7."):
-                break
-            if in_section:
-                section_paragraphs.append(t)
-        section_text = " ".join(section_paragraphs)
-
-        forbidden_in_section = [
-            "DOE numérique",
-            "exploitation",
-            "maintenance",
-            "fiabilisation patrimoniale",
-            "intention de fiabilisation",
-        ]
-        for term in forbidden_in_section:
-            assert term not in section_text, (
-                f"Hallucination interdite : « {term} » présent dans la section "
-                f"Objectifs BIM alors qu'aucun objectif n'est explicite."
-            )
+        assert "Refusée" in text
 
 
 class TestWordReportBackwardsCompat:
