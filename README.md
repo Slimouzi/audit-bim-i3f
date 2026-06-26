@@ -97,6 +97,47 @@ python -m audit_bim.mcp --transport sse   --port 8765   # Server-Sent Events
 python -m audit_bim.mcp --transport streamable-http --port 8765
 ```
 
+## Page de configuration client (`/mcp-setup`)
+
+Sous transport HTTP, le serveur sert une **page web légère** où un client
+saisit ses credentials BIMData, teste la connexion, puis prépare une
+**session MCP crédentialée** — après quoi il pilote l'audit uniquement via
+l'IA/MCP (la page ne contient aucun workflow d'audit).
+
+```bash
+python -m audit_bim.mcp --transport streamable-http --host 127.0.0.1 --port 8765
+# → ouvrir http://127.0.0.1:8765/mcp-setup
+```
+
+Modèle **« endpoint + token »** :
+
+1. Le client saisit clé API + cloud/project/model + phase, **Teste la
+   connexion**, puis **Démarre la session MCP**.
+2. Le backend stocke les credentials **en mémoire serveur** (TTL 1h, jamais
+   sur disque) et remet un **token opaque** (`X-MCP-Session-Token`) — la clé
+   API BIMData n'est **jamais** renvoyée ni à mettre dans la config Claude.
+3. Le client configure son client MCP (ex. Claude Desktop, MCP distant) avec
+   l'endpoint + l'en-tête `X-MCP-Session-Token: <token>`. Les appels d'outils
+   de l'IA se lient alors à la session crédentialée.
+
+Endpoints REST : `POST /api/mcp/test-connection`, `POST /api/mcp/session`,
+`GET /api/mcp/session/status`, `DELETE /api/mcp/session/{session_id}`.
+
+### Deux couches d'authentification (fail-closed)
+
+- **Clé service** (`AUDIT_BIM_API_KEY`) — quand elle est définie, **toutes**
+  les routes `/api/mcp/*` exigent l'en-tête `X-API-Key` (sinon `401`). Sans
+  elle, le serveur est en mode dev ouvert (stdio / local). La page HTML
+  `/mcp-setup` reste accessible (elle ne contient aucun secret).
+- **Token de session** (`X-MCP-Session-Token`) — frontière d'accès aux
+  outils MCP. **Fail-closed par défaut en mode protégé** : dès que
+  `AUDIT_BIM_API_KEY` est défini sur un transport réseau, tout appel d'outil
+  **exige** un token de session valide (inutile de poser un flag). Override
+  explicite possible via `AUDIT_BIM_REQUIRE_SESSION_TOKEN=true|false` ; un
+  token *présent mais invalide/expiré* est de toute façon **toujours** refusé.
+  En `production`, repasser ce flag à `false` derrière une clé service est
+  **refusé au démarrage**. Ce token est **distinct** d'`AUDIT_BIM_API_KEY`.
+
 ## Vérifier la bonne maquette avant audit
 
 `set_active_model` invalide bien `_State.snapshot` (ligne 318 de

@@ -51,6 +51,8 @@ ENV_NAME_ENV = "AUDIT_BIM_ENV"
 ALLOW_WRITES_ENV = "AUDIT_BIM_ALLOW_WRITES"
 ALLOW_UNBOUNDED_INPUTS_ENV = "AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS"
 ALLOW_ACCESS_TOKEN_PARAM_ENV = "AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM"
+# Enforcement du token de session crédentialée (façade /mcp-setup, couche 3).
+REQUIRE_SESSION_TOKEN_ENV = "AUDIT_BIM_REQUIRE_SESSION_TOKEN"
 
 # Transport configuré au démarrage (cf. :func:`set_runtime_transport`).
 # ``None`` = stdio par défaut (tests, scripts, imports directs hors
@@ -248,6 +250,27 @@ def assert_startup_config(*, transport: str, host: str | None = None) -> None:
             "ou opter explicitement pour le mode permissif via "
             "AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true (déconseillé sans "
             "garde-fou filesystem côté infra)."
+        )
+
+    # Mode hébergé : l'enforcement du token de session (façade /mcp-setup)
+    # est fail-closed par défaut dès qu'une clé service est en place. On
+    # refuse de démarrer si l'opérateur l'a explicitement DÉSACTIVÉ en
+    # production alors qu'une clé service protège le serveur — sinon des
+    # clients ayant la clé service pourraient appeler les outils sans
+    # session crédentialée (le token cesse d'être la frontière d'accès).
+    require_token_raw = os.getenv(REQUIRE_SESSION_TOKEN_ENV)
+    if (
+        is_prod()
+        and os.getenv(API_KEY_ENV)
+        and require_token_raw is not None
+        and not _is_truthy(require_token_raw)
+    ):
+        raise RuntimeError(
+            "AUDIT_BIM_REQUIRE_SESSION_TOKEN=false en production sur un "
+            "transport réseau protégé par AUDIT_BIM_API_KEY — refus de "
+            "démarrer. Le token de session crédentialée (/mcp-setup) doit "
+            "rester obligatoire en mode hébergé. Retirer ce flag (défaut "
+            "fail-closed) ou repasser à true."
         )
 
     if host == "0.0.0.0" and not is_prod():

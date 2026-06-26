@@ -7,6 +7,40 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added
+
+#### Page web « MCP Client Setup » (`/mcp-setup`)
+
+- Façade web légère servie par le serveur MCP sous transport HTTP : un
+  client saisit ses credentials BIMData, teste la connexion, puis prépare
+  une **session MCP crédentialée**. La page **ne contient aucun** workflow
+  d'audit — l'audit reste piloté par l'IA via MCP.
+- Modèle **« endpoint + token »** en 3 couches distinctes :
+  - `audit_bim/web/setup.py` (couche 1) — page HTML statique (tokens
+    BIMData) + API REST : `POST /api/mcp/test-connection`,
+    `POST /api/mcp/session`, `GET /api/mcp/session/status`,
+    `DELETE /api/mcp/session/{session_id}`.
+  - `audit_bim/mcp/session_credentials.py` (couche 2) — store de
+    credentials **en mémoire** (TTL 1h), token opaque
+    `secrets.token_urlsafe`, **hash SHA-256** du secret (jamais le brut),
+    vérification temps constant, révocation.
+  - `McpSessionTokenMiddleware` (couche 3) — lie la session crédentialée
+    via l'en-tête `X-MCP-Session-Token` ; **fail closed** sur token
+    invalide/expiré. **Fail-closed par défaut en mode protégé** : dès
+    qu'`AUDIT_BIM_API_KEY` est défini sur transport réseau, le token
+    devient obligatoire (override `AUDIT_BIM_REQUIRE_SESSION_TOKEN`) ;
+    désactivation refusée au démarrage en production. Compose avec
+    `ApiKeyMiddleware` ; token client **distinct** d'`AUDIT_BIM_API_KEY`.
+- **Guard clé service sur les routes `/api/mcp/*`** : quand
+  `AUDIT_BIM_API_KEY` est défini, chaque route REST exige `X-API-Key`
+  (sinon `401`) — les custom routes ne contournent plus le guard
+  d'`ApiKeyMiddleware` (limité à l'`initialize`).
+- `BIMDataClient(api_key=…)` : clé API **par instance** (isolation
+  multi-session, sans muter le `config` global).
+- Sécurité : aucune réponse ne renvoie `BIMDATA_API_KEY` ; pas de
+  `localStorage` ; pas de secret/token dans l'URL ni dans les logs
+  (redaction via `scrub`). Template HTML livré en package-data.
+
 ### Changed
 
 #### Rebrand des livrables vers la charte BIMData

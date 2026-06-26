@@ -20,10 +20,76 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 
-from .security import API_KEY_ENV, verify_api_key
-from .session import _store, current_session
+from ..extraction.client import BIMDataClient
+from .security import (
+    API_KEY_ENV,
+    REQUIRE_SESSION_TOKEN_ENV,
+    _is_network_transport,
+    _is_truthy,
+    verify_api_key,
+)
+from .security import scrub as _scrub
+from .session import _Session, _store, current_session
+from .session_credentials import CredentialError, _Record, get_store
 
 logger = logging.getLogger("audit_bim.mcp.middleware")
+
+# En-tête porteur du token de session crédentialée (façade ``/mcp-setup``).
+# Distinct de ``X-API-Key`` (guard opérateur ``AUDIT_BIM_API_KEY``).
+SESSION_TOKEN_HEADER = "x-mcp-session-token"
+
+
+def _raw_session_token() -> str | None:
+    """Lit l'en-tête ``X-MCP-Session-Token`` de la requête HTTP courante."""
+    try:
+        headers = get_http_headers(include_all=True)
+    except Exception:
+        return None
+    return headers.get(SESSION_TOKEN_HEADER)
+
+
+def _require_session_token() -> bool:
+    """Faut-il refuser un appel d'outil sans token de session valide ?
+
+    Politique **fail-closed par défaut en mode protégé** :
+
+    - hors transport réseau (stdio) → jamais (``False``).
+    - ``AUDIT_BIM_REQUIRE_SESSION_TOKEN`` défini explicitement → honoré.
+    - sinon → ``True`` dès qu'``AUDIT_BIM_API_KEY`` est défini (déploiement
+      HTTP protégé / hébergé : le token EST la frontière d'accès aux
+      outils) ; ``False`` pour un HTTP RPC legacy sans clé service.
+
+    Un token *présent mais invalide/expiré* est de toute façon toujours
+    refusé en amont (``McpSessionTokenMiddleware._dispatch``).
+    """
+    if not _is_network_transport():
+        return False
+    raw = os.getenv(REQUIRE_SESSION_TOKEN_ENV)
+    if raw is not None:
+        return _is_truthy(raw)
+    return bool(os.getenv(API_KEY_ENV))
+
+
+def _build_credentialed_session(rec: _Record) -> _Session:
+    """Fabrique un ``_Session`` à partir d'un record crédentialé.
+
+    Le client BIMData reçoit la clé API **par instance** (pas de mutation
+    du ``config`` global) — cf. ``BIMDataClient(api_key=...)``.
+    """
+    s = _Session()
+    s.cloud_id = rec.cloud_id
+    s.project_id = rec.project_id
+    s.model_id = rec.model_id
+    s.phase = rec.phase
+    s.auditor_name = rec.auditor_name
+    s.project_address = rec.project_address
+    s.client = BIMDataClient(
+        api_key=rec.api_key,
+        cloud_id=rec.cloud_id,
+        project_id=rec.project_id,
+        model_id=rec.model_id,
+    )
+    return s
 
 
 class SessionBindingMiddleware(Middleware):
@@ -40,34 +106,28 @@ class SessionBindingMiddleware(Middleware):
     def _session_key(ctx) -> str:
         return getattr(ctx, "session_id", None) or getattr(ctx, "client_id", None) or "default"
 
-    async def on_call_tool(self, context: MiddlewareContext, call_next):
+    async def _bind(self, context: MiddlewareContext, call_next):
+        # Si un token de session crédentialée est présent, on **cède** la
+        # liaison à ``McpSessionTokenMiddleware`` (ordre-indépendant : peu
+        # importe lequel s'exécute en premier, la session crédentialée
+        # n'est jamais écrasée par la session générique vide).
+        if _raw_session_token():
+            return await call_next(context)
         ctx = context.fastmcp_context
-        key = self._session_key(ctx)
-        session = _store.get(key)
-        token = current_session.set(session)
+        token = current_session.set(_store.get(self._session_key(ctx)))
         try:
             return await call_next(context)
         finally:
             current_session.reset(token)
 
-    # Idem pour les autres handlers qui peuvent toucher à l'état (prompts,
-    # resources). On copie le pattern par cohérence.
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        return await self._bind(context, call_next)
 
     async def on_get_prompt(self, context: MiddlewareContext, call_next):
-        ctx = context.fastmcp_context
-        token = current_session.set(_store.get(self._session_key(ctx)))
-        try:
-            return await call_next(context)
-        finally:
-            current_session.reset(token)
+        return await self._bind(context, call_next)
 
     async def on_read_resource(self, context: MiddlewareContext, call_next):
-        ctx = context.fastmcp_context
-        token = current_session.set(_store.get(self._session_key(ctx)))
-        try:
-            return await call_next(context)
-        finally:
-            current_session.reset(token)
+        return await self._bind(context, call_next)
 
 
 class ApiKeyMiddleware(Middleware):
@@ -125,3 +185,64 @@ class ApiKeyMiddleware(Middleware):
             return None
         # headers est dict[str, str] avec clés normalisées en minuscules.
         return headers.get("x-api-key")
+
+
+class McpSessionTokenMiddleware(Middleware):
+    """Lie une session crédentialée (page ``/mcp-setup``) via en-tête token.
+
+    Couche 3 du modèle « endpoint + token » : le client MCP présente
+    ``X-MCP-Session-Token: <session_id>.<secret>`` ; ce middleware résout le
+    token vers les credentials BIMData stockés côté serveur
+    (:mod:`audit_bim.mcp.session_credentials`) et lie ``current_session`` à
+    la session crédentialée pour la durée de l'appel.
+
+    **Politique (fail closed)** :
+
+    - token **présent et invalide/expiré** → refus (``ToolError``), toujours.
+    - token **présent et valide** → bind de la session crédentialée.
+    - token **absent** → refus dès que le token est *requis*, sinon
+      pass-through (stdio / env / legacy). Le caractère requis est décidé
+      par :func:`_require_session_token` : sur transport réseau, le token
+      est obligatoire **par défaut en mode protégé** (dès qu'``AUDIT_BIM_API_KEY``
+      est défini), ou si ``AUDIT_BIM_REQUIRE_SESSION_TOKEN`` l'impose
+      explicitement.
+
+    Ce middleware **n'est pas** un remplacement d'``ApiKeyMiddleware`` (guard
+    opérateur ``AUDIT_BIM_API_KEY`` à l'``initialize``) : les deux couches
+    composent. Le token client est **distinct** d'``AUDIT_BIM_API_KEY``.
+    """
+
+    async def _dispatch(self, context: MiddlewareContext, call_next):
+        raw = _raw_session_token()
+        if not raw:
+            if _require_session_token():
+                logger.warning("mcp tool refused: missing X-MCP-Session-Token")
+                raise ToolError(
+                    "Session MCP requise : en-tête X-MCP-Session-Token absent. "
+                    "Configurez une session via /mcp-setup."
+                )
+            return await call_next(context)
+
+        store = get_store()
+        try:
+            rec = store.resolve_token(raw)
+        except CredentialError as exc:
+            # Jamais le token brut dans les logs — uniquement un hash court.
+            logger.warning("mcp tool refused (%s) token=%s", exc, _scrub(raw))
+            raise ToolError(f"Session MCP invalide : {exc}") from exc
+
+        session = store.ensure_mcp_session(rec, lambda: _build_credentialed_session(rec))
+        token = current_session.set(session)
+        try:
+            return await call_next(context)
+        finally:
+            current_session.reset(token)
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        return await self._dispatch(context, call_next)
+
+    async def on_get_prompt(self, context: MiddlewareContext, call_next):
+        return await self._dispatch(context, call_next)
+
+    async def on_read_resource(self, context: MiddlewareContext, call_next):
+        return await self._dispatch(context, call_next)
