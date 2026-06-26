@@ -1,26 +1,35 @@
 """Rapport d'audit Word (livrable AMO BIM I3F).
 
-Structure du document (enrichie depuis 0.2.2) :
+Structure du document (refondue en 0.3 — modèle de rapport de conformité
+de maquette numérique) :
 
 1. Page de garde
-2. Résumé exécutif
-3. Contexte de la mission (NOUVEAU)
-4. Description du projet (NOUVEAU)
-5. Référentiels et documents analysés
-6. Attendus du projet (NOUVEAU)
-7. Objectifs BIM (NOUVEAU)
-8. Liste des contrôles réalisés (NOUVEAU)
-9. Synthèse par thème (camembert + tableau)
-10. Détail des anomalies par thème
-11. Recommandations AMO BIM (enrichies)
-12. Informations non disponibles (NOUVEAU si applicable)
-13. Annexes
+   (Titre, Projet, Maquette auditée, Version, Date, Auteur, Référence CCBIM)
+2. Synthèse exécutive (objectif, niveau de conformité, décision, indicateurs)
+3. Périmètre de l'audit (documents de référence + maquette auditée)
+4. Méthodologie (contrôles réalisés)
+5. Résultats globaux (synthèse par domaine : Conforme / Avertissement / Non conforme)
+6. Résultats détaillés
+   6.1 Structure de la maquette
+   6.2 Qualité des données
+   6.3 Classification
+   6.4 Conventions de nommage
+   6.5 Contrôles géométriques
+   6.6 Cohérence métier
+   6.7 Détection des conflits
+7. Liste des non-conformités
+8. Recommandations (par priorité : Critique / Majeure / Mineure)
+9. Conclusion (conformité globale, points bloquants, décision finale)
+10. Annexes
 
-Les nouvelles sections (3, 4, 6, 7, 8, 12) sont alimentées par
+Les sections contextuelles sont alimentées par
 :class:`audit_bim.reporting.context.ReportProjectContext`. Si aucune
 information n'est disponible pour une section donnée, la mention
 « Information non disponible dans les documents fournis. » est
-affichée — **on n'invente jamais**.
+affichée — **on n'invente jamais**. Les contrôles non couverts par
+l'audit automatisé (géométrie fine, détection de conflits, cohérence
+métier détaillée) sont explicitement signalés comme hors périmètre
+plutôt que présentés comme conformes.
 
 Les graphes sont générés via matplotlib et insérés en PNG.
 """
@@ -28,6 +37,7 @@ Les graphes sont générés via matplotlib et insérés en PNG.
 from __future__ import annotations
 
 import io
+from collections import Counter
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
@@ -45,19 +55,18 @@ from docx.shared import Cm, Pt, RGBColor
 from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity, Theme
 from ..classifier import suggest_for_findings
+from .bimdata_brand import WORDMARK, find_logo
 from .context import ReportProjectContext, build_report_context
-from .korhus_brand import find_logo
 from .theming import (
-    I3F_BLUE,
-    I3F_BLUE_LIGHT,
-    I3F_GREY,
-    KORHUS_FONT_FALLBACK,
-    KORHUS_FONT_PRIMARY,
-    KORHUS_GRANITE_LIGHT,
-    KORHUS_PRIMARY,
-    KORHUS_SECONDARY,
-    KORHUS_TERTIARY,
-    KORHUS_WHITE,
+    BIMDATA_BLUE_NEUTRAL_LIGHT,
+    BIMDATA_FONT_FALLBACK,
+    BIMDATA_FONT_PRIMARY,
+    BIMDATA_GRANITE,
+    BIMDATA_GRANITE_LIGHT,
+    BIMDATA_PRIMARY,
+    BIMDATA_SECONDARY,
+    BIMDATA_TERTIARY,
+    BIMDATA_WHITE,
     SEVERITY_COLORS,
     THEME_COLORS,
 )
@@ -65,6 +74,17 @@ from .theming import (
 # Phrase de fallback : utilisée chaque fois qu'une donnée contextuelle
 # manque, pour éviter toute hallucination et garder un ton AMO BIM.
 NOT_AVAILABLE = "Information non disponible dans les documents fournis."
+
+# Mention pour les familles de contrôle non couvertes par l'audit
+# automatisé (géométrie fine, clash detection, cohérence métier
+# détaillée). On ne prétend JAMAIS qu'un contrôle non réalisé est conforme.
+OUT_OF_SCOPE = (
+    "Contrôle non réalisé dans le périmètre de cet audit automatisé "
+    "(hors champ des données exposées par l'API BIMData)."
+)
+
+# Titre principal du livrable (page de garde).
+REPORT_TITLE = "Rapport d'audit de conformité de la maquette numérique"
 
 # Suffixe affiché en fin de valeur pour les données extraites des
 # sources documentaires sans validation utilisateur. Indique au
@@ -92,7 +112,58 @@ def _render_with_source(value: str, source: str) -> str:
 
 
 MAX_FINDINGS_PER_THEME = 25  # cap par thème pour garder un rendu équilibré
+MAX_NONCONFORMITIES = 80  # cap de la table « Liste des non-conformités »
 PIE_OTHER_THRESHOLD = 0.02  # tranches < 2 % regroupées en « Autres »
+
+# ── Mapping sévérité (5 niveaux) → gravité métier (4 niveaux) ──────────────
+# L'échelle métier française du rapport est plus grossière que l'échelle
+# technique du moteur ; on agrège HIGH/MEDIUM côté « Majeure » et LOW côté
+# « Mineure ».
+GRAVITY_FR = {
+    Severity.CRITICAL: "Critique",
+    Severity.HIGH: "Majeure",
+    Severity.MEDIUM: "Majeure",
+    Severity.LOW: "Mineure",
+    Severity.INFO: "Information",
+}
+
+# Une non-conformité « opposable » est une anomalie de gravité au moins
+# MEDIUM. Les LOW/INFO relèvent de l'avertissement qualité.
+NONCONFORMITY_SEVERITIES = {Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM}
+
+# ── Mapping thèmes du moteur → domaines de la synthèse « Résultats globaux »
+# Chaque domaine agrège un ou plusieurs ``Theme`` du moteur d'audit.
+DOMAINS: list[tuple[str, set[Theme]]] = [
+    ("Structure IFC / hiérarchie spatiale", {Theme.SPATIAL_HIERARCHY}),
+    (
+        "Conventions de nommage",
+        {Theme.NAMING_SITE_BAT_ETAGE, Theme.NAMING_ZONE, Theme.NAMING_SPACE},
+    ),
+    ("Classification", {Theme.CLASSIFICATION}),
+    ("Propriétés (Psets)", {Theme.PROPERTY_MISSING, Theme.PROPERTY_INVALID}),
+    ("Quantités / géométrie", {Theme.QUANTITY}),
+    ("Documents attendus", {Theme.DOCUMENT}),
+]
+
+# Statut domaine → libellé + couleur (charte feux tricolores).
+_STATUS_LABEL = {
+    "conforme": "✔ Conforme",
+    "avertissement": "⚠ Avertissement",
+    "non_conforme": "✖ Non conforme",
+}
+_STATUS_COLOR = {
+    "conforme": "28A745",  # vert
+    "avertissement": "FF8C00",  # orange
+    "non_conforme": "DC3545",  # rouge
+}
+
+# Clés candidates pour extraire les métadonnées modèle depuis le dict
+# BIMData ``get_model`` (les noms varient selon la version de l'API).
+_MODEL_SOFTWARE_KEYS = ("source", "application", "software", "authoring_tool")
+_MODEL_SCHEMA_KEYS = ("schema", "ifc_schema", "ifc_version", "version")
+_MODEL_AUTHOR_KEYS = ("creator", "author", "created_by", "owner")
+_MODEL_DATE_KEYS = ("created_at", "creation_date", "modified_date", "date")
+_MODEL_DISCIPLINE_KEYS = ("type", "discipline", "domain")
 
 
 def _hex_to_rgb(h: str) -> RGBColor:
@@ -109,16 +180,16 @@ def _shade_cell(cell, hex_color: str):
 
 
 def _add_heading(doc: Document, text: str, level: int = 1):
-    """H1/H2/... colorés en Korhus Primary, font Roboto/Arial.
+    """H1/H2/... colorés en BIMData Primary, font Roboto/Arial.
 
-    Pour les H1, on ajoute un filet d'accent cyan (Korhus Secondary)
-    sous le titre — la marque demande explicitement le cyan en accent,
-    pas en couleur dominante.
+    Pour les H1, on ajoute un filet d'accent jaune (BIMData Secondary)
+    sous le titre — la charte BIMData utilise le jaune ``#F9C72C`` comme
+    couleur d'accent, pas comme couleur dominante.
     """
     h = doc.add_heading(text, level=level)
     for run in h.runs:
-        run.font.color.rgb = _hex_to_rgb(KORHUS_PRIMARY)
-        run.font.name = KORHUS_FONT_PRIMARY
+        run.font.color.rgb = _hex_to_rgb(BIMDATA_PRIMARY)
+        run.font.name = BIMDATA_FONT_PRIMARY
         # rFonts est nécessaire pour que Word applique vraiment la
         # police (le nom dans run.font.name ne suffit pas seul).
         rpr = run._element.get_or_add_rPr()
@@ -126,11 +197,11 @@ def _add_heading(doc: Document, text: str, level: int = 1):
         if rfonts is None:
             rfonts = OxmlElement("w:rFonts")
             rpr.append(rfonts)
-        rfonts.set(qn("w:ascii"), KORHUS_FONT_PRIMARY)
-        rfonts.set(qn("w:hAnsi"), KORHUS_FONT_PRIMARY)
-        rfonts.set(qn("w:cs"), KORHUS_FONT_FALLBACK)
+        rfonts.set(qn("w:ascii"), BIMDATA_FONT_PRIMARY)
+        rfonts.set(qn("w:hAnsi"), BIMDATA_FONT_PRIMARY)
+        rfonts.set(qn("w:cs"), BIMDATA_FONT_FALLBACK)
     if level == 1:
-        # Filet d'accent cyan : paragraphe minuscule entièrement shadé.
+        # Filet d.accent jaune : paragraphe minuscule entièrement shadé.
         accent = doc.add_paragraph()
         accent.paragraph_format.space_before = Pt(0)
         accent.paragraph_format.space_after = Pt(6)
@@ -138,7 +209,7 @@ def _add_heading(doc: Document, text: str, level: int = 1):
         shd = OxmlElement("w:shd")
         shd.set(qn("w:val"), "clear")
         shd.set(qn("w:color"), "auto")
-        shd.set(qn("w:fill"), KORHUS_SECONDARY)
+        shd.set(qn("w:fill"), BIMDATA_SECONDARY)
         pPr.append(shd)
         # On force une hauteur de ligne ultra-courte pour obtenir un filet.
         run = accent.add_run(" ")
@@ -258,10 +329,22 @@ def _kpi_table(doc: Document, kpis: list[tuple[str, str]]):
         c1.text = str(v)
         c0.width = Cm(8)
         c1.width = Cm(6)
-        # Colonne libellé sur fond Blue Neutral Light (charte Korhus).
-        _shade_cell(c0, I3F_BLUE_LIGHT)
+        # Colonne libellé sur fond Blue Neutral Light (charte BIMData).
+        _shade_cell(c0, BIMDATA_BLUE_NEUTRAL_LIGHT)
         for run in c0.paragraphs[0].runs:
             run.bold = True
+
+
+def _header_row(tbl, headers: list[str]) -> None:
+    """Peint la ligne d'en-tête d'un tableau (fond I3F Blue, texte blanc)."""
+    cells = tbl.rows[0].cells
+    for i, txt in enumerate(headers):
+        cells[i].text = txt
+        _shade_cell(cells[i], BIMDATA_PRIMARY)
+        for p in cells[i].paragraphs:
+            for r in p.runs:
+                r.font.color.rgb = RGBColor(255, 255, 255)
+                r.bold = True
 
 
 def _findings_table(
@@ -286,14 +369,7 @@ def _findings_table(
     headers = ["Sév.", "Classe IFC", "Élément", "Attendu", "Réel"]
     if with_sug:
         headers += ["Suggestion", "Conf."]
-    hdr = tbl.rows[0].cells
-    for i, txt in enumerate(headers):
-        hdr[i].text = txt
-        _shade_cell(hdr[i], I3F_BLUE)
-        for p in hdr[i].paragraphs:
-            for r in p.runs:
-                r.font.color.rgb = RGBColor(255, 255, 255)
-                r.bold = True
+    _header_row(tbl, headers)
 
     for f in items:
         row = tbl.add_row().cells
@@ -319,36 +395,39 @@ def _findings_table(
                 row[6].text = ""
 
 
+# ── Page de garde ─────────────────────────────────────────────────────────
+
+
 def _write_cover_page(
     doc: Document,
     *,
     project_name: str,
     model_name: str,
-    phase_value: str,
+    version_label: str,
     cch_version: str | None,
     auditor: str,
 ) -> None:
-    """Rend la page de couverture brandée Korhus.
+    """Rend la page de couverture brandée BIMData.
 
     Structure :
 
-    - **Hero sombre** (Korhus Primary ``#0C101B``) : logo Korhus
+    - **Hero sombre** (BIMData Primary ``#2F374A``) : logo BIMData
       (variante claire/inversée) centré, supertitle « AUDIT BIM » en
-      cyan accent, titre du programme en blanc.
-    - **Filet cyan** plein-largeur (Korhus Secondary).
-    - **Bloc métadonnées** (Blue Neutral Light) : modèle, phase,
-      référentiel, date, auditeur — alignés gauche, hiérarchie nette.
+      jaune accent, titre du rapport en blanc, sous-titre = programme.
+    - **Filet jaune** plein-largeur (BIMData Secondary ``#F9C72C``).
+    - **Bloc métadonnées** (Blue Neutral Light) : Projet, Maquette
+      auditée, Version, Date, Auteur, Référence du CCBIM utilisé.
     """
     # ── Hero sombre ───────────────────────────────────────────────────
     hero = doc.add_table(rows=1, cols=1)
     hero.autofit = False
     hero_cell = hero.rows[0].cells[0]
     hero_cell.width = Cm(17)
-    _shade_cell(hero_cell, KORHUS_PRIMARY)
+    _shade_cell(hero_cell, BIMDATA_PRIMARY)
     # Vider le paragraphe par défaut puis ajouter notre contenu.
     hero_cell.text = ""
 
-    # Logo Korhus (variante claire/inversée pour fond sombre).
+    # Logo BIMData (variante claire/inversée pour fond sombre).
     logo_path = find_logo("light")
     logo_para = hero_cell.paragraphs[0]
     logo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -360,13 +439,13 @@ def _write_cover_page(
             run.add_picture(str(logo_path), width=Cm(6.5))
         except Exception:
             # Fichier corrompu ou format inattendu : fallback texte.
-            run.text = "KORHUS.AI"
-            run.font.color.rgb = _hex_to_rgb(KORHUS_WHITE)
+            run.text = WORDMARK
+            run.font.color.rgb = _hex_to_rgb(BIMDATA_WHITE)
             run.font.size = Pt(22)
             run.bold = True
     else:
-        run = logo_para.add_run("KORHUS.AI")
-        run.font.color.rgb = _hex_to_rgb(KORHUS_WHITE)
+        run = logo_para.add_run(WORDMARK)
+        run.font.color.rgb = _hex_to_rgb(BIMDATA_WHITE)
         run.font.size = Pt(22)
         run.bold = True
 
@@ -374,35 +453,35 @@ def _write_cover_page(
     spacer = hero_cell.add_paragraph()
     spacer.paragraph_format.space_after = Pt(10)
 
-    # Supertitle cyan.
+    # Supertitle jaune accent.
     supertitle = hero_cell.add_paragraph()
     supertitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = supertitle.add_run("AUDIT BIM")
     run.bold = True
     run.font.size = Pt(11)
-    run.font.color.rgb = _hex_to_rgb(KORHUS_SECONDARY)
+    run.font.color.rgb = _hex_to_rgb(BIMDATA_SECONDARY)
 
-    # Titre principal blanc.
+    # Titre principal blanc = titre du rapport.
     title = hero_cell.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run(project_name)
+    run = title.add_run(REPORT_TITLE)
     run.bold = True
-    run.font.size = Pt(28)
-    run.font.color.rgb = _hex_to_rgb(KORHUS_WHITE)
+    run.font.size = Pt(24)
+    run.font.color.rgb = _hex_to_rgb(BIMDATA_WHITE)
 
-    # Sous-titre référentiel (blanc cassé via tertiaire).
+    # Sous-titre = programme audité (blanc cassé via tertiaire).
     subtitle = hero_cell.add_paragraph()
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
     subtitle.paragraph_format.space_after = Pt(48)
-    run = subtitle.add_run(f"Conformité au Cahier des Charges BIM I3F — V{cch_version or '—'}")
-    run.font.size = Pt(12)
-    run.font.color.rgb = _hex_to_rgb(KORHUS_TERTIARY)
+    run = subtitle.add_run(project_name)
+    run.font.size = Pt(13)
+    run.font.color.rgb = _hex_to_rgb(BIMDATA_TERTIARY)
 
-    # ── Filet cyan ────────────────────────────────────────────────────
+    # ── Filet jaune ────────────────────────────────────────────────────
     accent = doc.add_table(rows=1, cols=1)
     accent_cell = accent.rows[0].cells[0]
     accent_cell.width = Cm(17)
-    _shade_cell(accent_cell, KORHUS_SECONDARY)
+    _shade_cell(accent_cell, BIMDATA_SECONDARY)
     accent_para = accent_cell.paragraphs[0]
     accent_para.paragraph_format.space_before = Pt(0)
     accent_para.paragraph_format.space_after = Pt(0)
@@ -413,7 +492,7 @@ def _write_cover_page(
     meta = doc.add_table(rows=1, cols=1)
     meta_cell = meta.rows[0].cells[0]
     meta_cell.width = Cm(17)
-    _shade_cell(meta_cell, I3F_BLUE_LIGHT)
+    _shade_cell(meta_cell, BIMDATA_BLUE_NEUTRAL_LIGHT)
     meta_cell.text = ""
 
     def _meta_line(label: str, value: str) -> None:
@@ -423,27 +502,76 @@ def _write_cover_page(
         lbl = para.add_run(f"{label} : ")
         lbl.bold = True
         lbl.font.size = Pt(11)
-        lbl.font.color.rgb = _hex_to_rgb(KORHUS_PRIMARY)
+        lbl.font.color.rgb = _hex_to_rgb(BIMDATA_PRIMARY)
         val = para.add_run(value or "—")
         val.font.size = Pt(11)
-        val.font.color.rgb = _hex_to_rgb(I3F_GREY)
+        val.font.color.rgb = _hex_to_rgb(BIMDATA_GRANITE)
 
     # Premier paragraphe : padding haut.
     first = meta_cell.paragraphs[0]
     first.paragraph_format.space_before = Pt(14)
-    first_run = first.add_run("Synthèse de mission")
+    first_run = first.add_run("Identification du livrable")
     first_run.bold = True
     first_run.font.size = Pt(10)
-    first_run.font.color.rgb = _hex_to_rgb(KORHUS_GRANITE_LIGHT)
+    first_run.font.color.rgb = _hex_to_rgb(BIMDATA_GRANITE_LIGHT)
 
-    _meta_line("Programme", project_name)
-    _meta_line("Modèle audité", model_name)
-    _meta_line("Phase BIM", phase_value)
+    _meta_line("Projet", project_name)
+    _meta_line("Maquette auditée", model_name)
+    _meta_line("Version", version_label)
     _meta_line("Date", date.today().isoformat())
-    _meta_line("Auditeur", auditor)
+    _meta_line("Auteur", auditor)
+    _meta_line("Référence du CCBIM utilisé", f"CCH BIM I3F V{cch_version or '—'}")
 
     closing = meta_cell.add_paragraph()
     closing.paragraph_format.space_after = Pt(14)
+
+
+# ── Helpers de calcul (décision, statuts domaine, métadonnées modèle) ──────
+
+
+def _decision(result: AuditResult) -> tuple[str, str]:
+    """Décision d'acceptation de la maquette selon les anomalies + le taux.
+
+    Returns:
+        ``(décision, justification)`` — décision parmi *Acceptée*,
+        *Acceptée sous réserve*, *Refusée*.
+    """
+    by_sev = result.count_by_severity()
+    n_crit = by_sev.get("CRITICAL", 0)
+    n_high = by_sev.get("HIGH", 0)
+    conf = result.conformity_rate() * 100
+    if n_crit == 0 and n_high == 0 and conf >= 90:
+        return ("Acceptée", "Maquette conforme aux exigences contrôlées.")
+    if n_crit == 0 and conf >= 70:
+        return (
+            "Acceptée sous réserve",
+            "Conforme sous réserve de correction des anomalies signalées.",
+        )
+    return ("Refusée", "Non conforme — corrections requises avant acceptation.")
+
+
+def _domain_status(findings: list[Finding]) -> str:
+    """Statut d'un domaine d'après la gravité max de ses anomalies."""
+    sevs = {f.severity for f in findings}
+    if Severity.CRITICAL in sevs or Severity.HIGH in sevs:
+        return "non_conforme"
+    if sevs:
+        return "avertissement"
+    return "conforme"
+
+
+def _model_meta(model: dict, keys: tuple[str, ...]) -> str | None:
+    """Premier champ non vide du dict modèle parmi ``keys``."""
+    for k in keys:
+        v = (model or {}).get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, (int, float)):
+            return str(v)
+    return None
+
+
+# ── Assemblage du rapport ──────────────────────────────────────────────────
 
 
 def write_word_report(
@@ -453,7 +581,7 @@ def write_word_report(
     xlsx_annex_path: str | Path | None = None,
     context: ReportProjectContext | None = None,
 ) -> Path:
-    """Génère le rapport Word d'audit.
+    """Génère le rapport Word d'audit (modèle de conformité de maquette).
 
     Args:
         result: ``AuditResult`` complet (snapshot + catalog + findings).
@@ -462,10 +590,7 @@ def write_word_report(
         xlsx_annex_path: Chemin de l'annexe XLSX (référencé en annexe).
         context: ``ReportProjectContext`` enrichi. Si ``None`` (défaut),
             on appelle :func:`build_report_context` pour le construire
-            automatiquement depuis ``result``. Cette indirection permet
-            au caller de précharger un contexte enrichi (ex: adresse
-            depuis ``enrich_with_public_data``) avant de générer le
-            rapport.
+            automatiquement depuis ``result``.
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -478,19 +603,18 @@ def write_word_report(
     section.right_margin = Cm(2.0)
 
     style = doc.styles["Normal"]
-    style.font.name = KORHUS_FONT_PRIMARY  # Roboto (cf. charte Korhus)
+    style.font.name = BIMDATA_FONT_PRIMARY  # Roboto (cf. charte BIMData)
     style.font.size = Pt(10)
-    style.font.color.rgb = _hex_to_rgb(I3F_GREY)
+    style.font.color.rgb = _hex_to_rgb(BIMDATA_GRANITE)
     # rFonts pour propager la police à tous les scripts (ASCII, hAnsi, CS).
-    # Sans ces attributs, Word retombe sur la police par défaut du doc.
     style_rpr = style.element.get_or_add_rPr()
     rfonts = style_rpr.find(qn("w:rFonts"))
     if rfonts is None:
         rfonts = OxmlElement("w:rFonts")
         style_rpr.append(rfonts)
-    rfonts.set(qn("w:ascii"), KORHUS_FONT_PRIMARY)
-    rfonts.set(qn("w:hAnsi"), KORHUS_FONT_PRIMARY)
-    rfonts.set(qn("w:cs"), KORHUS_FONT_FALLBACK)
+    rfonts.set(qn("w:ascii"), BIMDATA_FONT_PRIMARY)
+    rfonts.set(qn("w:hAnsi"), BIMDATA_FONT_PRIMARY)
+    rfonts.set(qn("w:cs"), BIMDATA_FONT_FALLBACK)
 
     # Contexte projet enrichi : auto-build si non fourni par le caller.
     if context is None:
@@ -499,253 +623,69 @@ def write_word_report(
     project_name = context.project_name or (result.snapshot.project or {}).get("name", "?")
     model_name = context.model_name or (result.snapshot.model or {}).get("name", "?")
 
-    # L'auditeur affiché sur la page de garde et dans les KPIs vient en
-    # priorité du contexte (fourni explicitement par l'utilisateur),
-    # sinon du paramètre kwargs ``auditor`` (compat). Si l'utilisateur
-    # a fourni auditor mais que ``context.auditor_name`` est vide, on
-    # propage côté contexte pour que la section "Contexte de la
-    # mission" l'affiche aussi.
+    # L'auditeur affiché vient en priorité du contexte (fourni
+    # explicitement par l'utilisateur), sinon du paramètre ``auditor``.
     display_auditor = context.auditor_name or auditor
     if not context.auditor_name and auditor and auditor != "AMO BIM (audit automatisé)":
-        # On garde le contexte cohérent avec ce qui est affiché.
         new_sources = dict(context.field_sources)
         new_sources["auditor_name"] = "user"
         context = context.model_copy(update={"auditor_name": auditor, "field_sources": new_sources})
 
-    # 1. Page de garde — bandeau sombre Korhus Primary + logo, suivi
-    # d'un bloc de métadonnées sur fond clair (Blue Neutral Light).
-    #
-    # Implémentation : on utilise des tables 1-cellule pour le shading
-    # (python-docx ne sait pas peindre un fond de page complet ; cette
-    # technique est portable et donne le rendu attendu sur Word /
-    # Pages / LibreOffice).
+    # ── 1. Page de garde ────────────────────────────────────────────────
     _write_cover_page(
         doc,
         project_name=project_name,
         model_name=model_name,
-        phase_value=result.phase.value,
+        version_label=f"Phase BIM {result.phase.value}",
         cch_version=result.catalog.cch_version,
         auditor=display_auditor,
     )
-
     _section_break(doc)
 
-    # 2. Résumé exécutif
-    _add_heading(doc, "1. Résumé exécutif", level=1)
-    by_sev = result.count_by_severity()
-    by_theme = result.count_by_theme()
-
-    conf = result.conformity_rate() * 100
-    verdict = (
-        "Conforme avec réserves légères"
-        if conf >= 90
-        else "Non conforme — corrections nécessaires"
-        if conf >= 70
-        else "Non conforme — anomalies majeures"
-    )
-
-    _kpi_table(
-        doc,
-        [
-            ("Phase auditée", result.phase.value),
-            ("Programme", project_name),
-            ("Modèle", model_name),
-            ("Référentiel", f"CCH BIM I3F V{result.catalog.cch_version or '?'}"),
-            ("Nombre d'anomalies", str(len(result.findings))),
-            ("Taux de conformité (pondéré)", f"{conf:.1f} %"),
-            ("Verdict", verdict),
-            ("CRITICAL", str(by_sev.get("CRITICAL", 0))),
-            ("HIGH", str(by_sev.get("HIGH", 0))),
-            ("MEDIUM", str(by_sev.get("MEDIUM", 0))),
-            ("LOW", str(by_sev.get("LOW", 0))),
-            ("INFO", str(by_sev.get("INFO", 0))),
-        ],
-    )
-
-    doc.add_paragraph(
-        "Les deux figures ci-dessous synthétisent le profil global des "
-        "anomalies. La répartition par thème indique quels domaines "
-        "métier (nommage, classifications, propriétés…) concentrent les "
-        "écarts ; la répartition par sévérité permet d'identifier "
-        "rapidement si les écarts relèvent principalement de points "
-        "bloquants ou d'améliorations de qualité.",
-        style="Intense Quote",
-    )
-    doc.add_paragraph()
-    doc.add_picture(
-        _pie_chart(by_theme, THEME_COLORS, "Répartition des anomalies par thème"),
-        width=Cm(13),
-    )
-    doc.add_picture(
-        _bar_chart(
-            {s.value: by_sev.get(s.value, 0) for s in Severity.ordered()},
-            SEVERITY_COLORS,
-            "Anomalies par sévérité",
-        ),
-        width=Cm(15),
-    )
-
+    # ── 2. Synthèse exécutive ───────────────────────────────────────────
+    _write_section_executive_summary(doc, result, context, project_name, model_name)
     _section_break(doc)
 
-    # ── 2. Contexte de la mission ────────────────────────────────────────
-    _write_section_mission_context(doc, context, result)
+    # ── 3. Périmètre de l'audit ─────────────────────────────────────────
+    _write_section_scope(doc, context, result)
     _section_break(doc)
 
-    # ── 3. Description du projet ─────────────────────────────────────────
-    _write_section_project_description(doc, context, result)
+    # ── 4. Méthodologie ─────────────────────────────────────────────────
+    _write_section_methodology(doc, context)
     _section_break(doc)
 
-    # ── 4. Référentiels et documents analysés ────────────────────────────
-    _write_section_references(doc, context, result)
-
-    # ── 5. Attendus du projet ────────────────────────────────────────────
-    _write_section_expected_deliverables(doc, context, result)
-
-    # ── 6. Objectifs BIM ─────────────────────────────────────────────────
-    _write_section_bim_objectives(doc, context)
-
-    # ── 7. Liste des contrôles réalisés ──────────────────────────────────
-    _write_section_controls_performed(doc, context)
-
+    # ── 5. Résultats globaux ────────────────────────────────────────────
+    _write_section_global_results(doc, result)
     _section_break(doc)
 
-    # ── 8. Synthèse par thème (numérotation conservée + 5) ──────────────
-    _add_heading(doc, "8. Synthèse par thème", level=1)
-    doc.add_paragraph(
-        "Cette synthèse regroupe les écarts par famille de contrôle. Elle "
-        "aide à distinguer les problèmes structurels de modélisation des "
-        "problèmes ponctuels de renseignement.",
-        style="Intense Quote",
-    )
-    if not by_theme:
-        doc.add_paragraph("Aucune anomalie détectée — la maquette est conforme.")
-    else:
-        tbl = doc.add_table(rows=1, cols=2)
-        tbl.style = "Light Grid Accent 1"
-        h = tbl.rows[0].cells
-        h[0].text = "Thème"
-        h[1].text = "Nb anomalies"
-        for c in h:
-            _shade_cell(c, I3F_BLUE)
-            for p in c.paragraphs:
-                for r in p.runs:
-                    r.font.color.rgb = RGBColor(255, 255, 255)
-                    r.bold = True
-        for theme, count in sorted(by_theme.items(), key=lambda x: -x[1]):
-            row = tbl.add_row().cells
-            row[0].text = theme
-            row[1].text = str(count)
-
+    # ── 6. Résultats détaillés ──────────────────────────────────────────
+    _write_section_detailed_results(doc, result)
     _section_break(doc)
 
-    # 9. Détail par thème — on cap PAR thème pour qu'on voit un échantillon
-    # de chacun, plutôt que de remplir le quota global avec un seul thème.
-    _add_heading(doc, "9. Détail des anomalies par thème", level=1)
-    doc.add_paragraph(
-        "Ce chapitre détaille les objets concernés par les écarts détectés, "
-        "thème par thème. Il constitue la base de travail pour les "
-        "corrections à mener dans la maquette ou dans les données sources.",
-        style="Intense Quote",
-    )
-
-    by_theme_all: dict[str, list[Finding]] = {}
-    for f in result.findings:
-        by_theme_all.setdefault(f.theme.value, []).append(f)
-
-    capped_total = sum(min(len(items), MAX_FINDINGS_PER_THEME) for items in by_theme_all.values())
-    if len(result.findings) > capped_total:
-        doc.add_paragraph(
-            f"⚠ Détail limité aux {MAX_FINDINGS_PER_THEME} anomalies les plus "
-            "sévères par thème pour préserver la lisibilité — l'annexe Excel "
-            "contient l'exhaustif.",
-            style="Intense Quote",
-        )
-
-    # Ordre des thèmes : par nombre d'anomalies décroissant
-    # Suggestions de classification pré-calculées une fois pour le thème
-    # 'Classification IFC' (réutilisé dans la table dédiée).
-    sug_list = suggest_for_findings(result.findings, result.snapshot, min_confidence=0.4, top_n=1)
-    suggestions_map: dict[str, dict] = {}
-    for item in sug_list:
-        u = item.get("element_uuid")
-        sugs = item.get("suggestions") or []
-        if u and sugs:
-            suggestions_map[u] = sugs[0]
-
-    for theme, items in sorted(by_theme_all.items(), key=lambda kv: -len(kv[1])):
-        n = len(items)
-        label = f"{theme} ({n} anomalie{'s' if n > 1 else ''})"
-        _add_heading(doc, label, level=2)
-        smap = suggestions_map if theme == Theme.CLASSIFICATION.value else None
-        _findings_table(doc, items[:MAX_FINDINGS_PER_THEME], suggestions_map=smap)
-
+    # ── 7. Liste des non-conformités ────────────────────────────────────
+    _write_section_nonconformities(doc, result)
     _section_break(doc)
 
-    # 10. Recommandations AMO BIM
-    _add_heading(doc, "10. Recommandations AMO BIM", level=1)
-    doc.add_paragraph(
-        "Cette section propose des actions correctives priorisées à mener "
-        "avant le prochain dépôt de maquette. Les recommandations sont "
-        "déduites des anomalies détectées et organisées par lot/thème.",
-        style="Intense Quote",
-    )
-    recs = _generate_recommendations(result)
-    if not recs:
-        doc.add_paragraph("Aucune action corrective majeure ne semble nécessaire à ce stade.")
-    else:
-        for r in recs:
-            doc.add_paragraph(r, style="List Bullet")
+    # ── 8. Recommandations ──────────────────────────────────────────────
+    _write_section_recommendations(doc, result)
+    _section_break(doc)
 
-    # 11. Limites de l'audit
-    _add_heading(doc, "11. Limites de l'audit", level=1)
-    doc.add_paragraph(
-        "L'audit est exécuté de façon automatisée à partir des données "
-        "exposées par l'API BIMData et des trois documents MOA chargés. "
-        "Les limites suivantes doivent être prises en compte à la lecture "
-        "du rapport :"
-    )
-    for a in context.assumptions or [
-        "Les exigences sont interprétées selon le référentiel chargé au moment de l'audit.",
-        "Le périmètre est limité aux objets présents dans le snapshot.",
-    ]:
-        doc.add_paragraph(f"• {a}", style="List Bullet")
+    # ── 9. Conclusion ───────────────────────────────────────────────────
+    _write_section_conclusion(doc, result, context)
+    _section_break(doc)
 
-    # 12. Informations non disponibles (si applicable)
-    if context.missing_information:
-        _add_heading(doc, "12. Informations non disponibles ou non explicites", level=1)
-        doc.add_paragraph(
-            "Cette section liste les éléments contextuels qui n'ont pas pu "
-            "être extraits des sources analysées. Ils ne constituent pas "
-            "des anomalies de la maquette, mais éclairent le lecteur sur "
-            "ce que l'agent d'audit sait — et ce qu'il ne sait pas.",
-            style="Intense Quote",
-        )
-        for item in context.missing_information:
-            doc.add_paragraph(f"• {item}", style="List Bullet")
-
-    # 13. Annexes
-    _add_heading(doc, "13. Annexes", level=1)
-    if xlsx_annex_path:
-        doc.add_paragraph(
-            f"Annexe détaillée (Excel) : « {Path(xlsx_annex_path).name} ». "
-            "Cette annexe contient l'intégralité des anomalies par type "
-            "d'erreur, exploitables directement par les équipes de projet."
-        )
-    doc.add_paragraph(
-        "Référentiel CCH I3F : voir documents transmis par la maîtrise "
-        "d'ouvrage (Cahier des annexes, annexe Spécifications, annexe Nommage)."
-    )
+    # ── 10. Annexes ─────────────────────────────────────────────────────
+    _write_section_annexes(doc, xlsx_annex_path, context)
 
     doc.save(str(output_path))
     return output_path
 
 
-# ── Helpers de sections contextuelles ────────────────────────────────────
+# ── Sections ───────────────────────────────────────────────────────────────
 
 
 def _para_intro(doc: Document, text: str) -> None:
-    """Paragraphe d'introduction (italique / Intense Quote) pour situer
-    une section auprès du lecteur non technique."""
+    """Paragraphe d'introduction (Intense Quote) pour situer une section."""
     doc.add_paragraph(text, style="Intense Quote")
 
 
@@ -764,19 +704,7 @@ def _kv_or_na(
     *,
     source: str = "user",
 ) -> None:
-    """Bullet « Label : valeur » avec fallback NOT_AVAILABLE.
-
-    Args:
-        doc: Document Word en cours.
-        label: Libellé du champ (ex: ``"Adresse"``).
-        value: Valeur à afficher (``None`` ou vide → ``NOT_AVAILABLE``).
-        source: Source de la valeur (``"user"`` / ``"extracted"`` /
-            ``"deduced"`` / ``"missing"``). Détermine si un suffixe
-            de traçabilité ``(déduit — à confirmer)`` est ajouté.
-
-    Garde la valeur sur la même ligne pour produire un rendu compact
-    (utile pour les sections Contexte / Description du projet).
-    """
+    """Bullet « Label : valeur » avec fallback NOT_AVAILABLE."""
     if value and value.strip():
         rendered = _render_with_source(value.strip(), source)
     else:
@@ -784,77 +712,163 @@ def _kv_or_na(
     doc.add_paragraph(f"• {label} : {rendered}", style="List Bullet")
 
 
-def _write_section_mission_context(
-    doc: Document, context: ReportProjectContext, result: AuditResult
+def _write_section_executive_summary(
+    doc: Document,
+    result: AuditResult,
+    context: ReportProjectContext,
+    project_name: str,
+    model_name: str,
 ) -> None:
-    """Section 2 — Contexte de la mission."""
-    _add_heading(doc, "2. Contexte de la mission", level=1)
+    """Section 2 — Synthèse exécutive."""
+    _add_heading(doc, "2. Synthèse exécutive", level=1)
+
+    by_sev = result.count_by_severity()
+    by_theme = result.count_by_theme()
+    conf = result.conformity_rate() * 100
+    decision, justification = _decision(result)
+
+    n_crit = by_sev.get("CRITICAL", 0)
+    n_high = by_sev.get("HIGH", 0)
+    n_med = by_sev.get("MEDIUM", 0)
+    n_low = by_sev.get("LOW", 0)
+    n_info = by_sev.get("INFO", 0)
+    n_nonconf = n_crit + n_high + n_med
+    n_warn = n_low + n_info
+    n_rules = context.n_property_specs + context.n_naming_rules
+
+    # Points de vigilance = thèmes les plus impactés (top 3).
+    top_themes = sorted(by_theme.items(), key=lambda kv: -kv[1])[:3]
+    vigilance = (
+        ", ".join(f"{t} ({c})" for t, c in top_themes)
+        if top_themes
+        else "aucun écart significatif détecté"
+    )
+
+    doc.add_paragraph(
+        f"L'audit vise à vérifier la conformité de la maquette « {model_name} » "
+        f"(programme {project_name}, phase {result.phase.value}) au Cahier des "
+        f"Charges BIM I3F V{result.catalog.cch_version or '—'}. "
+        f"Le niveau global de conformité (pondéré) s'établit à {conf:.0f} %. "
+        f"Principaux points de vigilance : {vigilance}. "
+        f"Décision : {decision} — {justification}",
+        style="Intense Quote",
+    )
+
+    # Tableau d'indicateurs synthétiques.
+    _kpi_table(
+        doc,
+        [
+            ("Taux de conformité (pondéré)", f"{conf:.0f} %"),
+            ("Éléments audités", str(context.n_elements)),
+            ("Règles de conformité contrôlées (catalogue)", str(n_rules)),
+            ("Non-conformités (Critique / Majeure)", str(n_nonconf)),
+            ("Avertissements (Mineure / Information)", str(n_warn)),
+            ("Décision", decision),
+        ],
+    )
+
+    doc.add_paragraph(
+        "Les deux figures ci-dessous synthétisent le profil global des "
+        "anomalies : répartition par thème (quels domaines concentrent les "
+        "écarts) et par sévérité (points bloquants vs améliorations de qualité).",
+        style="Intense Quote",
+    )
+    doc.add_paragraph()
+    doc.add_picture(
+        _pie_chart(by_theme, THEME_COLORS, "Répartition des anomalies par thème"),
+        width=Cm(13),
+    )
+    doc.add_picture(
+        _bar_chart(
+            {s.value: by_sev.get(s.value, 0) for s in Severity.ordered()},
+            SEVERITY_COLORS,
+            "Anomalies par sévérité",
+        ),
+        width=Cm(15),
+    )
+
+
+def _write_section_scope(doc: Document, context: ReportProjectContext, result: AuditResult) -> None:
+    """Section 3 — Périmètre de l'audit (documents de référence + maquette)."""
+    _add_heading(doc, "3. Périmètre de l'audit", level=1)
     _para_intro(
         doc,
-        "Cette section précise le cadre dans lequel l'audit BIM a été "
-        "réalisé. Elle permet de comprendre le périmètre contrôlé, les "
-        "documents de référence utilisés et les limites éventuelles "
-        "d'interprétation.",
+        "Cette section précise les documents de référence opposables et "
+        "identifie la maquette auditée. Elle garantit la traçabilité du "
+        "périmètre contrôlé.",
     )
-    _kv_or_na(doc, "Programme", context.project_name, source=context.source_of("project_name"))
-    _kv_or_na(doc, "Maquette auditée", context.model_name, source=context.source_of("model_name"))
+
+    # 3.1 Documents de référence
+    _add_heading(doc, "Documents de référence", level=2)
+    src_cch = context.cch_source or "non précisé"
+    src_data = context.data_spec_source or "non précisé"
+    src_naming = context.naming_spec_source or "non précisé"
+    doc.add_paragraph(
+        f"• CCBIM appliqué : {context.bim_reference or '—'} (Cahier des annexes — {src_cch}).",
+        style="List Bullet",
+    )
+    doc.add_paragraph(
+        f"• Convention / exigences BIM du maître d'ouvrage : annexe "
+        f"« Spécification des données » ({src_data}) et annexe « Nommage » "
+        f"({src_naming}).",
+        style="List Bullet",
+    )
+    if context.n_property_specs or context.n_naming_rules:
+        doc.add_paragraph(
+            f"• Catalogue d'exigences chargé : {context.n_property_specs} "
+            f"spécification(s) de propriétés et {context.n_naming_rules} "
+            "règle(s) de nommage.",
+            style="List Bullet",
+        )
+
+    # 3.2 Maquette auditée
+    _add_heading(doc, "Maquette auditée", level=2)
+    model = result.snapshot.model or {}
+    _kv_or_na(doc, "Nom du modèle", context.model_name, source=context.source_of("model_name"))
     _kv_or_na(
         doc,
-        "Phase BIM",
-        context.project_phase,
-        source=context.source_of("project_phase"),
+        "Discipline",
+        _model_meta(model, _MODEL_DISCIPLINE_KEYS),
+        source="extracted",
     )
     _kv_or_na(
         doc,
-        "Référentiel appliqué",
-        context.bim_reference,
-        source=context.source_of("bim_reference"),
+        "Auteur / producteur",
+        _model_meta(model, _MODEL_AUTHOR_KEYS),
+        source="extracted",
     )
     _kv_or_na(
         doc,
-        "Auditeur",
-        context.auditor_name,
-        source=context.source_of("auditor_name"),
+        "Date du modèle",
+        _model_meta(model, _MODEL_DATE_KEYS),
+        source="extracted",
     )
     _kv_or_na(
         doc,
-        "Périmètre",
+        "Logiciel de production",
+        _model_meta(model, _MODEL_SOFTWARE_KEYS),
+        source="extracted",
+    )
+    _kv_or_na(
+        doc,
+        "Version IFC (schéma)",
+        _model_meta(model, _MODEL_SCHEMA_KEYS),
+        source="extracted",
+    )
+    _kv_or_na(
+        doc,
+        "Périmètre extrait",
         (
             f"{context.n_elements} éléments / {context.n_storeys} étage(s) / "
-            f"{context.n_spaces} espace(s) / {context.n_zones} zone(s) — extraction "
-            f"BIMData"
+            f"{context.n_spaces} espace(s) / {context.n_zones} zone(s) — "
+            "extraction BIMData"
         )
         if context.n_elements
         else None,
         source="extracted",
     )
-
-
-def _write_section_project_description(
-    doc: Document, context: ReportProjectContext, result: AuditResult
-) -> None:
-    """Section 3 — Description du projet."""
-    _add_heading(doc, "3. Description du projet", level=1)
-    _para_intro(
-        doc,
-        "Cette section rassemble les informations générales disponibles "
-        "sur l'opération. Elle distingue les données explicitement "
-        "fournies des informations absentes afin d'éviter toute "
-        "interprétation non justifiée.",
-    )
-    _add_heading(doc, "Description", level=2)
-    _para_or_na(doc, context.project_description)
-
-    _add_heading(doc, "Identification", level=2)
-    _kv_or_na(doc, "Site", context.site_name, source=context.source_of("site_name"))
-    _kv_or_na(
-        doc,
-        "Bâtiment",
-        context.building_name,
-        source=context.source_of("building_name"),
-    )
-    _kv_or_na(doc, "Adresse", context.address, source=context.source_of("address"))
-    # MOA : on prend client_name en priorité ; sa source aussi.
+    # Adresse / MOA si disponibles (utile pour le contexte projet).
+    _kv_or_na(doc, "Adresse du projet", context.address, source=context.source_of("address"))
     moa_value = context.client_name or context.owner_name
     moa_source = (
         context.source_of("client_name") if context.client_name else context.source_of("owner_name")
@@ -862,121 +876,35 @@ def _write_section_project_description(
     _kv_or_na(doc, "Maîtrise d'ouvrage", moa_value, source=moa_source)
 
 
-def _write_section_references(
-    doc: Document, context: ReportProjectContext, result: AuditResult
-) -> None:
-    """Section 4 — Référentiels et documents analysés."""
-    _add_heading(doc, "4. Référentiels et documents analysés", level=1)
+def _write_section_methodology(doc: Document, context: ReportProjectContext) -> None:
+    """Section 4 — Méthodologie (description + tableau des contrôles)."""
+    _add_heading(doc, "4. Méthodologie", level=1)
     _para_intro(
         doc,
-        "Cette section liste les documents normatifs et MOA qui ont "
-        "servi de base à l'audit. Elle permet à la maîtrise d'ouvrage "
-        "de vérifier que les bonnes versions ont été utilisées et que "
-        "la traçabilité est garantie.",
+        "L'audit est exécuté de façon automatisée à partir des données "
+        "exposées par l'API BIMData et du catalogue d'exigences chargé. "
+        "Les familles de contrôles réalisés sont décrites ci-dessous.",
     )
     doc.add_paragraph(
-        "L'audit est conduit conformément au Cahier des Charges BIM I3F "
-        f"({context.bim_reference or '—'}). Les exigences sont extraites de "
-        "trois sources :"
-    )
-    src_cch = context.cch_source or "non précisé"
-    src_data = context.data_spec_source or "non précisé"
-    src_naming = context.naming_spec_source or "non précisé"
-    doc.add_paragraph(
-        f"• Cahier des annexes CCH (PDF) — référence éditoriale et listes de valeurs : {src_cch}.",
-        style="List Bullet",
+        "Contrôles réalisés : structure IFC et hiérarchie spatiale, "
+        "conventions de nommage, classification, propriétés obligatoires "
+        "(Psets par phase), validation des valeurs, quantités (surfaces / "
+        "volumes), unicité des identifiants d'équipement et couverture des "
+        "typologies attendues."
     )
     doc.add_paragraph(
-        "• Annexe « Spécification des données » (XLSX) — propriétés requises "
-        f"par objet IFC et par phase BIM : {src_data}.",
-        style="List Bullet",
+        "Hors périmètre de cet audit automatisé : le contrôle géométrique "
+        "fin (objets dupliqués, géométrie invalide), la cohérence métier "
+        "détaillée et la détection de conflits (clash detection), qui "
+        "requièrent l'analyse de la géométrie 3D non exposée par l'API."
     )
-    doc.add_paragraph(
-        "• Annexe « Nommage » (XLSX) — règles de nommage des sites, "
-        f"bâtiments, étages, zones et pièces : {src_naming}.",
-        style="List Bullet",
-    )
-    if context.n_property_specs or context.n_naming_rules:
-        doc.add_paragraph(
-            f"Le catalogue d'exigences chargé contient "
-            f"{context.n_property_specs} spécification(s) de propriétés et "
-            f"{context.n_naming_rules} règle(s) de nommage."
-        )
 
-
-def _write_section_expected_deliverables(
-    doc: Document, context: ReportProjectContext, result: AuditResult
-) -> None:
-    """Section 5 — Attendus du projet."""
-    _add_heading(doc, "5. Attendus du projet", level=1)
-    _para_intro(
-        doc,
-        "Cette section synthétise les exigences utilisées comme base de "
-        "contrôle. Elle explicite les attendus documentaires et "
-        "informationnels retenus pour juger la conformité de la "
-        "maquette.",
-    )
-    if context.expected_deliverables:
-        for d in context.expected_deliverables:
-            doc.add_paragraph(f"• {d}", style="List Bullet")
-    else:
-        doc.add_paragraph(
-            "Les attendus opérationnels du projet ne sont pas explicitement "
-            "détaillés dans les documents fournis. Les exigences retenues "
-            "comme base de contrôle sont celles du Cahier des Charges BIM "
-            f"I3F ({context.bim_reference or '—'}) et de ses annexes, à "
-            f"savoir notamment {context.n_property_specs} spécification(s) de "
-            f"propriétés par classe IFC et phase BIM, et "
-            f"{context.n_naming_rules} règle(s) de nommage."
-        )
-
-
-def _write_section_bim_objectives(doc: Document, context: ReportProjectContext) -> None:
-    """Section 6 — Objectifs BIM."""
-    _add_heading(doc, "6. Objectifs BIM", level=1)
-    _para_intro(
-        doc,
-        "Cette section présente les objectifs BIM associés au contrôle de "
-        "la maquette. Elle permet de relier les anomalies détectées aux "
-        "usages attendus du modèle numérique.",
-    )
-    if context.bim_objectives:
-        for o in context.bim_objectives:
-            doc.add_paragraph(f"• {o}", style="List Bullet")
-    else:
-        doc.add_paragraph(
-            "Aucun objectif BIM explicite n'a été identifié dans les "
-            "documents analysés. L'audit est donc limité à la vérification "
-            "de conformité au référentiel chargé et aux données "
-            "disponibles dans la maquette."
-        )
-
-
-def _write_section_controls_performed(doc: Document, context: ReportProjectContext) -> None:
-    """Section 7 — Liste des contrôles réalisés (tableau)."""
-    _add_heading(doc, "7. Liste des contrôles réalisés", level=1)
-    _para_intro(
-        doc,
-        "Cette section liste les contrôles effectivement exécutés par "
-        "l'agent d'audit. Elle donne une vision transparente du périmètre "
-        "de vérification avant la lecture détaillée des anomalies.",
-    )
     if not context.controls_performed:
         doc.add_paragraph(NOT_AVAILABLE)
         return
     tbl = doc.add_table(rows=1, cols=4)
     tbl.style = "Light Grid Accent 1"
-    head = tbl.rows[0].cells
-    head[0].text = "Thème de contrôle"
-    head[1].text = "Objectif"
-    head[2].text = "Données contrôlées"
-    head[3].text = "Source de la règle"
-    for c in head:
-        _shade_cell(c, I3F_BLUE)
-        for p in c.paragraphs:
-            for r in p.runs:
-                r.font.color.rgb = RGBColor(255, 255, 255)
-                r.bold = True
+    _header_row(tbl, ["Thème de contrôle", "Objectif", "Données contrôlées", "Source de la règle"])
     for ctrl in context.controls_performed:
         row = tbl.add_row().cells
         row[0].text = ctrl.theme
@@ -985,8 +913,390 @@ def _write_section_controls_performed(doc: Document, context: ReportProjectConte
         row[3].text = ctrl.rule_source or "—"
 
 
+def _write_section_global_results(doc: Document, result: AuditResult) -> None:
+    """Section 5 — Résultats globaux (synthèse par domaine)."""
+    _add_heading(doc, "5. Résultats globaux", level=1)
+    _para_intro(
+        doc,
+        "Vue d'ensemble du statut de conformité par domaine de contrôle. "
+        "Un domaine est « Non conforme » s'il présente au moins une "
+        "anomalie critique ou majeure, « Avertissement » pour des écarts "
+        "mineurs, « Conforme » en l'absence d'anomalie.",
+    )
+
+    # Regrouper les findings par domaine.
+    by_domain: dict[str, list[Finding]] = {label: [] for label, _ in DOMAINS}
+    theme_to_domain: dict[Theme, str] = {}
+    for label, themes in DOMAINS:
+        for th in themes:
+            theme_to_domain[th] = label
+    for f in result.findings:
+        label = theme_to_domain.get(f.theme)
+        if label is not None:
+            by_domain[label].append(f)
+
+    tbl = doc.add_table(rows=1, cols=4)
+    tbl.style = "Light Grid Accent 1"
+    _header_row(tbl, ["Domaine", "Statut", "Nb anomalies", "Dont critiques/majeures"])
+    for label, _themes in DOMAINS:
+        items = by_domain[label]
+        status = _domain_status(items)
+        n_severe = sum(1 for f in items if f.severity in (Severity.CRITICAL, Severity.HIGH))
+        row = tbl.add_row().cells
+        row[0].text = label
+        row[1].text = _STATUS_LABEL[status]
+        _shade_cell(row[1], _STATUS_COLOR[status])
+        for r in row[1].paragraphs[0].runs:
+            r.font.color.rgb = RGBColor(255, 255, 255)
+            r.bold = True
+        row[2].text = str(len(items))
+        row[3].text = str(n_severe)
+
+
+def _write_section_detailed_results(doc: Document, result: AuditResult) -> None:
+    """Section 6 — Résultats détaillés (6.1 → 6.7)."""
+    _add_heading(doc, "6. Résultats détaillés", level=1)
+    _para_intro(
+        doc,
+        "Détail des écarts par famille de contrôle. Constitue la base de "
+        "travail pour les corrections à mener dans la maquette ou les "
+        "données sources. Le détail est limité aux anomalies les plus "
+        "sévères par thème ; l'annexe Excel contient l'exhaustif.",
+    )
+
+    # Findings groupés par thème.
+    by_theme_all: dict[Theme, list[Finding]] = {}
+    for f in result.findings:
+        by_theme_all.setdefault(f.theme, []).append(f)
+
+    def _theme_block(themes: set[Theme], *, with_suggestions: bool = False) -> None:
+        items: list[Finding] = []
+        for th in themes:
+            items.extend(by_theme_all.get(th, []))
+        # Tri par sévérité (CRITICAL d'abord) puis cap.
+        order = {s: i for i, s in enumerate(Severity.ordered())}
+        items.sort(key=lambda f: order.get(f.severity, 99))
+        smap = _suggestions_map(result) if with_suggestions else None
+        _findings_table(doc, items[:MAX_FINDINGS_PER_THEME], suggestions_map=smap)
+
+    # 6.1 Structure de la maquette
+    _add_heading(doc, "6.1 Structure de la maquette", level=2)
+    doc.add_paragraph(
+        "Organisation IFC (Site → Bâtiment → Niveau → Espace) et présence "
+        "des entités spatiales attendues."
+    )
+    _theme_block({Theme.SPATIAL_HIERARCHY})
+
+    # 6.2 Qualité des données
+    _add_heading(doc, "6.2 Qualité des données", level=2)
+    doc.add_paragraph(
+        "Contrôle des propriétés obligatoires (Psets par phase) et de la "
+        "validité des valeurs (présence, type, valeurs non vides)."
+    )
+    _theme_block({Theme.PROPERTY_MISSING, Theme.PROPERTY_INVALID})
+
+    # 6.3 Classification
+    _add_heading(doc, "6.3 Classification", level=2)
+    doc.add_paragraph(
+        "Présence et cohérence de la classification IFC (UniFormat II par "
+        "défaut ; Omniclass / CCI / table interne 3F selon le référentiel)."
+    )
+    _theme_block({Theme.CLASSIFICATION}, with_suggestions=True)
+
+    # 6.4 Conventions de nommage
+    _add_heading(doc, "6.4 Conventions de nommage", level=2)
+    doc.add_paragraph(
+        "Contrôle du nommage des objets, niveaux, zones et espaces selon "
+        "les listes fermées et la codification I3F (CCH chap. 6.3)."
+    )
+    _theme_block({Theme.NAMING_SITE_BAT_ETAGE, Theme.NAMING_ZONE, Theme.NAMING_SPACE})
+
+    # 6.5 Contrôles géométriques
+    _add_heading(doc, "6.5 Contrôles géométriques", level=2)
+    quantity_items = by_theme_all.get(Theme.QUANTITY, [])
+    doc.add_paragraph(
+        "Présence des quantités géométriques (surfaces, volumes / "
+        "BaseQuantities) sur les éléments quantifiables. Les contrôles "
+        "géométriques fins (objets dupliqués, objets isolés, géométrie "
+        "invalide, objets sans volume, intersections anormales) ne sont "
+        "pas couverts par cet audit automatisé."
+    )
+    if quantity_items:
+        order = {s: i for i, s in enumerate(Severity.ordered())}
+        quantity_items = sorted(quantity_items, key=lambda f: order.get(f.severity, 99))
+        _findings_table(doc, quantity_items[:MAX_FINDINGS_PER_THEME])
+    else:
+        doc.add_paragraph("Aucune anomalie de quantité détectée.").italic = True
+
+    # 6.6 Cohérence métier
+    _add_heading(doc, "6.6 Cohérence métier", level=2)
+    doc.add_paragraph(
+        "Cohérence métier par discipline (espaces fermés, portes dans les "
+        "murs, fenêtres ; poteaux / poutres / dalles ; réseaux / "
+        "équipements / connexions MEP). " + OUT_OF_SCOPE
+    )
+
+    # 6.7 Détection des conflits
+    _add_heading(doc, "6.7 Détection des conflits", level=2)
+    doc.add_paragraph(
+        "Détection de conflits inter-disciplines (hard clash, soft clash, "
+        "clearance). " + OUT_OF_SCOPE
+    )
+
+
+def _write_section_nonconformities(doc: Document, result: AuditResult) -> None:
+    """Section 7 — Liste des non-conformités (tableau détaillé)."""
+    _add_heading(doc, "7. Liste des non-conformités", level=1)
+    _para_intro(
+        doc,
+        "Liste des anomalies opposables (gravité Critique ou Majeure). Les "
+        "écarts mineurs et informationnels figurent dans l'annexe Excel.",
+    )
+
+    order = {s: i for i, s in enumerate(Severity.ordered())}
+    ncs = sorted(
+        (f for f in result.findings if f.severity in NONCONFORMITY_SEVERITIES),
+        key=lambda f: order.get(f.severity, 99),
+    )
+    if not ncs:
+        doc.add_paragraph("Aucune non-conformité critique ou majeure détectée.")
+        return
+
+    if len(ncs) > MAX_NONCONFORMITIES:
+        doc.add_paragraph(
+            f"⚠ {len(ncs)} non-conformités détectées — tableau limité aux "
+            f"{MAX_NONCONFORMITIES} plus sévères ; l'exhaustif figure dans "
+            "l'annexe Excel.",
+            style="Intense Quote",
+        )
+
+    tbl = doc.add_table(rows=1, cols=6)
+    tbl.style = "Light Grid Accent 1"
+    _header_row(tbl, ["ID", "Règle", "Objet", "Gravité", "Commentaire", "Action"])
+    for i, f in enumerate(ncs[:MAX_NONCONFORMITIES], start=1):
+        row = tbl.add_row().cells
+        row[0].text = f"NC-{i:03d}"
+        row[1].text = (f.ref_cch or f.error_type.value or "")[:40]
+        row[2].text = f.short_label()[:40]
+        row[3].text = GRAVITY_FR.get(f.severity, f.severity.value)
+        _shade_cell(row[3], SEVERITY_COLORS[f.severity.value])
+        for r in row[3].paragraphs[0].runs:
+            r.font.color.rgb = RGBColor(255, 255, 255)
+            r.bold = True
+        exp = f.expected
+        if isinstance(exp, list):
+            exp = ", ".join(map(str, exp[:3])) + ("…" if len(exp) > 3 else "")
+        comment = f"Attendu : {exp or '—'} / Réel : {f.actual or '—'}"
+        row[4].text = comment[:90]
+        row[5].text = (f.recommended_action or "—")[:90]
+
+
+def _write_section_recommendations(doc: Document, result: AuditResult) -> None:
+    """Section 8 — Recommandations classées par priorité."""
+    _add_heading(doc, "8. Recommandations", level=1)
+    _para_intro(
+        doc,
+        "Actions correctives priorisées à mener avant le prochain dépôt de "
+        "maquette. Les recommandations sont déduites des anomalies détectées.",
+    )
+    buckets = _recommendations_by_priority(result)
+    any_rec = False
+    for priority in ("Critique", "Majeure", "Mineure"):
+        recs = buckets.get(priority, [])
+        if not recs:
+            continue
+        any_rec = True
+        _add_heading(doc, priority, level=2)
+        for r in recs:
+            doc.add_paragraph(r, style="List Bullet")
+    if not any_rec:
+        doc.add_paragraph("Aucune action corrective majeure ne semble nécessaire à ce stade.")
+
+
+def _write_section_conclusion(
+    doc: Document, result: AuditResult, context: ReportProjectContext
+) -> None:
+    """Section 9 — Conclusion (conformité globale, points bloquants, décision)."""
+    _add_heading(doc, "9. Conclusion", level=1)
+    by_sev = result.count_by_severity()
+    conf = result.conformity_rate() * 100
+    decision, justification = _decision(result)
+    n_crit = by_sev.get("CRITICAL", 0)
+    n_high = by_sev.get("HIGH", 0)
+    n_blocking = n_crit + n_high
+
+    # Domaines conformes (sans CRITICAL/HIGH) pour valoriser l'acquis.
+    theme_to_domain: dict[Theme, str] = {}
+    for label, themes in DOMAINS:
+        for th in themes:
+            theme_to_domain[th] = label
+    severe_domains: set[str] = set()
+    for f in result.findings:
+        if f.severity in (Severity.CRITICAL, Severity.HIGH):
+            d = theme_to_domain.get(f.theme)
+            if d:
+                severe_domains.add(d)
+    conform_domains = [label for label, _ in DOMAINS if label not in severe_domains]
+
+    if n_blocking:
+        blocking_txt = (
+            f"{n_blocking} point(s) bloquant(s) (anomalies critiques ou "
+            "majeures) doivent être levés avant la prochaine livraison."
+        )
+    else:
+        blocking_txt = "Aucun point bloquant (anomalie critique ou majeure) n'a été détecté."
+
+    conform_txt = (
+        f"Les domaines suivants sont conformes ou ne présentent que des "
+        f"écarts mineurs : {', '.join(conform_domains)}. "
+        if conform_domains
+        else ""
+    )
+
+    doc.add_paragraph(
+        f"La maquette « {context.model_name or '—'} » présente un niveau de "
+        f"conformité (pondéré) de {conf:.0f} % au regard du CCH BIM I3F "
+        f"V{result.catalog.cch_version or '—'} pour la phase {result.phase.value}. "
+        f"{conform_txt}{blocking_txt}"
+    )
+    doc.add_paragraph(
+        "Actions avant la prochaine livraison : corriger en priorité les "
+        "non-conformités critiques et majeures (cf. § 7 et § 8), puis "
+        "ré-itérer un audit pour valider la reprise."
+    )
+
+    # Décision finale mise en valeur.
+    p = doc.add_paragraph()
+    run = p.add_run(f"Décision finale : {decision}")
+    run.bold = True
+    run.font.size = Pt(12)
+    run.font.color.rgb = _hex_to_rgb(BIMDATA_PRIMARY)
+    doc.add_paragraph(justification)
+
+
+def _write_section_annexes(
+    doc: Document, xlsx_annex_path: str | Path | None, context: ReportProjectContext
+) -> None:
+    """Section 10 — Annexes."""
+    _add_heading(doc, "10. Annexes", level=1)
+    doc.add_paragraph(
+        "• Liste complète des règles contrôlées et export exhaustif des "
+        "résultats : voir l'annexe Excel.",
+        style="List Bullet",
+    )
+    if xlsx_annex_path:
+        doc.add_paragraph(
+            f"• Annexe détaillée (Excel) : « {Path(xlsx_annex_path).name} » — "
+            "intégralité des anomalies par type d'erreur, avec GUID IFC des "
+            "objets concernés, exploitable directement par les équipes projet.",
+            style="List Bullet",
+        )
+    doc.add_paragraph(
+        f"• Paramètres d'exécution : phase BIM {context.project_phase or '—'}, "
+        f"référentiel {context.bim_reference or '—'}, "
+        f"{context.n_property_specs} spécification(s) de propriétés et "
+        f"{context.n_naming_rules} règle(s) de nommage.",
+        style="List Bullet",
+    )
+    doc.add_paragraph(
+        "• Référentiel CCH I3F : documents transmis par la maîtrise "
+        "d'ouvrage (Cahier des annexes, annexe Spécifications, annexe Nommage).",
+        style="List Bullet",
+    )
+    # Limites de l'audit (rattachées aux annexes).
+    if context.assumptions:
+        _add_heading(doc, "Limites et hypothèses de l'audit", level=2)
+        for a in context.assumptions:
+            doc.add_paragraph(f"• {a}", style="List Bullet")
+    if context.missing_information:
+        _add_heading(doc, "Informations non disponibles", level=2)
+        doc.add_paragraph(
+            "Éléments contextuels non extraits des sources analysées (ne "
+            "constituent pas des anomalies de la maquette)."
+        )
+        for item in context.missing_information:
+            doc.add_paragraph(f"• {item}", style="List Bullet")
+
+
+# ── Génération des recommandations ─────────────────────────────────────────
+
+
+def _suggestions_map(result: AuditResult) -> dict[str, dict]:
+    """Suggestions de classification (1 par élément) pour le thème dédié."""
+    sug_list = suggest_for_findings(result.findings, result.snapshot, min_confidence=0.4, top_n=1)
+    out: dict[str, dict] = {}
+    for item in sug_list:
+        u = item.get("element_uuid")
+        sugs = item.get("suggestions") or []
+        if u and sugs:
+            out[u] = sugs[0]
+    return out
+
+
+# Indices correctifs par thème, réutilisés pour générer les recommandations
+# priorisées (section 8).
+_THEME_HINTS: dict[Theme, str] = {
+    Theme.SPATIAL_HIERARCHY: (
+        "compléter / corriger la hiérarchie spatiale Site → Bâtiment → "
+        "Étage → Espace (CCH chap. 6.1)"
+    ),
+    Theme.NAMING_SITE_BAT_ETAGE: (
+        "aligner le nommage des sites, bâtiments et étages sur les listes fermées du CCH chap. 6.3"
+    ),
+    Theme.NAMING_ZONE: "reprendre le nommage des zones (codification I3F, CCH chap. 6.3)",
+    Theme.NAMING_SPACE: "reprendre le nommage des pièces (listes fermées, CCH chap. 6.3)",
+    Theme.CLASSIFICATION: ("compléter la classification IFC (UniFormat / Omniclass / table 3F)"),
+    Theme.PROPERTY_MISSING: "renseigner les propriétés / Psets manquants pour la phase",
+    Theme.PROPERTY_INVALID: "corriger les valeurs de propriétés invalides ou hors domaine",
+    Theme.QUANTITY: "compléter les quantités (NetFloorArea / BaseQuantities)",
+    Theme.DOCUMENT: "fournir les documents attendus manquants",
+}
+
+# Sévérité → priorité métier de la recommandation.
+_SEV_TO_PRIORITY = {
+    Severity.CRITICAL: "Critique",
+    Severity.HIGH: "Critique",
+    Severity.MEDIUM: "Majeure",
+    Severity.LOW: "Mineure",
+    Severity.INFO: "Mineure",
+}
+
+
+def _recommendations_by_priority(result: AuditResult) -> dict[str, list[str]]:
+    """Recommandations correctives groupées par priorité (Critique / Majeure / Mineure).
+
+    Pour chaque (priorité, thème), on agrège le nombre d'anomalies et on
+    produit une action concrète à partir de ``_THEME_HINTS``.
+    """
+    # (priority, theme) → count
+    agg: dict[tuple[str, Theme], int] = Counter()
+    for f in result.findings:
+        priority = _SEV_TO_PRIORITY.get(f.severity, "Mineure")
+        agg[(priority, f.theme)] += 1
+
+    buckets: dict[str, list[str]] = {"Critique": [], "Majeure": [], "Mineure": []}
+    # Tri stable : par priorité puis nombre décroissant.
+    for (priority, theme), count in sorted(agg.items(), key=lambda kv: -kv[1]):
+        hint = _THEME_HINTS.get(theme, "corriger les écarts identifiés")
+        label = f"{count} anomalie{'s' if count > 1 else ''} — {hint}."
+        buckets[priority].append(label[0].upper() + label[1:])
+
+    # Recommandation transverse si conformité faible.
+    if result.conformity_rate() < 0.7:
+        buckets["Critique"].append(
+            "Ré-itérer un audit après reprise : l'écart au CCH est important — "
+            "prévoir une revue conjointe MOA / MOE avant la phase suivante."
+        )
+    return buckets
+
+
 def _generate_recommendations(result: AuditResult) -> list[str]:
-    """Recommandations stratégiques (haut niveau), dérivées des findings agrégés."""
+    """Recommandations stratégiques (haut niveau), dérivées des findings agrégés.
+
+    Conservé pour compatibilité (réutilisé par d'éventuels appelants /
+    tests) ; la section 8 du rapport utilise désormais
+    :func:`_recommendations_by_priority`.
+    """
     recs: list[str] = []
     by_type = result.count_by_error_type()
     n_class_missing = by_type.get("classification_missing", 0)

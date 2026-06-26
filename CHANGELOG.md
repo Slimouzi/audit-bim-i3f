@@ -7,6 +7,59 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed
+
+#### Rebrand des livrables vers la charte BIMData
+
+- Les rapports Word + Excel suivent désormais la **charte BIMData —
+  Brand Guidelines 2022 v1.0** (et non plus Korhus.ai) :
+  - couverture bleu ardoise `#2F374A`, accent jaune `#F9C72C`, bleu royal
+    `#3375DD`, police Roboto / Arial ;
+  - wordmark de repli « BIMDATA » ; supertitles Excel « BIMDATA — … » ;
+  - palette catégorielle des graphes alignée sur les teintes BIMData.
+- Nouveau module `audit_bim.reporting.bimdata_brand` (résolution des
+  logos via `BIMDATA_BRAND_KIT_DIR`, fallback `KORHUS_BRAND_KIT_DIR` et
+  dossier sibling `bimdata_brand_kit/`). L'ancien module
+  `korhus_brand` devient un shim de compatibilité.
+- `theming.py` : tokens canoniques `BIMDATA_*` ; les constantes
+  `KORHUS_*` et `I3F_*` deviennent des alias **dépréciés** pointant sur
+  les valeurs BIMData (rétro-compatibilité préservée).
+
+#### Refonte du rapport Word — modèle « rapport d'audit de conformité de la maquette numérique »
+
+- Le rapport Word (`write_word_report`) suit désormais la structure
+  normalisée d'un rapport d'audit de conformité :
+  1. Page de garde (Titre, Projet, Maquette auditée, Version, Date,
+     Auteur, Référence du CCBIM utilisé) ;
+  2. Synthèse exécutive (objectif, niveau de conformité, points de
+     vigilance, **décision** Acceptée / Acceptée sous réserve / Refusée,
+     tableau d'indicateurs) ;
+  3. Périmètre de l'audit (documents de référence + maquette auditée :
+     discipline, auteur, date, logiciel, version IFC) ;
+  4. Méthodologie (familles de contrôles réalisés) ;
+  5. Résultats globaux (synthèse par domaine : Conforme / Avertissement /
+     Non conforme) ;
+  6. Résultats détaillés (6.1 Structure, 6.2 Qualité des données,
+     6.3 Classification, 6.4 Conventions de nommage, 6.5 Contrôles
+     géométriques, 6.6 Cohérence métier, 6.7 Détection des conflits) ;
+  7. Liste des non-conformités (tableau ID / Règle / Objet / Gravité /
+     Commentaire / Action) ;
+  8. Recommandations classées par priorité (Critique / Majeure / Mineure) ;
+  9. Conclusion (conformité globale, points bloquants, décision finale) ;
+  10. Annexes.
+- Les familles de contrôles non couvertes par l'audit automatisé
+  (géométrie fine, cohérence métier détaillée, détection de conflits)
+  sont **explicitement signalées comme hors périmètre** — jamais
+  présentées comme conformes (principe « on n'invente jamais »).
+
+### Added
+
+#### Persona AMO BIM : dialogue en français + liens vers les rapports
+
+- Consigne explicite de mener **tout le dialogue en français**.
+- Consigne de proposer systématiquement un **lien cliquable** (`file://`)
+  pour ouvrir les rapports Word (`.docx`) et Excel (`.xlsx`) générés.
+
 ### Security
 
 #### Montée des dépendances vulnérables (pip-audit)

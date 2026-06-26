@@ -6,6 +6,8 @@ import re
 
 from audit_bim.audit.findings import Severity
 from audit_bim.reporting.theming import (
+    BIMDATA_PRIMARY,
+    BIMDATA_SECONDARY,
     I3F_BLUE,
     I3F_GREY,
     SEVERITY_COLORS,
@@ -24,9 +26,15 @@ class TestPalette:
         for k, v in THEME_COLORS.items():
             assert HEX6.match(v), f"{k} = {v!r} n'est pas un hex 6 chars"
 
-    def test_i3f_brand_colors(self):
+    def test_bimdata_brand_colors(self):
+        # Charte BIMData : primaire bleu ardoise, accent jaune.
+        assert BIMDATA_PRIMARY.upper() == "2F374A"
+        assert BIMDATA_SECONDARY.upper() == "F9C72C"
+
+    def test_i3f_aliases_resolve_to_bimdata(self):
         assert HEX6.match(I3F_BLUE)
         assert HEX6.match(I3F_GREY)
+        assert I3F_BLUE == BIMDATA_PRIMARY
 
 
 class TestSeverityCoverage:

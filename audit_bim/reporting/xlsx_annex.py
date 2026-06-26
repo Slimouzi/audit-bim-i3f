@@ -24,11 +24,11 @@ from ..audit.engine import AuditResult
 from ..audit.findings import ErrorType, Severity
 from ..classifier import suggest_for_findings
 from .theming import (
-    I3F_BLUE,
-    I3F_BLUE_LIGHT,
-    KORHUS_FONT_PRIMARY,
-    KORHUS_GRANITE,
-    KORHUS_SECONDARY,
+    BIMDATA_BLUE_NEUTRAL_LIGHT,
+    BIMDATA_FONT_PRIMARY,
+    BIMDATA_GRANITE,
+    BIMDATA_PRIMARY,
+    BIMDATA_SECONDARY,
     SEVERITY_COLORS,
 )
 
@@ -123,9 +123,9 @@ def write_safe(ws, row, col, value, fmt=None):
 
 
 def _build_formats(wb: xlsxwriter.Workbook) -> dict:
-    """Construit le jeu de formats brandés Korhus.
+    """Construit le jeu de formats brandé BIMData.
 
-    Tous les formats partagent la police Roboto (charte Korhus) avec
+    Tous les formats partagent la police Roboto (charte BIMData) avec
     fallback Arial. XlsxWriter ne supporte pas la déclaration de
     fallback, donc on configure ``font_name=Roboto`` ; si Roboto n'est
     pas installée sur le poste qui ouvre le fichier, Excel substitue
@@ -134,14 +134,14 @@ def _build_formats(wb: xlsxwriter.Workbook) -> dict:
     """
 
     def _font(**kwargs) -> dict:
-        return {"font_name": KORHUS_FONT_PRIMARY, **kwargs}
+        return {"font_name": BIMDATA_FONT_PRIMARY, **kwargs}
 
     fmts = {
         "title": wb.add_format(
             _font(
                 bold=True,
                 font_size=18,
-                font_color=I3F_BLUE,
+                font_color=BIMDATA_PRIMARY,
                 align="left",
             )
         ),
@@ -149,15 +149,15 @@ def _build_formats(wb: xlsxwriter.Workbook) -> dict:
             _font(
                 bold=True,
                 font_size=9,
-                font_color=KORHUS_GRANITE,
+                font_color=BIMDATA_GRANITE,
                 align="left",
             )
         ),
-        "h2": wb.add_format(_font(bold=True, font_size=12, font_color=I3F_BLUE)),
+        "h2": wb.add_format(_font(bold=True, font_size=12, font_color=BIMDATA_PRIMARY)),
         "header": wb.add_format(
             _font(
                 bold=True,
-                bg_color=I3F_BLUE,
+                bg_color=BIMDATA_PRIMARY,
                 font_color="FFFFFF",
                 align="center",
                 valign="vcenter",
@@ -165,17 +165,19 @@ def _build_formats(wb: xlsxwriter.Workbook) -> dict:
                 text_wrap=True,
             )
         ),
-        # Filet cyan d'accent : utilisable comme bordure haute / surligneur.
-        "accent_filet": wb.add_format(_font(bg_color=KORHUS_SECONDARY, font_size=2)),
-        # Alternance de lignes en Blue Neutral Light (#F0F5FF, charte Korhus).
+        # Filet jaune d.accent (BIMData Secondary) : utilisable comme bordure haute / surligneur.
+        "accent_filet": wb.add_format(_font(bg_color=BIMDATA_SECONDARY, font_size=2)),
+        # Alternance de lignes en Blue Neutral Light (#F0F5FF, charte BIMData).
         "row_alt": wb.add_format(
-            _font(bg_color=I3F_BLUE_LIGHT, border=1, text_wrap=True, valign="top")
+            _font(bg_color=BIMDATA_BLUE_NEUTRAL_LIGHT, border=1, text_wrap=True, valign="top")
         ),
         # Lignes neutres : blanc Excel par défaut pour conserver le
-        # contraste zébré avec ``row_alt`` (Korhus White / respiration).
+        # contraste zébré avec ``row_alt`` (BIMData White / respiration).
         "row": wb.add_format(_font(border=1, text_wrap=True, valign="top")),
         "kpi_key": wb.add_format(
-            _font(bold=True, bg_color=I3F_BLUE_LIGHT, border=1, font_color=I3F_BLUE)
+            _font(
+                bold=True, bg_color=BIMDATA_BLUE_NEUTRAL_LIGHT, border=1, font_color=BIMDATA_PRIMARY
+            )
         ),
         "kpi_val": wb.add_format(_font(border=1, align="right")),
         "label": wb.add_format(_font(bold=True)),
@@ -264,13 +266,12 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
     safe_cch = _neutralize_formula(result.catalog.cch_version or "?")
     safe_ref = _neutralize_formula(Path(result.catalog.data_spec_source or "").name or "—")
 
-    # En-tête brandé Korhus : supertitle gris + titre principal + filet
-    # cyan d'accent sur ligne 2 (charte Korhus.ai).
-    ws.write("A1", "KORHUS.AI — AUDIT BIM", fmts["supertitle"])
+    # En-tête brandé BIMData : supertitle gris + titre principal + filet jaune d.accent sur ligne 2 (charte BIMData).
+    ws.write("A1", "BIMDATA — AUDIT BIM", fmts["supertitle"])
     ws.set_row(0, 14)
     ws.write("A2", "", fmts["accent_filet"])
     ws.write("B2", "", fmts["accent_filet"])
-    ws.set_row(1, 4)  # hauteur fine pour le filet cyan
+    ws.set_row(1, 4)  # hauteur fine pour le filet jaune
     ws.write("A3", "Audit BIM — Synthèse", fmts["title"])
     ws.write("A4", f"Phase auditée : {result.phase.value}", fmts["h2"])
     ws.write("A5", f"Projet : {safe_project}")
@@ -278,7 +279,7 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
     ws.write("A7", f"CCH version : {safe_cch}")
     ws.write("A8", f"Référentiel : {safe_ref}")
 
-    # KPIs (décalés de +2 lignes pour le bandeau brandé Korhus en haut).
+    # KPIs (décalés de +2 lignes pour le bandeau brandé BIMData en haut).
     ws.write("A10", "KPI global", fmts["h2"])
     kpis = [
         ("Anomalies totales", len(result.findings)),
@@ -324,8 +325,8 @@ def _write_referential(wb, result: AuditResult, fmts: dict):
     ws.set_column("D:D", 60)
 
     cat = result.catalog
-    # Bandeau brandé Korhus (cf. ``_write_synthesis``).
-    ws.write("A1", "KORHUS.AI — RÉFÉRENTIEL", fmts["supertitle"])
+    # Bandeau brandé BIMData (cf. ``_write_synthesis``).
+    ws.write("A1", "BIMDATA — RÉFÉRENTIEL", fmts["supertitle"])
     ws.set_row(0, 14)
     ws.write("A2", "", fmts["accent_filet"])
     ws.write("B2", "", fmts["accent_filet"])
