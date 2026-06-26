@@ -76,6 +76,11 @@ def main() -> int:
             f"audit-bim-i3f MCP — transport={args.transport} sur http://{args.host}:{args.port}",
             file=sys.stderr,
         )
+        print(
+            f"audit-bim-i3f — page de configuration client : "
+            f"http://{args.host}:{args.port}/mcp-setup",
+            file=sys.stderr,
+        )
 
     mcp.run(transport=args.transport, **kwargs)
     return 0

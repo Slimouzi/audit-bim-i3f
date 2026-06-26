@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <title>BIMData — Connexion MCP</title>
+  <style>
+    /* Tokens BIMData — Brand Guidelines 2022 v1.0 (cf. BRAND_GUIDELINES.md) */
+    :root {
+      --bd-primary: #2F374A;
+      --bd-secondary: #F9C72C;
+      --bd-royal: #3375DD;
+      --bd-white: #FFFFFF;
+      --bd-granite: #606060;
+      --bd-granite-light: #7A7A7A;
+      --bd-silver-light: #F7F7F7;
+      --bd-blue-neutral-light: #F0F5FF;
+      --bd-high: #FF3D1E;
+      --bd-success: #00AF50;
+      --bd-font: "Roboto", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--bd-font); color: var(--bd-primary);
+      background: var(--bd-silver-light); line-height: 1.5;
+    }
+    .hero {
+      background: var(--bd-primary); color: var(--bd-white);
+      padding: 28px 24px 24px; border-bottom: 3px solid var(--bd-secondary);
+    }
+    .hero .supertitle {
+      color: var(--bd-secondary); font-weight: 700; font-size: 12px;
+      letter-spacing: .08em; text-transform: uppercase; margin: 0 0 6px;
+    }
+    .hero h1 { margin: 0; font-size: 24px; font-weight: 700; }
+    .wrap { max-width: 640px; margin: 24px auto; padding: 0 16px; }
+    .card {
+      background: var(--bd-white); border: 1px solid #E3E8F2; border-radius: 10px;
+      padding: 20px 22px; margin-bottom: 18px;
+    }
+    .card h2 {
+      margin: 0 0 14px; font-size: 16px; font-weight: 700;
+      padding-bottom: 8px; border-bottom: 2px solid var(--bd-blue-neutral-light);
+    }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+    .opt { color: var(--bd-granite-light); font-weight: 400; }
+    input, select {
+      width: 100%; padding: 9px 11px; font-size: 14px; font-family: var(--bd-font);
+      border: 1px solid #CBD2E0; border-radius: 6px; background: var(--bd-white);
+      color: var(--bd-primary);
+    }
+    input:focus, select:focus { outline: 2px solid var(--bd-royal); border-color: var(--bd-royal); }
+    .row { display: flex; gap: 12px; }
+    .row > div { flex: 1; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+    button {
+      font-family: var(--bd-font); font-size: 14px; font-weight: 700; cursor: pointer;
+      border: none; border-radius: 6px; padding: 10px 18px;
+    }
+    .btn-primary { background: var(--bd-primary); color: var(--bd-white); }
+    .btn-primary:disabled { background: #AEB6C6; cursor: not-allowed; }
+    .btn-accent { background: var(--bd-secondary); color: var(--bd-primary); }
+    .btn-ghost { background: transparent; color: var(--bd-granite); border: 1px solid #CBD2E0; }
+    .status {
+      margin-top: 16px; padding: 12px 14px; border-radius: 8px; font-size: 14px;
+      background: var(--bd-blue-neutral-light); display: none;
+    }
+    .status.show { display: block; }
+    .status.ok { background: #E6F7EE; border-left: 4px solid var(--bd-success); }
+    .status.err { background: #FDECEA; border-left: 4px solid var(--bd-high); }
+    .ready { display: none; }
+    .ready.show { display: block; }
+    code, .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+      background: var(--bd-blue-neutral-light); padding: 2px 6px; border-radius: 4px;
+      word-break: break-all;
+    }
+    .config-block {
+      background: var(--bd-primary); color: var(--bd-white); border-radius: 8px;
+      padding: 12px 14px; margin-top: 10px; font-family: ui-monospace, monospace;
+      font-size: 12.5px; white-space: pre-wrap; word-break: break-all;
+    }
+    .hint { color: var(--bd-granite); font-size: 12.5px; margin-top: 8px; }
+    footer { text-align: center; color: var(--bd-granite-light); font-size: 12px; padding: 8px 0 28px; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <p class="supertitle">BIMDATA — AUDIT BIM</p>
+    <h1>Connexion BIMData</h1>
+  </div>
+
+  <div class="wrap">
+    <form id="setup-form" autocomplete="off">
+      <div class="card">
+        <h2>Credentials BIMData</h2>
+        <label for="bimdata_api_key">Clé API (BIMDATA_API_KEY)</label>
+        <input id="bimdata_api_key" name="bimdata_api_key" type="password"
+               autocomplete="off" spellcheck="false" required />
+        <div class="row">
+          <div>
+            <label for="cloud_id">Cloud ID</label>
+            <input id="cloud_id" name="cloud_id" inputmode="numeric" required />
+          </div>
+          <div>
+            <label for="project_id">Project ID</label>
+            <input id="project_id" name="project_id" inputmode="numeric" required />
+          </div>
+          <div>
+            <label for="model_id">Model ID</label>
+            <input id="model_id" name="model_id" inputmode="numeric" required />
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Modèle cible</h2>
+        <div class="row">
+          <div>
+            <label for="default_phase">Phase par défaut</label>
+            <select id="default_phase" name="default_phase">
+              <option>APS</option><option>AVP</option><option>PRO</option>
+              <option>DCE</option><option>EXE</option>
+              <option selected>DOE</option><option>GESTION</option>
+            </select>
+          </div>
+          <div>
+            <label for="auditor_name">Nom auditeur</label>
+            <input id="auditor_name" name="auditor_name" value="AMO BIM" />
+          </div>
+        </div>
+        <label for="project_address">Adresse projet <span class="opt">(optionnel)</span></label>
+        <input id="project_address" name="project_address" />
+      </div>
+
+      <div class="actions">
+        <button type="button" id="btn-test" class="btn-primary">Tester la connexion</button>
+        <button type="button" id="btn-start" class="btn-accent" disabled>Démarrer la session MCP</button>
+        <button type="button" id="btn-reset" class="btn-ghost">Réinitialiser</button>
+      </div>
+
+      <div id="status" class="status"></div>
+
+      <div id="ready" class="ready card" style="margin-top:18px;">
+        <h2>Session MCP prête</h2>
+        <p>La session MCP est prête. Vous pouvez maintenant demander à l'assistant IA
+           d'auditer la maquette, générer les rapports ou préparer des Smart Views.</p>
+        <p class="hint">Configurez votre client MCP (ex. Claude Desktop) avec l'endpoint
+           et l'en-tête ci-dessous. <strong>Ne copiez jamais votre clé API BIMData</strong>
+           dans cette configuration — seul le token de session est nécessaire.</p>
+        <div class="config-block" id="config-block"></div>
+      </div>
+    </form>
+  </div>
+
+  <footer>BIMData — audit-bim-i3f · MCP Client Setup</footer>
+
+  <script>
+    // Aucune persistance : pas de localStorage, pas de credential ni token
+    // dans l'URL. Le token n'est affiché qu'à l'écran, le temps de la copie.
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $("status");
+    const readyEl = $("ready");
+    const btnStart = $("btn-start");
+
+    function showStatus(kind, html) {
+      statusEl.className = "status show " + kind;
+      statusEl.innerHTML = html;
+    }
+    function payload() {
+      return {
+        bimdata_api_key: $("bimdata_api_key").value.trim(),
+        cloud_id: $("cloud_id").value.trim(),
+        project_id: $("project_id").value.trim(),
+        model_id: $("model_id").value.trim(),
+        default_phase: $("default_phase").value,
+        auditor_name: $("auditor_name").value.trim(),
+        project_address: $("project_address").value.trim(),
+      };
+    }
+    async function postJson(url, body) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      let data = {};
+      try { data = await res.json(); } catch (e) {}
+      return { ok: res.ok, data };
+    }
+
+    $("btn-test").addEventListener("click", async () => {
+      readyEl.classList.remove("show");
+      btnStart.disabled = true;
+      showStatus("", "Test en cours…");
+      const { ok, data } = await postJson("/api/mcp/test-connection", payload());
+      if (ok && data.ok) {
+        showStatus("ok", `Connexion OK — projet « ${data.project_name || "?"} », `
+          + `modèle « ${data.model_name || "?"} ».`);
+        btnStart.disabled = false;
+      } else {
+        showStatus("err", "Échec : " + (data.error || "connexion refusée."));
+      }
+    });
+
+    $("btn-start").addEventListener("click", async () => {
+      showStatus("", "Démarrage de la session MCP…");
+      const { ok, data } = await postJson("/api/mcp/session", payload());
+      if (ok && data.ok) {
+        statusEl.className = "status";
+        const cfg =
+          "Endpoint MCP : " + data.mcp_endpoint + "\n" +
+          "En-tête      : " + data.header_name + ": " + data.token;
+        $("config-block").textContent = cfg;
+        readyEl.classList.add("show");
+      } else {
+        showStatus("err", "Échec : " + (data.error || "impossible de démarrer la session."));
+      }
+    });
+
+    $("btn-reset").addEventListener("click", () => {
+      $("setup-form").reset();
+      statusEl.className = "status";
+      readyEl.classList.remove("show");
+      btnStart.disabled = true;
+    });
+  </script>
+</body>
+</html>

@@ -44,7 +44,7 @@ from ..requirements.catalog import build_catalog
 from ..requirements.models import BIMPhase, RequirementsCatalog
 from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
 from ..smartview.builder import push_smart_views
-from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
+from .middleware import ApiKeyMiddleware, McpSessionTokenMiddleware, SessionBindingMiddleware
 from .model_identity import model_matches_expected
 from .prompts import AMO_BIM_I3F_PROMPT
 from .security import ensure_access_token_param_allowed, ensure_writes_allowed
@@ -67,6 +67,17 @@ mcp = FastMCP("audit-bim-i3f")
 # transparents.
 mcp.add_middleware(SessionBindingMiddleware())
 mcp.add_middleware(ApiKeyMiddleware())
+# Couche 3 du modèle « endpoint + token » (façade /mcp-setup) : lie la
+# session crédentialée présentée via X-MCP-Session-Token. Enregistré en
+# dernier → sa liaison de ``current_session`` prime (innermost). En stdio
+# / sans token, c'est un no-op transparent.
+mcp.add_middleware(McpSessionTokenMiddleware())
+
+# Routes HTTP de configuration client (page /mcp-setup + API REST). Sur
+# stdio les custom routes ne sont pas servies — no-op.
+from ..web import register_setup_routes  # noqa: E402
+
+register_setup_routes(mcp)
 
 
 # Note : le bootstrap des chemins par défaut depuis l'env est fait dans

@@ -87,6 +87,7 @@ class BIMDataClient:
         project_id: int | str | None = None,
         model_id: int | str | None = None,
         access_token: str | None = None,
+        api_key: str | None = None,
         timeout: int = 60,
     ):
         """Initialise le client et la session HTTP.
@@ -99,19 +100,25 @@ class BIMDataClient:
             model_id: ID modèle IFC. Fallback sur ``config.MODEL_ID``.
             access_token: Bearer OAuth2 déjà acquis (utile pour les
                 plugins viewer qui injectent le token utilisateur).
+            api_key: Clé API BIMData **par instance** (header ``ApiKey``).
+                Permet d'injecter une clé propre à une session sans muter
+                le ``config`` global (isolation multi-session, utilisé par
+                la façade web ``/mcp-setup``). Fallback sur
+                ``config.API_KEY`` si non fourni.
             timeout: Timeout HTTP par défaut (secondes). Override possible
                 par appel via ``_post(..., timeout=...)``.
 
         Raises:
             ValueError: Si aucun mode d'authentification n'est disponible
-                (ni ``access_token``, ni ``BIMDATA_API_KEY``, ni
-                ``BIMDATA_CLIENT_ID + …SECRET``).
+                (ni ``access_token``, ni ``api_key`` / ``BIMDATA_API_KEY``,
+                ni ``BIMDATA_CLIENT_ID + …SECRET``).
         """
         self.base_url = config.BIMDATA_BASE_URL.rstrip("/")
         self.cloud_id = cloud_id if cloud_id is not None else config.CLOUD_ID
         self.project_id = project_id if project_id is not None else config.PROJECT_ID
         self.model_id = model_id if model_id is not None else config.MODEL_ID
         self.access_token = access_token or config.ACCESS_TOKEN
+        self.api_key = api_key or config.API_KEY
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update(self._auth_headers())
@@ -127,7 +134,8 @@ class BIMDataClient:
         Ordre :
 
         1. ``access_token`` passé au constructeur (Bearer).
-        2. ``BIMDATA_API_KEY`` du ``.env`` (ApiKey).
+        2. ``api_key`` d'instance (param) ou ``BIMDATA_API_KEY`` du
+           ``.env`` (ApiKey).
         3. Flow OAuth2 ``client_credentials`` (acquiert un Bearer).
 
         Returns:
@@ -138,8 +146,8 @@ class BIMDataClient:
         """
         if self.access_token:
             return {"Authorization": f"Bearer {self.access_token}"}
-        if config.API_KEY:
-            return {"Authorization": f"ApiKey {config.API_KEY}"}
+        if self.api_key:
+            return {"Authorization": f"ApiKey {self.api_key}"}
         if config.CLIENT_ID and config.CLIENT_SECRET:
             token = self._fetch_oauth_token()
             self.access_token = token

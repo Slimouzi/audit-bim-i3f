@@ -92,6 +92,12 @@ class _Session:
         self.classification_system: str = "UniFormat II"
         self.doe_available: bool | None = None
 
+        # Contexte saisi via la façade web ``/mcp-setup`` (couche
+        # session_credentials) — repris par les outils de génération de
+        # rapport. ``None`` pour les sessions stdio/env classiques.
+        self.auditor_name: str | None = None
+        self.project_address: str | None = None
+
         self.snapshot: ModelSnapshot | None = None
         self.result: AuditResult | None = None
         self.suggestion_store: ClassificationSuggestionStore | None = None
