@@ -7,6 +7,22 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Security
+
+#### Montée des dépendances vulnérables (pip-audit)
+
+- Résolution de 12 CVE remontées par le job CI `security-audit`
+  (publiées après le dernier run de `master`, versions de deps
+  inchangées depuis) :
+  - `cryptography` 48.0.0 → 49.0.0 (GHSA-537c-gmf6-5ccf) ;
+  - `pydantic-settings` 2.14.1 → 2.14.2 (GHSA-4xgf-cpjx-pc3j) ;
+  - `pypdf` 6.12.1 → 6.14.2 (CVE-2026-49460/49461/54530/54531,
+    GHSA-jm82-fx9c-mx94) ;
+  - `python-multipart` 0.0.29 → 0.0.32 (CVE-2026-53538/53539/53540) ;
+  - `starlette` 1.1.0 → 1.3.1 (CVE-2026-54282/54283).
+- `uv.lock` régénéré (`uv lock --upgrade-package …`). `pip-audit` repasse
+  au vert sur `requirements-from-lock.txt` et l'extra `[ocr]`.
+
 ## [0.4.1] — 2026-05-26
 
 Patch de sécurité opérationnelle : ``full_audit`` ne corrompt plus la
