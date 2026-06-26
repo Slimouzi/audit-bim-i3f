@@ -4,7 +4,7 @@ include CHANGELOG.md
 include .env.example
 include claude_desktop_config.example.json
 include requirements.txt
-recursive-include audit_bim *.py
+recursive-include audit_bim *.py *.md
 recursive-include examples *.py *.ts *.md *.json
 recursive-include tests *.py
 recursive-exclude * __pycache__

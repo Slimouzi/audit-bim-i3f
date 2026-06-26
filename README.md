@@ -443,7 +443,10 @@ Dans `AUDIT_OUTPUT_DIR` (`./out` par défaut) :
 Les rapports Word + Excel suivent la **charte BIMData — Brand Guidelines
 2022 v1.0** (couverture sombre bleu ardoise `#2F374A`, accent jaune
 `#F9C72C`, police Roboto avec fallback Arial, logo BIMData en couverture
-du `.docx`).
+du `.docx`). La charte éditoriale complète (logo, typographie, couleurs,
+mise en page, QA) est consignée dans
+[`audit_bim/reporting/BRAND_GUIDELINES.md`](audit_bim/reporting/BRAND_GUIDELINES.md) ;
+le code (`theming.py`) n'en garde que les tokens exécutables.
 
 Configuration du brand kit (logos + tokens) — premier match :
 

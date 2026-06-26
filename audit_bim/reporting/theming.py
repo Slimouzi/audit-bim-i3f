@@ -24,6 +24,10 @@ from __future__ import annotations
 
 # ── Palette BIMData (hex sans #) ──────────────────────────────────────
 # Source : BIMData — Brand Guidelines 2022 v1.0.
+# Source éditoriale complète (logo, typographie, mise en page, QA) :
+#   audit_bim/reporting/BRAND_GUIDELINES.md
+# Le code ne garde que les tokens exécutables — pas de duplication de la
+# charte ; toute évolution de fond se fait d'abord dans BRAND_GUIDELINES.md.
 #
 # Primaires (cœur de l'identité de marque).
 BIMDATA_PRIMARY = "2F374A"  # bleu ardoise : fonds sombres, titres, couverture

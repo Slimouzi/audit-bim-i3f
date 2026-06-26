@@ -97,7 +97,7 @@ include = ["audit_bim*"]
 exclude = ["tests*", "examples*", "docs*", "out*"]
 
 [tool.setuptools.package-data]
-"audit_bim" = ["py.typed"]
+"audit_bim" = ["py.typed", "reporting/BRAND_GUIDELINES.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

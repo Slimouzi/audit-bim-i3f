@@ -22,24 +22,52 @@ from docx import Document
 from openpyxl import load_workbook
 
 from audit_bim.audit.engine import AuditResult
-from audit_bim.reporting import bimdata_brand
+from audit_bim.reporting import bimdata_brand, theming
 from audit_bim.reporting.theming import (
+    BIMDATA_BLACK,
     BIMDATA_BLUE_NEUTRAL_LIGHT,
+    BIMDATA_FONT_FALLBACK,
     BIMDATA_FONT_PRIMARY,
     BIMDATA_GRANITE,
+    BIMDATA_GRANITE_LIGHT,
     BIMDATA_PRIMARY,
+    BIMDATA_ROYAL_BLUE,
     BIMDATA_SECONDARY,
+    BIMDATA_SILVER_DARK,
+    BIMDATA_SILVER_LIGHT,
     BIMDATA_WHITE,
     I3F_BLUE,
     I3F_BLUE_LIGHT,
     I3F_GREY,
+    KORHUS_FONT_PRIMARY,
     KORHUS_PRIMARY,
+    KORHUS_SECONDARY,
     SEVERITY_COLORS,
 )
 from audit_bim.reporting.word_report import write_word_report
 from audit_bim.reporting.xlsx_annex import write_xlsx_annex
 
 HEX6 = re.compile(r"^[0-9A-Fa-f]{6}$")
+
+# Valeurs canoniques attendues (cf. BRAND_GUIDELINES.md). Toute
+# divergence ici = dérive par rapport à la charte BIMData 2022 v1.0.
+_EXPECTED_TOKENS = {
+    "BIMDATA_PRIMARY": "2F374A",
+    "BIMDATA_SECONDARY": "F9C72C",
+    "BIMDATA_ROYAL_BLUE": "3375DD",
+    "BIMDATA_WHITE": "FFFFFF",
+    "BIMDATA_GRANITE": "606060",
+    "BIMDATA_BLACK": "000000",
+    "BIMDATA_GRANITE_LIGHT": "7A7A7A",
+    "BIMDATA_SILVER_DARK": "BDBDBD",
+    "BIMDATA_SILVER_LIGHT": "F7F7F7",
+    "BIMDATA_BLUE_NEUTRAL_LIGHT": "F0F5FF",
+    "BIMDATA_HIGH": "FF3D1E",
+    "BIMDATA_WARNING": "FF9100",
+    "BIMDATA_SUCCESS": "00AF50",
+    "BIMDATA_FONT_PRIMARY": "Roboto",
+    "BIMDATA_FONT_FALLBACK": "Arial",
+}
 
 
 # ── 1. Tokens BIMData présents et cohérents ───────────────────────────
@@ -73,6 +101,12 @@ class TestDeprecatedAliases:
     def test_korhus_primary_aliases_bimdata(self):
         assert KORHUS_PRIMARY == BIMDATA_PRIMARY
 
+    def test_korhus_secondary_aliases_bimdata(self):
+        assert KORHUS_SECONDARY == BIMDATA_SECONDARY
+
+    def test_korhus_font_aliases_bimdata(self):
+        assert KORHUS_FONT_PRIMARY == BIMDATA_FONT_PRIMARY
+
     def test_i3f_blue_aliases_bimdata_primary(self):
         assert I3F_BLUE == BIMDATA_PRIMARY
 
@@ -81,6 +115,18 @@ class TestDeprecatedAliases:
 
     def test_i3f_grey_aliases_bimdata_granite(self):
         assert I3F_GREY == BIMDATA_GRANITE
+
+
+class TestBrandTokensExactValues:
+    """Les tokens exécutables doivent matcher la charte (BRAND_GUIDELINES.md)."""
+
+    def test_all_tokens_have_expected_values(self):
+        actual = {name: getattr(theming, name) for name in _EXPECTED_TOKENS}
+        assert actual == _EXPECTED_TOKENS
+
+    def test_fonts_are_roboto_arial(self):
+        assert BIMDATA_FONT_PRIMARY == "Roboto"
+        assert BIMDATA_FONT_FALLBACK == "Arial"
 
 
 class TestSeverityColorsUntouched:
@@ -92,6 +138,51 @@ class TestSeverityColorsUntouched:
         g = int(SEVERITY_COLORS["CRITICAL"][2:4], 16)
         b = int(SEVERITY_COLORS["CRITICAL"][4:6], 16)
         assert r > g and r > b  # rouge dominant
+
+    def test_severity_colors_independent_from_brand_palette(self):
+        """Les couleurs de sévérité ne doivent PAS être tirées de la
+        palette de marque : c'est une convention métier autonome."""
+        brand_palette = {
+            BIMDATA_PRIMARY,
+            BIMDATA_SECONDARY,
+            BIMDATA_ROYAL_BLUE,
+            BIMDATA_WHITE,
+            BIMDATA_GRANITE,
+            BIMDATA_BLACK,
+            BIMDATA_GRANITE_LIGHT,
+            BIMDATA_SILVER_DARK,
+            BIMDATA_SILVER_LIGHT,
+            BIMDATA_BLUE_NEUTRAL_LIGHT,
+        }
+        for sev, color in SEVERITY_COLORS.items():
+            assert color.upper() not in {c.upper() for c in brand_palette}, (
+                f"La sévérité {sev} ({color}) ne doit pas réutiliser un token de marque."
+            )
+
+
+class TestBrandGuidelinesDoc:
+    """La charte éditoriale BRAND_GUIDELINES.md doit exister et rester la
+    source de vérité référencée par le code."""
+
+    def _doc_path(self) -> Path:
+        return Path(theming.__file__).parent / "BRAND_GUIDELINES.md"
+
+    def test_brand_guidelines_file_exists(self):
+        assert self._doc_path().is_file(), "BRAND_GUIDELINES.md manquant"
+
+    def test_brand_guidelines_mentions_key_tokens(self):
+        text = self._doc_path().read_text(encoding="utf-8")
+        # Hex primaires/accents présents dans la charte.
+        for hexval in ("#2F374A", "#F9C72C", "#3375DD", "#F0F5FF"):
+            assert hexval in text, f"{hexval} absent de BRAND_GUIDELINES.md"
+        # Typographie + attributs de marque.
+        assert "Roboto" in text and "Arial" in text
+        for attr in ("Simplicity", "Modernity", "Technology", "Scalable"):
+            assert attr in text
+
+    def test_theming_module_references_the_doc(self):
+        src = Path(theming.__file__).read_text(encoding="utf-8")
+        assert "BRAND_GUIDELINES.md" in src
 
 
 # ── 2. Résolution du brand kit ────────────────────────────────────────

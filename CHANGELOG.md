@@ -24,6 +24,11 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 - `theming.py` : tokens canoniques `BIMDATA_*` ; les constantes
   `KORHUS_*` et `I3F_*` deviennent des alias **dépréciés** pointant sur
   les valeurs BIMData (rétro-compatibilité préservée).
+- Charte éditoriale formalisée dans
+  `audit_bim/reporting/BRAND_GUIDELINES.md` (logo, typographie, couleurs,
+  mise en page, QA avant publication), livrée avec le package et
+  référencée depuis `theming.py`. Le code ne garde que les tokens
+  exécutables — pas de duplication de la charte.
 
 #### Refonte du rapport Word — modèle « rapport d'audit de conformité de la maquette numérique »
 
