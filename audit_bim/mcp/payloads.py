@@ -69,11 +69,19 @@ def maybe_dump_to_disk(
     )
 
     items = payload.get("items", [])
-    compact = {k: v for k, v in payload.items() if k != "items"}
+    compact = {k: v for k, v in payload.items() if k not in ("items", "uuids")}
     compact["items"] = items[:5]  # 5 items en aperçu seulement
     compact["items_path"] = str(path)
     compact["items_truncated"] = True
     compact["items_count_in_response"] = min(5, len(items))
+    # ``uuids`` (jeu de sélection complet, ex. filter_bim_objects) peut à
+    # lui seul dépasser la limite inline : on l'aperçoit aussi et on expose
+    # son cardinal. Le JSON complet (tous les uuids) est dans ``items_path``.
+    if "uuids" in payload:
+        uuids = payload.get("uuids") or []
+        compact["uuids"] = uuids[:50]
+        compact["uuids_count"] = len(uuids)
+        compact["uuids_truncated"] = len(uuids) > 50
     return compact
 
 

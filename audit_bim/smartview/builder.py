@@ -245,6 +245,69 @@ def build_smartview_payloads(
     return payloads
 
 
+def build_smartview_payload_from_uuids(
+    uuids: list[str],
+    *,
+    title: str,
+    color: str = "#FF3D1E",
+    model_id: int | str | None = None,
+    element_by_uuid: dict | None = None,
+) -> dict:
+    """Construit un payload Smart View (coloring) depuis une liste d'UUID.
+
+    Variante « sélection libre » de :func:`_build_full_topic` : au lieu de
+    dériver les UUID et la couleur d'un thème d'audit, on colore exactement
+    les ``uuids`` fournis (jeu de sélection d'un ``filter_bim_objects`` /
+    :func:`resolve_object_selection`) avec une couleur unique. Même contrat
+    *minimal* que l'UI viewer (``title`` + ``models`` + ``format`` +
+    ``viewpoints[0].components.coloring``) pour rester dans le panneau
+    « Smart Views » dédié.
+
+    Args:
+        uuids: UUID des composants à colorer (dédupliqués en conservant
+            l'ordre).
+        title: Titre de la Smart View (déjà préfixé par l'appelant).
+        color: Couleur hex ``#RRGGBB`` du groupe (défaut ``#FF3D1E``).
+        model_id: ID du modèle BIMData attaché au viewpoint / ``models``.
+        element_by_uuid: Index ``uuid -> élément`` du snapshot pour renseigner
+            le nom Revit/CAO (``originating_system``).
+    """
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for u in uuids:
+        if not u or u in seen:
+            continue
+        seen.add(u)
+        ordered.append(u)
+
+    mid_int: int | None = None
+    if model_id is not None:
+        try:
+            mid_int = int(model_id)
+        except (TypeError, ValueError):
+            mid_int = None
+
+    def _component(u: str) -> dict:
+        comp = {"ifc_guid": u, "originating_system": _element_name(element_by_uuid, u)}
+        if mid_int is not None:
+            comp["authoring_tool_id"] = mid_int
+        return comp
+
+    viewpoint = {
+        "components": {
+            "coloring": [{"color": color, "components": [_component(u) for u in ordered]}],
+        },
+    }
+    payload = {
+        "title": title,
+        "viewpoints": [viewpoint],
+        "format": "bimdata-smartview",
+    }
+    if mid_int is not None:
+        payload["models"] = [mid_int]
+    return payload
+
+
 def push_smart_views(
     result: AuditResult,
     client: BIMDataClient,

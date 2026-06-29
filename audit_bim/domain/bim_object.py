@@ -167,6 +167,10 @@ class BimObject(BaseModel):
         filtré par système)."""
         return bool(self.classification_codes(system=system))
 
+    def has_base_quantities(self) -> bool:
+        """``True`` si l'élément porte au moins une BaseQuantity (Qto_*)."""
+        return bool(self.base_quantities)
+
     def compact_dict(self) -> dict[str, Any]:
         """Représentation compacte JSON-compatible pour retour MCP.
 

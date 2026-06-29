@@ -442,3 +442,78 @@ class TestApplySuggestionFilter:
         assert total == 3
         assert len(items) == 2
         assert next_offset == 2
+
+
+# ── Filtres quantités + nommage (ajouts sélection) ───────────────────────
+
+
+@pytest.fixture
+def snapshot_quantities() -> ModelSnapshot:
+    """2 pièces : une AVEC BaseQuantities (SDB), une SANS (CHAMBRE)."""
+    snap = ModelSnapshot(
+        project={"name": "Q"},
+        model={"name": "Q.ifc"},
+        sites=[],
+        buildings=[],
+        storeys=[],  # pas d'entité spatiale parasite : on teste les 2 IfcSpace
+        spaces=[],
+        zones=[],
+        elements=[
+            {
+                "uuid": "SP1",
+                "type": "IfcSpace",
+                "name": "SDB 01",
+                "property_sets": [
+                    {
+                        "name": "BaseQuantities",
+                        "properties": [
+                            {"definition": {"name": "NetFloorArea"}, "value": 4.2},
+                            {"definition": {"name": "GrossVolume"}, "value": 10.5},
+                        ],
+                    }
+                ],
+            },
+            {
+                "uuid": "SP2",
+                "type": "IfcSpace",
+                "name": "CHAMBRE 02",
+                "property_sets": [],
+            },
+        ],
+    )
+    return snap.index()
+
+
+def _uuids(snapshot, **filter_kwargs) -> set[str]:
+    # include_spatial=True : la fixture porte les quantités sur des IfcSpace.
+    items, _total, _next = apply_object_filter(
+        iter_bim_objects(snapshot, include_spatial=True), ObjectFilter(**filter_kwargs)
+    )
+    return {o.uuid for o in items}
+
+
+class TestObjectFilterQuantitiesAndNaming:
+    def test_has_base_quantities_false_selects_missing(self, snapshot_quantities):
+        assert _uuids(snapshot_quantities, has_base_quantities=False) == {"SP2"}
+
+    def test_has_base_quantities_true_selects_present(self, snapshot_quantities):
+        assert _uuids(snapshot_quantities, has_base_quantities=True) == {"SP1"}
+
+    def test_missing_quantity_by_name(self, snapshot_quantities):
+        # SP2 n'a aucune quantité → NetFloorArea manquante.
+        assert _uuids(snapshot_quantities, missing_quantity="NetFloorArea") == {"SP2"}
+
+    def test_has_quantity_by_name(self, snapshot_quantities):
+        assert _uuids(snapshot_quantities, has_quantity="NetFloorArea") == {"SP1"}
+
+    def test_name_contains_ci(self, snapshot_quantities):
+        assert _uuids(snapshot_quantities, name_contains="sdb") == {"SP1"}
+
+    def test_name_regex(self, snapshot_quantities):
+        assert _uuids(snapshot_quantities, name_regex=r"^CHAMBRE") == {"SP2"}
+
+    def test_and_combination_with_ifc_type(self, snapshot_quantities):
+        # IfcSpace ∩ sans quantités → SP2.
+        assert _uuids(snapshot_quantities, ifc_types=["IfcSpace"], has_base_quantities=False) == {
+            "SP2"
+        }

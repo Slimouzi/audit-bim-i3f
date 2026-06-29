@@ -24,17 +24,15 @@ Aucune écriture, aucun appel API. Le pattern overflow-to-disk
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from ..classifier.suggestion_store import ClassificationSuggestionStore
 from ..domain.filters import FindingFilter, ObjectFilter, SuggestionFilter
-from ..query.filtering import (
-    apply_finding_filter,
-    apply_object_filter,
-    apply_suggestion_filter,
-)
+from ..query.filtering import apply_finding_filter, apply_suggestion_filter
 from ..query.table_query import BimQuery, query_bim_table
-from ..query.views import bim_object_from_element, iter_bim_objects
+from ..query.views import bim_object_from_element
 from .payloads import ensure_suggestion_store, maybe_dump_to_disk
+from .selection import resolve_object_selection
 from .server import mcp
 from .session import _State
 
@@ -187,44 +185,174 @@ QUERY_PRESETS: dict[str, dict] = {
 @mcp.tool()
 def filter_bim_objects(
     filter: dict | None = None,
+    with_finding_themes: list[str] | None = None,
+    with_finding_error_types: list[str] | None = None,
+    with_finding_severities: list[str] | None = None,
+    include_spatial: bool = False,
     output_path: str | None = None,
 ) -> dict:
-    """Filtre les objets BIM (composants) du snapshot actif.
+    """Sélectionne les objets BIM (composants) du snapshot actif par filtres.
 
     Utilise la couche domain ``BimObject`` : indépendant de la
     représentation BIMData brute, partagé avec BCF / Smart Views /
     plans de correction.
 
+    Deux familles de filtres, combinées en **intersection** :
+
+    1. **Structurels** (``filter`` → :class:`audit_bim.domain.ObjectFilter`) :
+       ``ifc_types``, ``storey_names``, classification
+       (``has_any_classification``, codes…), propriétés
+       (``has_property``/``missing_property`` au format ``Pset.Prop``),
+       **quantités** (``has_base_quantities`` true/false,
+       ``has_quantity``/``missing_quantity`` par nom de BaseQuantity),
+       **nommage** (``name_contains``, ``name_regex``), matériaux/layers.
+    2. **Pilotés par l'audit** (intersection avec les findings de
+       ``run_audit_tool``) : ne garder que les objets portant ≥1 anomalie
+       des thèmes / types d'erreur / sévérités donnés. Nécessite un audit
+       préalable (``_State.result``). Valeurs validées contre les enums
+       moteur ``Theme`` / ``ErrorType`` / ``Severity`` (valeur inconnue →
+       ``ValueError``).
+
+    Exemples :
+
+    - Pièces sans quantités : ``filter={"ifc_types":["IfcSpace"],
+      "has_base_quantities": false}``.
+    - Quantités manquantes **selon le CCH** :
+      ``with_finding_error_types=["spatial_missing_quantity"]``.
+    - Nommage non conforme : ``with_finding_themes=["Nommage Pièce",
+      "Nommage Zone", "Nommage Site / Bâtiment / Étage"]``.
+
     Args:
-        filter: Dict mappé sur :class:`audit_bim.domain.ObjectFilter`.
-            Tous les champs sont optionnels. Combinaison ``ET`` entre
-            champs, ``OU`` entre valeurs d'une liste. Voir docstring du
-            modèle pour les axes supportés (classification actuelle,
-            niveau 3, étage, zone, présence/absence de propriété, etc.).
-        output_path: Si fourni (chemin sous ``AUDIT_OUTPUT_DIR``), écrit
-            la totalité du résultat en JSON sur disque ; le retour MCP
-            ne garde qu'un aperçu. Sinon, fallback automatique disque
-            quand la réponse dépasse 256 KB.
+        filter: Dict mappé sur ``ObjectFilter`` (tous champs optionnels,
+            ``ET`` entre champs, ``OU`` entre valeurs d'une liste).
+        with_finding_themes: Valeurs ``Theme.value`` (intersection audit).
+        with_finding_error_types: Valeurs ``ErrorType.value``.
+        with_finding_severities: Valeurs ``Severity.value``.
+        include_spatial: Inclut les éléments spatiaux (``IfcSpace``,
+            ``IfcZone``, étages…), exclus par défaut. **Auto-activé** dès
+            qu'un ``ifc_types`` spatial est ciblé OU qu'un filtre audit
+            (``with_finding_*``) est utilisé — pour ne pas piéger les cas
+            spatiaux (ex. quantités SHAB/SU manquantes sur ``IfcSpace``).
+            Forcer à ``True`` pour inclure le spatial dans une sélection
+            non ciblée.
+        output_path: Si fourni (sous ``AUDIT_OUTPUT_DIR``), écrit la
+            totalité du résultat en JSON sur disque ; sinon fallback
+            automatique disque quand la réponse dépasse 256 KB.
 
     Returns:
-        ``{items, total, next_offset, items_path?, items_truncated?}``.
-        Les ``items`` sont la version :meth:`BimObject.compact_dict`.
-    """
-    _State.ensure_snapshot()
-    f = ObjectFilter.model_validate(filter or {})
+        ``{items, uuids, total, next_offset, limit, offset, items_path?,
+        items_truncated?}``.
 
-    matched, total, next_offset = apply_object_filter(iter_bim_objects(_State.snapshot), f)
+        - ``total`` = nombre d'objets **après tous les filtres** (structurel
+          ∩ audit) mais **avant pagination** — le cardinal réel de la
+          sélection.
+        - ``items`` = page courante (``limit``/``offset``), au format
+          :meth:`BimObject.compact_dict`.
+        - ``uuids`` = jeu de sélection **complet** (tous les objets filtrés,
+          pas seulement la page), prêt à réutiliser (Smart View / BCF /
+          ``get_object_detail``). Si la réponse dépasse la limite inline,
+          ``uuids`` est tronqué à un aperçu et l'on expose ``uuids_count`` +
+          ``uuids_truncated`` ; le JSON complet (tous les uuids) est dans le
+          fichier ``items_path``.
+    """
+    sel = resolve_object_selection(
+        filter,
+        with_finding_themes=with_finding_themes,
+        with_finding_error_types=with_finding_error_types,
+        with_finding_severities=with_finding_severities,
+        include_spatial=include_spatial,
+    )
     payload = {
-        "items": [obj.compact_dict() for obj in matched],
-        "total": total,
-        "next_offset": next_offset,
-        "limit": f.limit,
-        "offset": f.offset,
+        "items": [obj.compact_dict() for obj in sel.page],
+        "uuids": sel.uuids,
+        "total": sel.total,
+        "next_offset": sel.next_offset,
+        "limit": sel.filter.limit,
+        "offset": sel.filter.offset,
     }
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     return maybe_dump_to_disk(
         payload, output_path=output_path, default_basename=f"filter_bim_objects_{ts}"
     )
+
+
+@mcp.tool()
+def show_filtered_objects_in_viewer(
+    filter: dict | None = None,
+    with_finding_themes: list[str] | None = None,
+    with_finding_error_types: list[str] | None = None,
+    with_finding_severities: list[str] | None = None,
+    include_spatial: bool = False,
+    mode: Literal["isolate", "select", "color"] = "isolate",
+    output_path: str | None = None,
+) -> dict:
+    """Prépare l'affichage d'une sélection d'objets BIM dans le viewer BIMData.
+
+    **Lecture seule.** Réutilise *exactement* la logique de sélection de
+    :func:`filter_bim_objects` (mêmes filtres structurels + audit, même
+    auto-inclusion du spatial) via :func:`resolve_object_selection`, et
+    retourne une **instruction viewer** côté client : l'API BIMData n'expose
+    pas d'action viewer serveur (isolate/select/color) — seul le client
+    (front BIMData / plugin) sait piloter la caméra et la visibilité. Ce tool
+    ne modifie aucun objet et ne crée aucune Smart View ; pour matérialiser
+    durablement la sélection, utiliser ``prepare_smart_view_from_filter_plan``.
+
+    Args:
+        filter: Voir :func:`filter_bim_objects`.
+        with_finding_themes: Voir :func:`filter_bim_objects`.
+        with_finding_error_types: Voir :func:`filter_bim_objects`.
+        with_finding_severities: Voir :func:`filter_bim_objects`.
+        include_spatial: Voir :func:`filter_bim_objects`.
+        mode: Action viewer souhaitée — ``isolate`` (n'afficher que la
+            sélection), ``select`` (surligner sans masquer le reste) ou
+            ``color`` (teinter la sélection).
+        output_path: Idem ``filter_bim_objects`` (overflow disque > 256 KB).
+
+    Returns:
+        ``{ok, mode, count, uuids, uuids_preview, viewer_instruction, message}``
+        où ``viewer_instruction = {action: mode, element_uuids: [...]}``. Le
+        jeu complet d'UUID (``uuids`` / ``viewer_instruction.element_uuids``)
+        est soumis au même mécanisme d'overflow disque que
+        ``filter_bim_objects`` (aperçu + ``items_path`` au-delà de 256 KB) ;
+        ``uuids_preview`` reste un court aperçu inline (≤ 20).
+    """
+    sel = resolve_object_selection(
+        filter,
+        with_finding_themes=with_finding_themes,
+        with_finding_error_types=with_finding_error_types,
+        with_finding_severities=with_finding_severities,
+        include_spatial=include_spatial,
+    )
+    payload = {
+        "ok": True,
+        "mode": mode,
+        "count": len(sel.uuids),
+        "uuids": sel.uuids,
+        "uuids_preview": sel.uuids[:20],
+        "viewer_instruction": {"action": mode, "element_uuids": sel.uuids},
+        "message": (
+            f"{len(sel.uuids)} objet(s) sélectionné(s) — instruction viewer "
+            f"'{mode}' à exécuter côté client BIMData (aucune modification)."
+        ),
+    }
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result = maybe_dump_to_disk(
+        payload,
+        output_path=output_path,
+        default_basename=f"show_filtered_objects_{ts}",
+    )
+    # ``maybe_dump_to_disk`` ne tronque que la clé ``uuids`` de haut niveau,
+    # pas la copie imbriquée dans ``viewer_instruction.element_uuids``. Sans
+    # ce ré-alignement, la liste complète resterait inline et pourrait à elle
+    # seule refaire dépasser la limite MCP malgré l'écriture sur disque. On
+    # aligne donc l'instruction viewer sur l'aperçu compacté (le jeu complet
+    # reste accessible via ``items_path``).
+    if result.get("uuids_truncated"):
+        vi = result["viewer_instruction"]
+        vi["element_uuids"] = result["uuids"]
+        vi["element_uuids_truncated"] = True
+        vi["element_uuids_count"] = result["uuids_count"]
+    return result
 
 
 @mcp.tool()

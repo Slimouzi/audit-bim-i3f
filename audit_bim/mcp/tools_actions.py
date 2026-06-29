@@ -38,6 +38,7 @@ from ..actions import (
     prepare_bcf,
     prepare_classification_update,
     prepare_doe_enrichment,
+    prepare_smart_view_from_filter,
     prepare_smart_views,
     save_plan,
 )
@@ -53,6 +54,7 @@ from .payloads import (
     refused_without_confirm,
 )
 from .security import ensure_writes_allowed
+from .selection import resolve_object_selection
 from .server import mcp
 from .session import _State
 
@@ -159,6 +161,60 @@ def apply_smart_views_plan(plan_path: str, confirm: bool = False) -> dict:
     except PlanTargetMismatchError as exc:
         return {"refused": True, "action": "apply_smart_views_plan", "reason": str(exc)}
     return result.model_dump(mode="json")
+
+
+@mcp.tool()
+def prepare_smart_view_from_filter_plan(
+    name: str,
+    filter: dict | None = None,
+    with_finding_themes: list[str] | None = None,
+    with_finding_error_types: list[str] | None = None,
+    with_finding_severities: list[str] | None = None,
+    include_spatial: bool = False,
+    description: str | None = None,
+    color: str = "#FF3D1E",
+) -> dict:
+    """Construit et scelle un :class:`WritePlan` matérialisant une sélection
+    ``filter_bim_objects`` en **Smart View** BIMData (coloring) — **sans écrire**.
+
+    Réutilise *exactement* la logique de sélection de ``filter_bim_objects``
+    (via :func:`resolve_object_selection`) puis prépare une Smart View colorant
+    le jeu de sélection complet. **Aucune écriture** : retourne un plan scellé ;
+    confirmer avec ``apply_smart_views_plan(plan_path=..., confirm=True)`` pour
+    créer la Smart View dans BIMData.
+
+    Args:
+        name: Titre de la Smart View (tel quel, sans préfixe).
+        filter / with_finding_* / include_spatial: Voir
+            :func:`audit_bim.mcp.tools_query.filter_bim_objects` (mêmes
+            sémantiques de sélection structurelle + audit).
+        description: Note libre tracée dans le plan (hors payload Smart View,
+            qui doit rester minimal pour rester dans le panneau dédié).
+        color: Couleur hex ``#RRGGBB`` du coloring (défaut ``#FF3D1E``).
+
+    Returns:
+        Dict compact ``{plan_id, plan_path, kind, target, summary, risks,
+        n_items, requires_confirm}`` (cf. ``prepare_smart_views_plan``).
+    """
+    _State.ensure_client()
+    sel = resolve_object_selection(
+        filter,
+        with_finding_themes=with_finding_themes,
+        with_finding_error_types=with_finding_error_types,
+        with_finding_severities=with_finding_severities,
+        include_spatial=include_spatial,
+    )
+    element_by_uuid = getattr(_State.snapshot, "element_by_uuid", None) or {}
+    plan = prepare_smart_view_from_filter(
+        sel.uuids,
+        name=name,
+        target=current_target(),
+        description=description,
+        color=color,
+        element_by_uuid=element_by_uuid,
+    )
+    path = save_plan(plan)
+    return plan_summary_response(plan, path)
 
 
 @mcp.tool()

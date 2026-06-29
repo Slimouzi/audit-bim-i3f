@@ -1202,6 +1202,7 @@ from .tools_actions import (  # noqa: E402, F401
     prepare_bcf_topics,
     prepare_classification_update_plan,
     prepare_doe_enrichment_plan,
+    prepare_smart_view_from_filter_plan,
     prepare_smart_views_plan,
     update_suggestion_status,
 )
@@ -1220,6 +1221,7 @@ from .tools_query import (  # noqa: E402, F401
     list_query_presets,
     query_bim_data,
     query_bim_preset,
+    show_filtered_objects_in_viewer,
 )
 
 

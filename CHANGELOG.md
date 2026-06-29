@@ -7,6 +7,31 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added
+
+#### Sélection d'objets BIM enrichie (`filter_bim_objects`)
+
+- Nouveaux filtres **structurels** sur `ObjectFilter` : quantités
+  (`has_base_quantities`, `has_quantity`, `missing_quantity` par nom de
+  BaseQuantity) et **nommage** (`name_contains`, `name_regex` sur
+  Name/LongName, regex validée à la construction).
+- Nouvelle voie **pilotée par l'audit** sur l'outil `filter_bim_objects` :
+  `with_finding_themes` / `with_finding_error_types` /
+  `with_finding_severities` — intersection avec les anomalies de
+  `run_audit_tool` (ex. « quantités manquantes » =
+  `with_finding_error_types=["spatial_missing_quantity"]`). Valeurs
+  **validées contre les enums** `Theme` / `ErrorType` / `Severity`
+  (valeur inconnue → `ValueError`).
+- Paramètre `include_spatial` pour sélectionner les **pièces** (`IfcSpace`,
+  exclues par défaut) — **auto-activé** dès qu'un `ifc_types` spatial est
+  ciblé ou qu'un filtre audit est utilisé (évite un piège d'usage : les
+  anomalies `spatial_missing_quantity` portent sur des `IfcSpace`).
+- La réponse ajoute `uuids` (jeu de sélection **complet** après filtres,
+  pré-pagination) ; `total` documenté comme cardinal post-filtres /
+  pré-pagination. Sur fallback disque, `uuids` est compacté en aperçu +
+  `uuids_count` / `uuids_truncated` (le JSON complet est dans `items_path`).
+  Additif, rétro-compatible.
+
 ### Changed
 
 #### Rebrand des livrables vers la charte BIMData

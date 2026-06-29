@@ -14,6 +14,7 @@ décrivent uniquement les critères. Le moteur d'application vit dans
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -149,6 +150,34 @@ class ObjectFilter(BaseModel):
         description="Clé `Pset.Prop` qui doit être absente ou vide.",
     )
 
+    # Quantités (BaseQuantities / Qto_*)
+    has_base_quantities: bool | None = Field(
+        None,
+        description=(
+            "True = objets ayant AU MOINS une BaseQuantity. "
+            "False = objets sans aucune BaseQuantity (« quantités manquantes »). "
+            "None = pas de contrainte."
+        ),
+    )
+    has_quantity: str | None = Field(
+        None,
+        description="Nom de BaseQuantity qui doit être présente (ex: `NetFloorArea`).",
+    )
+    missing_quantity: str | None = Field(
+        None,
+        description="Nom de BaseQuantity qui doit être absente (ex: `GrossVolume`).",
+    )
+
+    # Nommage (Name / LongName)
+    name_contains: str | None = Field(
+        None,
+        description="Sous-chaîne à matcher dans Name/LongName (insensible à la casse).",
+    )
+    name_regex: str | None = Field(
+        None,
+        description="Expression régulière (search, insensible casse) sur Name/LongName.",
+    )
+
     # Matériaux / layers
     layer_contains: str | None = Field(
         None,
@@ -172,9 +201,16 @@ class ObjectFilter(BaseModel):
     @model_validator(mode="after")
     def _check_mutually_exclusive(self) -> ObjectFilter:
         if self.has_property and self.missing_property:
-            same = self.has_property.lower() == self.missing_property.lower()
-            if same:
+            if self.has_property.lower() == self.missing_property.lower():
                 raise ValueError("has_property et missing_property pointent sur la même clé.")
+        if self.has_quantity and self.missing_quantity:
+            if self.has_quantity.lower() == self.missing_quantity.lower():
+                raise ValueError("has_quantity et missing_quantity pointent sur la même quantité.")
+        if self.name_regex is not None:
+            try:
+                re.compile(self.name_regex)
+            except re.error as exc:
+                raise ValueError(f"name_regex invalide : {exc}") from exc
         return self
 
 
