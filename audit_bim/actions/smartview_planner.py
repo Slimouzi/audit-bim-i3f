@@ -17,10 +17,73 @@ from ..extraction.client import BIMDataClient
 from ..query.filtering import finding_matches
 from ..security.redaction import redact_secrets
 from ..security.write_journal import get_journal
-from ..smartview.builder import build_smartview_payloads
+from ..smartview.builder import build_smartview_payload_from_uuids, build_smartview_payloads
 from .plans import validate_target
 
 logger = logging.getLogger("audit_bim.actions.smartview")
+
+DEFAULT_FILTER_SMARTVIEW_COLOR = "#FF3D1E"
+
+
+def prepare_smart_view_from_filter(
+    uuids: list[str],
+    *,
+    name: str,
+    target: dict[str, Any],
+    description: str | None = None,
+    color: str = DEFAULT_FILTER_SMARTVIEW_COLOR,
+    element_by_uuid: dict | None = None,
+) -> WritePlan:
+    """Construit un :class:`WritePlan` (kind=SMART_VIEWS) colorant une
+    sélection libre d'UUID — la matérialisation durable d'une sélection
+    ``filter_bim_objects`` en Smart View BIMData.
+
+    Une seule Smart View (un groupe de coloring, couleur unique) est produite.
+    Réutilise le pipeline apply existant (:func:`apply_smart_views`) : aucun
+    chemin d'écriture spécifique. ``description`` est conservée **uniquement**
+    dans le ``summary`` du plan (à des fins de traçabilité) et n'est pas
+    injectée dans le payload : un champ ``description`` ferait disparaître la
+    Smart View du panneau dédié du viewer.
+
+    Args:
+        uuids: Jeu de sélection complet à colorer (cf.
+            :func:`resolve_object_selection`).
+        name: Titre de la Smart View (utilisé tel quel, sans préfixe).
+        target: Cible BIMData (``cloud_id``/``project_id``/``model_id``) ;
+            scellée dans le plan et revalidée à l'apply.
+        description: Note libre tracée dans le plan (hors payload).
+        color: Couleur hex ``#RRGGBB`` du coloring (défaut ``#FF3D1E``).
+        element_by_uuid: Index ``uuid -> élément`` du snapshot (noms Revit).
+    """
+    payload = build_smartview_payload_from_uuids(
+        uuids,
+        title=name,
+        color=color,
+        model_id=target.get("model_id"),
+        element_by_uuid=element_by_uuid,
+    )
+    n_uuids = len(payload["viewpoints"][0]["components"]["coloring"][0]["components"])
+
+    risks: list[str] = []
+    if n_uuids == 0:
+        risks.append("Sélection vide — la Smart View ne colorera aucun élément.")
+
+    summary = {
+        "n_smart_views": 1,
+        "name": name,
+        "n_elements": n_uuids,
+        "color": color,
+        "description": description,
+        "source": "filter_selection",
+    }
+
+    return WritePlan(
+        kind=WritePlanKind.SMART_VIEWS,
+        target=target,
+        summary=summary,
+        items=[payload],
+        risks=risks,
+    )
 
 
 def prepare_smart_views(

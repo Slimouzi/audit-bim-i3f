@@ -29,7 +29,11 @@ from .plans import (
     save_plan,
     validate_target,
 )
-from .smartview_planner import apply_smart_views, prepare_smart_views
+from .smartview_planner import (
+    apply_smart_views,
+    prepare_smart_view_from_filter,
+    prepare_smart_views,
+)
 
 __all__ = [
     "compute_plan_checksum",
@@ -42,6 +46,7 @@ __all__ = [
     "prepare_bcf",
     "apply_bcf",
     "prepare_smart_views",
+    "prepare_smart_view_from_filter",
     "apply_smart_views",
     "prepare_classification_update",
     "apply_classification_update",

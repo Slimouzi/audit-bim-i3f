@@ -24,19 +24,15 @@ Aucune écriture, aucun appel API. Le pattern overflow-to-disk
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
-from ..audit.findings import ErrorType, Severity, Theme
 from ..classifier.suggestion_store import ClassificationSuggestionStore
 from ..domain.filters import FindingFilter, ObjectFilter, SuggestionFilter
-from ..query.filtering import (
-    apply_finding_filter,
-    apply_object_filter,
-    apply_suggestion_filter,
-    object_matches,
-)
+from ..query.filtering import apply_finding_filter, apply_suggestion_filter
 from ..query.table_query import BimQuery, query_bim_table
-from ..query.views import _SPATIAL_CLASSES, bim_object_from_element, iter_bim_objects
+from ..query.views import bim_object_from_element
 from .payloads import ensure_suggestion_store, maybe_dump_to_disk
+from .selection import resolve_object_selection
 from .server import mcp
 from .session import _State
 
@@ -186,42 +182,6 @@ QUERY_PRESETS: dict[str, dict] = {
 }
 
 
-def _validate_finding_enum(values: list[str] | None, enum_cls, label: str) -> None:
-    """Refuse toute valeur hors de l'enum moteur (Theme/ErrorType/Severity)."""
-    if not values:
-        return
-    valid = {m.value for m in enum_cls}
-    bad = [v for v in values if v not in valid]
-    if bad:
-        raise ValueError(f"{label} invalide(s) : {bad}. Valeurs admises : {sorted(valid)}.")
-
-
-def _finding_allowset(
-    result,
-    *,
-    themes: list[str] | None,
-    error_types: list[str] | None,
-    severities: list[str] | None,
-) -> set[str]:
-    """UUID des éléments portant ≥1 finding satisfaisant TOUS les critères.
-
-    Chaque critère liste = ``OU`` entre valeurs ; critères combinés en
-    ``ET`` sur un même finding (un finding a un seul thème / type / sévérité).
-    """
-    allow: set[str] = set()
-    for fnd in result.findings:
-        if not fnd.element_uuid:
-            continue
-        if themes is not None and fnd.theme.value not in themes:
-            continue
-        if error_types is not None and fnd.error_type.value not in error_types:
-            continue
-        if severities is not None and fnd.severity.value not in severities:
-            continue
-        allow.add(fnd.element_uuid)
-    return allow
-
-
 @mcp.tool()
 def filter_bim_objects(
     filter: dict | None = None,
@@ -295,51 +255,104 @@ def filter_bim_objects(
           ``uuids_truncated`` ; le JSON complet (tous les uuids) est dans le
           fichier ``items_path``.
     """
-    _State.ensure_snapshot()
-    f = ObjectFilter.model_validate(filter or {})
-
-    allow: set[str] | None = None
-    if with_finding_themes or with_finding_error_types or with_finding_severities:
-        _validate_finding_enum(with_finding_themes, Theme, "with_finding_themes")
-        _validate_finding_enum(with_finding_error_types, ErrorType, "with_finding_error_types")
-        _validate_finding_enum(with_finding_severities, Severity, "with_finding_severities")
-        _State.ensure_result()
-        allow = _finding_allowset(
-            _State.result,
-            themes=with_finding_themes,
-            error_types=with_finding_error_types,
-            severities=with_finding_severities,
-        )
-
-    # Auto-include des éléments spatiaux : les exclure silencieusement
-    # piégerait les cas spatiaux (ex. `spatial_missing_quantity` sur des
-    # IfcSpace). On l'active dès qu'un ifc_type spatial est ciblé OU qu'un
-    # filtre audit est utilisé (l'allow-set garde la correction : aucun
-    # élément spatial hors sélection n'est sur-renvoyé).
-    spatial_targeted = bool(f.ifc_types) and any(t in _SPATIAL_CLASSES for t in f.ifc_types)
-    effective_spatial = include_spatial or spatial_targeted or allow is not None
-
-    objs = list(iter_bim_objects(_State.snapshot, include_spatial=effective_spatial))
-    if allow is not None:
-        objs = [o for o in objs if o.uuid in allow]
-
-    # Page courante (items/total/next_offset) via la fonction canonique…
-    matched, total, next_offset = apply_object_filter(objs, f)
-    # …et jeu de sélection complet (pré-pagination) pour ``uuids``.
-    selection_uuids = [o.uuid for o in objs if object_matches(o, f)]
-
+    sel = resolve_object_selection(
+        filter,
+        with_finding_themes=with_finding_themes,
+        with_finding_error_types=with_finding_error_types,
+        with_finding_severities=with_finding_severities,
+        include_spatial=include_spatial,
+    )
     payload = {
-        "items": [obj.compact_dict() for obj in matched],
-        "uuids": selection_uuids,
-        "total": total,
-        "next_offset": next_offset,
-        "limit": f.limit,
-        "offset": f.offset,
+        "items": [obj.compact_dict() for obj in sel.page],
+        "uuids": sel.uuids,
+        "total": sel.total,
+        "next_offset": sel.next_offset,
+        "limit": sel.filter.limit,
+        "offset": sel.filter.offset,
     }
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     return maybe_dump_to_disk(
         payload, output_path=output_path, default_basename=f"filter_bim_objects_{ts}"
     )
+
+
+@mcp.tool()
+def show_filtered_objects_in_viewer(
+    filter: dict | None = None,
+    with_finding_themes: list[str] | None = None,
+    with_finding_error_types: list[str] | None = None,
+    with_finding_severities: list[str] | None = None,
+    include_spatial: bool = False,
+    mode: Literal["isolate", "select", "color"] = "isolate",
+    output_path: str | None = None,
+) -> dict:
+    """Prépare l'affichage d'une sélection d'objets BIM dans le viewer BIMData.
+
+    **Lecture seule.** Réutilise *exactement* la logique de sélection de
+    :func:`filter_bim_objects` (mêmes filtres structurels + audit, même
+    auto-inclusion du spatial) via :func:`resolve_object_selection`, et
+    retourne une **instruction viewer** côté client : l'API BIMData n'expose
+    pas d'action viewer serveur (isolate/select/color) — seul le client
+    (front BIMData / plugin) sait piloter la caméra et la visibilité. Ce tool
+    ne modifie aucun objet et ne crée aucune Smart View ; pour matérialiser
+    durablement la sélection, utiliser ``prepare_smart_view_from_filter_plan``.
+
+    Args:
+        filter: Voir :func:`filter_bim_objects`.
+        with_finding_themes: Voir :func:`filter_bim_objects`.
+        with_finding_error_types: Voir :func:`filter_bim_objects`.
+        with_finding_severities: Voir :func:`filter_bim_objects`.
+        include_spatial: Voir :func:`filter_bim_objects`.
+        mode: Action viewer souhaitée — ``isolate`` (n'afficher que la
+            sélection), ``select`` (surligner sans masquer le reste) ou
+            ``color`` (teinter la sélection).
+        output_path: Idem ``filter_bim_objects`` (overflow disque > 256 KB).
+
+    Returns:
+        ``{ok, mode, count, uuids, uuids_preview, viewer_instruction, message}``
+        où ``viewer_instruction = {action: mode, element_uuids: [...]}``. Le
+        jeu complet d'UUID (``uuids`` / ``viewer_instruction.element_uuids``)
+        est soumis au même mécanisme d'overflow disque que
+        ``filter_bim_objects`` (aperçu + ``items_path`` au-delà de 256 KB) ;
+        ``uuids_preview`` reste un court aperçu inline (≤ 20).
+    """
+    sel = resolve_object_selection(
+        filter,
+        with_finding_themes=with_finding_themes,
+        with_finding_error_types=with_finding_error_types,
+        with_finding_severities=with_finding_severities,
+        include_spatial=include_spatial,
+    )
+    payload = {
+        "ok": True,
+        "mode": mode,
+        "count": len(sel.uuids),
+        "uuids": sel.uuids,
+        "uuids_preview": sel.uuids[:20],
+        "viewer_instruction": {"action": mode, "element_uuids": sel.uuids},
+        "message": (
+            f"{len(sel.uuids)} objet(s) sélectionné(s) — instruction viewer "
+            f"'{mode}' à exécuter côté client BIMData (aucune modification)."
+        ),
+    }
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result = maybe_dump_to_disk(
+        payload,
+        output_path=output_path,
+        default_basename=f"show_filtered_objects_{ts}",
+    )
+    # ``maybe_dump_to_disk`` ne tronque que la clé ``uuids`` de haut niveau,
+    # pas la copie imbriquée dans ``viewer_instruction.element_uuids``. Sans
+    # ce ré-alignement, la liste complète resterait inline et pourrait à elle
+    # seule refaire dépasser la limite MCP malgré l'écriture sur disque. On
+    # aligne donc l'instruction viewer sur l'aperçu compacté (le jeu complet
+    # reste accessible via ``items_path``).
+    if result.get("uuids_truncated"):
+        vi = result["viewer_instruction"]
+        vi["element_uuids"] = result["uuids"]
+        vi["element_uuids_truncated"] = True
+        vi["element_uuids_count"] = result["uuids_count"]
+    return result
 
 
 @mcp.tool()
