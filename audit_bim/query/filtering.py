@@ -18,6 +18,7 @@ Convention pagination
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable
 from typing import TypeVar
 
@@ -125,6 +126,20 @@ def _object_matches(obj: BimObject, f: ObjectFilter) -> bool:
         return False
     if f.missing_property is not None and obj.has_property(f.missing_property):
         return False
+
+    if f.has_base_quantities is not None and obj.has_base_quantities() is not f.has_base_quantities:
+        return False
+    if f.has_quantity is not None and obj.get_quantity(f.has_quantity) is None:
+        return False
+    if f.missing_quantity is not None and obj.get_quantity(f.missing_quantity) is not None:
+        return False
+
+    if f.name_contains is not None or f.name_regex is not None:
+        blob = f"{obj.name or ''} {obj.long_name or ''}"
+        if f.name_contains is not None and f.name_contains.lower() not in blob.lower():
+            return False
+        if f.name_regex is not None and not re.search(f.name_regex, blob, re.IGNORECASE):
+            return False
 
     if f.layer_contains is not None:
         needle = f.layer_contains.lower()

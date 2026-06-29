@@ -178,6 +178,132 @@ class TestFilterBimObjects:
         assert len(res["items"]) == 1
         assert res["next_offset"] == 1
 
+    def test_uuids_is_full_selection_not_just_page(self, _isolated_session):
+        _isolated_session.snapshot = _snapshot_two_walls()
+        res = mcp_server.filter_bim_objects(filter={"limit": 1, "offset": 0})
+        # total = cardinal post-filtres / pré-pagination ; uuids = sélection complète.
+        assert res["total"] == 2
+        assert len(res["items"]) == 1
+        assert set(res["uuids"]) == {"W1", "W2"}
+
+    # ── Intersection avec l'audit (with_finding_*) ──────────────────────
+
+    def test_finding_filter_requires_audit(self, _isolated_session):
+        _isolated_session.snapshot = _snapshot_two_walls()
+        with pytest.raises(RuntimeError, match="audit"):
+            mcp_server.filter_bim_objects(with_finding_error_types=["classification_missing"])
+
+    def test_finding_error_type_intersect(self, _isolated_session):
+        _isolated_session.snapshot = _snapshot_two_walls()
+        _isolated_session.result = _result_with_two_walls()
+        res = mcp_server.filter_bim_objects(with_finding_error_types=["classification_missing"])
+        assert set(res["uuids"]) == {"W2"}
+        assert res["total"] == 1
+
+    def test_finding_theme_intersect(self, _isolated_session):
+        _isolated_session.snapshot = _snapshot_two_walls()
+        _isolated_session.result = _result_with_two_walls()
+        res = mcp_server.filter_bim_objects(with_finding_themes=["Propriété manquante"])
+        assert set(res["uuids"]) == {"W1"}
+
+    def test_structural_intersect_audit(self, _isolated_session):
+        # W2 a la finding classification_missing ET n'a aucune classification.
+        _isolated_session.snapshot = _snapshot_two_walls()
+        _isolated_session.result = _result_with_two_walls()
+        res = mcp_server.filter_bim_objects(
+            filter={"has_any_classification": False},
+            with_finding_error_types=["classification_missing"],
+        )
+        assert set(res["uuids"]) == {"W2"}
+
+    def test_invalid_finding_value_raises(self, _isolated_session):
+        _isolated_session.snapshot = _snapshot_two_walls()
+        _isolated_session.result = _result_with_two_walls()
+        with pytest.raises(ValueError, match="with_finding_error_types invalide"):
+            mcp_server.filter_bim_objects(with_finding_error_types=["nope"])
+
+    def test_invalid_finding_theme_raises(self, _isolated_session):
+        _isolated_session.snapshot = _snapshot_two_walls()
+        _isolated_session.result = _result_with_two_walls()
+        with pytest.raises(ValueError, match="with_finding_themes invalide"):
+            mcp_server.filter_bim_objects(with_finding_themes=["Pas un thème"])
+
+    @staticmethod
+    def _snapshot_space_and_wall() -> ModelSnapshot:
+        return ModelSnapshot(
+            project={"name": "T"},
+            model={"name": "T.ifc"},
+            sites=[],
+            buildings=[],
+            storeys=[],
+            spaces=[],
+            zones=[],
+            elements=[
+                {"uuid": "SP1", "type": "IfcSpace", "name": "SDB 01", "property_sets": []},
+                {"uuid": "W1", "type": "IfcWall", "name": "Mur", "property_sets": []},
+            ],
+        ).index()
+
+    def test_spatial_excluded_by_default(self, _isolated_session):
+        # Sélection non ciblée spatiale → IfcSpace exclus.
+        _isolated_session.snapshot = self._snapshot_space_and_wall()
+        res = mcp_server.filter_bim_objects(filter={})
+        assert set(res["uuids"]) == {"W1"}
+
+    def test_spatial_auto_included_when_ifc_type_targets_space(self, _isolated_session):
+        # ifc_types spatial → include_spatial auto-activé (pas de piège).
+        _isolated_session.snapshot = self._snapshot_space_and_wall()
+        res = mcp_server.filter_bim_objects(
+            filter={"ifc_types": ["IfcSpace"], "has_base_quantities": False}
+        )
+        assert set(res["uuids"]) == {"SP1"}
+
+    def test_spatial_auto_included_for_audit_filter(self, _isolated_session):
+        # Scénario clé : « quantités manquantes selon l'audit » sur IfcSpace
+        # doit retourner la pièce SANS include_spatial explicite.
+        snap = self._snapshot_space_and_wall()
+        _isolated_session.snapshot = snap
+        _isolated_session.result = AuditResult(
+            phase=BIMPhase.DOE,
+            catalog=_empty_catalog(),
+            snapshot=snap,
+            findings=[
+                Finding(
+                    theme=Theme.QUANTITY,
+                    severity=Severity.MEDIUM,
+                    error_type=ErrorType.SPATIAL_MISSING_QUANTITY,
+                    element_uuid="SP1",
+                    ifc_type="IfcSpace",
+                    name="SDB 01",
+                )
+            ],
+        )
+        res = mcp_server.filter_bim_objects(with_finding_error_types=["spatial_missing_quantity"])
+        assert set(res["uuids"]) == {"SP1"}
+
+    def test_uuids_compacted_on_disk_overflow(self, _isolated_session):
+        # Grosse sélection forcée sur disque → uuids tronqué + uuids_count.
+        elements = [
+            {"uuid": f"W{i}", "type": "IfcWall", "name": f"Mur {i}", "property_sets": []}
+            for i in range(60)
+        ]
+        snap = ModelSnapshot(
+            project={"name": "T"},
+            model={"name": "T.ifc"},
+            sites=[],
+            buildings=[],
+            storeys=[],
+            spaces=[],
+            zones=[],
+            elements=elements,
+        ).index()
+        _isolated_session.snapshot = snap
+        res = mcp_server.filter_bim_objects(filter={"limit": 500}, output_path="big.json")
+        assert res["items_truncated"] is True
+        assert res["uuids_count"] == 60
+        assert res["uuids_truncated"] is True
+        assert len(res["uuids"]) == 50  # aperçu
+
 
 # ── list_audit_findings ─────────────────────────────────────────────────
 

@@ -65,6 +65,34 @@ class TestObjectFilter:
         )
         assert f.has_property and f.missing_property
 
+    # ── Quantités + nommage (ajouts sélection) ──────────────────────────
+
+    def test_quantity_and_naming_fields_accepted(self):
+        f = ObjectFilter(
+            has_base_quantities=False,
+            has_quantity="NetFloorArea",
+            name_contains="SDB",
+            name_regex=r"^SDB\s\d+",
+        )
+        assert f.has_base_quantities is False
+        assert f.has_quantity == "NetFloorArea"
+        assert f.name_contains == "SDB"
+
+    def test_has_and_missing_quantity_same_key_rejected(self):
+        with pytest.raises(ValueError, match="même quantité"):
+            ObjectFilter(has_quantity="NetFloorArea", missing_quantity="netfloorarea")
+
+    def test_has_and_missing_quantity_different_keys_ok(self):
+        f = ObjectFilter(has_quantity="NetFloorArea", missing_quantity="GrossVolume")
+        assert f.has_quantity and f.missing_quantity
+
+    def test_invalid_name_regex_rejected(self):
+        with pytest.raises(ValueError, match="name_regex invalide"):
+            ObjectFilter(name_regex="[")
+
+    def test_valid_name_regex_ok(self):
+        assert ObjectFilter(name_regex=r"^(SDB|WC)\b").name_regex
+
 
 class TestFindingFilter:
     def test_defaults(self):

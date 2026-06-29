@@ -25,15 +25,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from ..audit.findings import ErrorType, Severity, Theme
 from ..classifier.suggestion_store import ClassificationSuggestionStore
 from ..domain.filters import FindingFilter, ObjectFilter, SuggestionFilter
 from ..query.filtering import (
     apply_finding_filter,
     apply_object_filter,
     apply_suggestion_filter,
+    object_matches,
 )
 from ..query.table_query import BimQuery, query_bim_table
-from ..query.views import bim_object_from_element, iter_bim_objects
+from ..query.views import _SPATIAL_CLASSES, bim_object_from_element, iter_bim_objects
 from .payloads import ensure_suggestion_store, maybe_dump_to_disk
 from .server import mcp
 from .session import _State
@@ -184,38 +186,151 @@ QUERY_PRESETS: dict[str, dict] = {
 }
 
 
+def _validate_finding_enum(values: list[str] | None, enum_cls, label: str) -> None:
+    """Refuse toute valeur hors de l'enum moteur (Theme/ErrorType/Severity)."""
+    if not values:
+        return
+    valid = {m.value for m in enum_cls}
+    bad = [v for v in values if v not in valid]
+    if bad:
+        raise ValueError(f"{label} invalide(s) : {bad}. Valeurs admises : {sorted(valid)}.")
+
+
+def _finding_allowset(
+    result,
+    *,
+    themes: list[str] | None,
+    error_types: list[str] | None,
+    severities: list[str] | None,
+) -> set[str]:
+    """UUID des éléments portant ≥1 finding satisfaisant TOUS les critères.
+
+    Chaque critère liste = ``OU`` entre valeurs ; critères combinés en
+    ``ET`` sur un même finding (un finding a un seul thème / type / sévérité).
+    """
+    allow: set[str] = set()
+    for fnd in result.findings:
+        if not fnd.element_uuid:
+            continue
+        if themes is not None and fnd.theme.value not in themes:
+            continue
+        if error_types is not None and fnd.error_type.value not in error_types:
+            continue
+        if severities is not None and fnd.severity.value not in severities:
+            continue
+        allow.add(fnd.element_uuid)
+    return allow
+
+
 @mcp.tool()
 def filter_bim_objects(
     filter: dict | None = None,
+    with_finding_themes: list[str] | None = None,
+    with_finding_error_types: list[str] | None = None,
+    with_finding_severities: list[str] | None = None,
+    include_spatial: bool = False,
     output_path: str | None = None,
 ) -> dict:
-    """Filtre les objets BIM (composants) du snapshot actif.
+    """Sélectionne les objets BIM (composants) du snapshot actif par filtres.
 
     Utilise la couche domain ``BimObject`` : indépendant de la
     représentation BIMData brute, partagé avec BCF / Smart Views /
     plans de correction.
 
+    Deux familles de filtres, combinées en **intersection** :
+
+    1. **Structurels** (``filter`` → :class:`audit_bim.domain.ObjectFilter`) :
+       ``ifc_types``, ``storey_names``, classification
+       (``has_any_classification``, codes…), propriétés
+       (``has_property``/``missing_property`` au format ``Pset.Prop``),
+       **quantités** (``has_base_quantities`` true/false,
+       ``has_quantity``/``missing_quantity`` par nom de BaseQuantity),
+       **nommage** (``name_contains``, ``name_regex``), matériaux/layers.
+    2. **Pilotés par l'audit** (intersection avec les findings de
+       ``run_audit_tool``) : ne garder que les objets portant ≥1 anomalie
+       des thèmes / types d'erreur / sévérités donnés. Nécessite un audit
+       préalable (``_State.result``). Valeurs validées contre les enums
+       moteur ``Theme`` / ``ErrorType`` / ``Severity`` (valeur inconnue →
+       ``ValueError``).
+
+    Exemples :
+
+    - Pièces sans quantités : ``filter={"ifc_types":["IfcSpace"],
+      "has_base_quantities": false}``.
+    - Quantités manquantes **selon le CCH** :
+      ``with_finding_error_types=["spatial_missing_quantity"]``.
+    - Nommage non conforme : ``with_finding_themes=["Nommage Pièce",
+      "Nommage Zone", "Nommage Site / Bâtiment / Étage"]``.
+
     Args:
-        filter: Dict mappé sur :class:`audit_bim.domain.ObjectFilter`.
-            Tous les champs sont optionnels. Combinaison ``ET`` entre
-            champs, ``OU`` entre valeurs d'une liste. Voir docstring du
-            modèle pour les axes supportés (classification actuelle,
-            niveau 3, étage, zone, présence/absence de propriété, etc.).
-        output_path: Si fourni (chemin sous ``AUDIT_OUTPUT_DIR``), écrit
-            la totalité du résultat en JSON sur disque ; le retour MCP
-            ne garde qu'un aperçu. Sinon, fallback automatique disque
-            quand la réponse dépasse 256 KB.
+        filter: Dict mappé sur ``ObjectFilter`` (tous champs optionnels,
+            ``ET`` entre champs, ``OU`` entre valeurs d'une liste).
+        with_finding_themes: Valeurs ``Theme.value`` (intersection audit).
+        with_finding_error_types: Valeurs ``ErrorType.value``.
+        with_finding_severities: Valeurs ``Severity.value``.
+        include_spatial: Inclut les éléments spatiaux (``IfcSpace``,
+            ``IfcZone``, étages…), exclus par défaut. **Auto-activé** dès
+            qu'un ``ifc_types`` spatial est ciblé OU qu'un filtre audit
+            (``with_finding_*``) est utilisé — pour ne pas piéger les cas
+            spatiaux (ex. quantités SHAB/SU manquantes sur ``IfcSpace``).
+            Forcer à ``True`` pour inclure le spatial dans une sélection
+            non ciblée.
+        output_path: Si fourni (sous ``AUDIT_OUTPUT_DIR``), écrit la
+            totalité du résultat en JSON sur disque ; sinon fallback
+            automatique disque quand la réponse dépasse 256 KB.
 
     Returns:
-        ``{items, total, next_offset, items_path?, items_truncated?}``.
-        Les ``items`` sont la version :meth:`BimObject.compact_dict`.
+        ``{items, uuids, total, next_offset, limit, offset, items_path?,
+        items_truncated?}``.
+
+        - ``total`` = nombre d'objets **après tous les filtres** (structurel
+          ∩ audit) mais **avant pagination** — le cardinal réel de la
+          sélection.
+        - ``items`` = page courante (``limit``/``offset``), au format
+          :meth:`BimObject.compact_dict`.
+        - ``uuids`` = jeu de sélection **complet** (tous les objets filtrés,
+          pas seulement la page), prêt à réutiliser (Smart View / BCF /
+          ``get_object_detail``). Si la réponse dépasse la limite inline,
+          ``uuids`` est tronqué à un aperçu et l'on expose ``uuids_count`` +
+          ``uuids_truncated`` ; le JSON complet (tous les uuids) est dans le
+          fichier ``items_path``.
     """
     _State.ensure_snapshot()
     f = ObjectFilter.model_validate(filter or {})
 
-    matched, total, next_offset = apply_object_filter(iter_bim_objects(_State.snapshot), f)
+    allow: set[str] | None = None
+    if with_finding_themes or with_finding_error_types or with_finding_severities:
+        _validate_finding_enum(with_finding_themes, Theme, "with_finding_themes")
+        _validate_finding_enum(with_finding_error_types, ErrorType, "with_finding_error_types")
+        _validate_finding_enum(with_finding_severities, Severity, "with_finding_severities")
+        _State.ensure_result()
+        allow = _finding_allowset(
+            _State.result,
+            themes=with_finding_themes,
+            error_types=with_finding_error_types,
+            severities=with_finding_severities,
+        )
+
+    # Auto-include des éléments spatiaux : les exclure silencieusement
+    # piégerait les cas spatiaux (ex. `spatial_missing_quantity` sur des
+    # IfcSpace). On l'active dès qu'un ifc_type spatial est ciblé OU qu'un
+    # filtre audit est utilisé (l'allow-set garde la correction : aucun
+    # élément spatial hors sélection n'est sur-renvoyé).
+    spatial_targeted = bool(f.ifc_types) and any(t in _SPATIAL_CLASSES for t in f.ifc_types)
+    effective_spatial = include_spatial or spatial_targeted or allow is not None
+
+    objs = list(iter_bim_objects(_State.snapshot, include_spatial=effective_spatial))
+    if allow is not None:
+        objs = [o for o in objs if o.uuid in allow]
+
+    # Page courante (items/total/next_offset) via la fonction canonique…
+    matched, total, next_offset = apply_object_filter(objs, f)
+    # …et jeu de sélection complet (pré-pagination) pour ``uuids``.
+    selection_uuids = [o.uuid for o in objs if object_matches(o, f)]
+
     payload = {
         "items": [obj.compact_dict() for obj in matched],
+        "uuids": selection_uuids,
         "total": total,
         "next_offset": next_offset,
         "limit": f.limit,

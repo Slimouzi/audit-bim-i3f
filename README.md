@@ -473,6 +473,46 @@ appliquées dans tous les cas (pas de dépendance au brand kit).
 | Classification IFC | présence + complétude (code + source) |
 | Quantités | NetFloorArea / SHAB / SU sur IfcSpace |
 
+## Sélection d'objets BIM (`filter_bim_objects`)
+
+L'outil `filter_bim_objects` sélectionne des objets par **filtres composables**
+(intersection), et renvoie la sélection complète (`uuids`) + une page d'objets
+(`items`) + `total` (cardinal **après filtres, avant pagination**).
+
+**Filtres structurels** (`filter`, mappé sur `ObjectFilter`) :
+
+| Axe | Champs |
+|---|---|
+| Classe / spatial | `ifc_types`, `storey_names`, `zone_names`, `space_names` |
+| Propriétés (Pset) | `has_property`, `missing_property` (format `Pset.Prop`) |
+| **Quantités** | `has_base_quantities` (true/false), `has_quantity`, `missing_quantity` (nom de BaseQuantity) |
+| Classification | `has_any_classification`, `classification_system`, codes, niveau 3 |
+| **Nommage** | `name_contains`, `name_regex` (Name/LongName) |
+| Matériaux / layers | `material_contains`, `layer_contains` |
+
+**Filtres pilotés par l'audit** (intersection avec les findings de
+`run_audit_tool`, valeurs validées contre les enums `Theme`/`ErrorType`/`Severity`) :
+`with_finding_themes`, `with_finding_error_types`, `with_finding_severities`.
+
+Les **pièces** (`IfcSpace`) sont exclues par défaut, mais `include_spatial`
+est **auto-activé** dès qu'un `ifc_types` spatial est ciblé ou qu'un filtre
+audit (`with_finding_*`) est utilisé — pas de piège côté IA. Le forcer à
+`true` reste possible pour une sélection non ciblée.
+
+```jsonc
+// Pièces sans BaseQuantities (structurel — spatial auto-inclus) :
+{"filter": {"ifc_types": ["IfcSpace"], "has_base_quantities": false}}
+// Quantités manquantes selon le CCH (audit — spatial auto-inclus) :
+{"with_finding_error_types": ["spatial_missing_quantity"]}
+// Nommage non conforme (audit) :
+{"with_finding_themes": ["Nommage Pièce", "Nommage Zone"]}
+```
+
+Le jeu `uuids` est directement réexploitable (Smart View / BCF /
+`get_object_detail`). Sur une grosse sélection, le payload bascule sur disque
+(`items_path`) et `uuids` est ramené à un aperçu (`uuids_count` +
+`uuids_truncated` exposés ; le JSON complet est dans le fichier).
+
 ## Smart Views BIMData
 
 Pour chaque thème en erreur, le builder produit un payload :
