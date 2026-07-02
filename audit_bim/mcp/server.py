@@ -776,23 +776,36 @@ def generate_avp_i3f_pack(
             ),
         }
 
+    from ..reporting.avp_i3f import AvpQaError
+
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = safe_export_dir(output_dir or f"avp_pack_{ts}")
-    pack = write_avp_i3f_report_pack(
-        _State.result,  # peut être None : le pack se limite alors aux sources
-        out_dir,
-        sources=sources,
-        project_name=eff_name or "Projet",
-        project_code=eff_code or "",
-        phase=eff_phase or "AVP",
-        auditor=auditor,
-        usages_bim=usages_bim,
-        nombre_logements=nombre_logements,
-        temoin_virtuel=temoin_virtuel,
-        date_controle=date_controle,
-        auteur_controle=auteur_controle,
-        export_pdf=export_pdf,
-    )
+    try:
+        pack = write_avp_i3f_report_pack(
+            _State.result,  # peut être None : le pack se limite alors aux sources
+            out_dir,
+            sources=sources,
+            project_name=eff_name or "Projet",
+            project_code=eff_code or "",
+            phase=eff_phase or "AVP",
+            auditor=auditor,
+            usages_bim=usages_bim,
+            nombre_logements=nombre_logements,
+            temoin_virtuel=temoin_virtuel,
+            date_controle=date_controle,
+            auteur_controle=auteur_controle,
+            export_pdf=export_pdf,
+        )
+    except AvpQaError as exc:
+        # QA gate : au moins une annexe est sortie vide alors que la
+        # maquette contient des données exploitables. Statut d'erreur
+        # explicite — surtout pas un livrable client vide.
+        return {
+            "status": "error",
+            "error": "empty_deliverable",
+            "empty_deliverables": exc.empty,
+            "message": str(exc),
+        }
     return {
         "output_dir": str(out_dir),
         "paths": [str(p) for p in pack.paths()],

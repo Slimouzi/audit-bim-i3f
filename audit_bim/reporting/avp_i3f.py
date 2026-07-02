@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+import openpyxl
 import xlsxwriter
 from docx import Document
 from docx.enum.section import WD_ORIENT, WD_SECTION
@@ -41,6 +42,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from ..audit.engine import AuditResult
+from .avp_snapshot import build_sources_from_snapshot, count_envelope_walls
 from .avp_sources import AvpSourcePaths, AvpSources, SheetTable, load_sources
 from .context import ReportProjectContext
 from .pdf_export import docx_to_pdf
@@ -152,6 +154,69 @@ class AvpReportPack:
         if self.analyse_pdf is not None:
             out.append(self.analyse_pdf)
         return out
+
+
+class AvpQaError(RuntimeError):
+    """Livrable(s) client vide(s) alors que la maquette contient des données.
+
+    Levée par la QA gate post-génération : un export sort sans aucune ligne
+    métier alors que le snapshot expose des espaces / murs / zones
+    exploitables. On refuse de livrer un fichier qui ne contient que le
+    bandeau.
+    """
+
+    def __init__(self, empty: list[str]):
+        self.empty = empty
+        super().__init__(
+            "Annexe(s) vide(s) malgré des données exploitables dans la maquette : "
+            + ", ".join(empty)
+            + ". Livraison refusée (ni sources I3F ni extraction snapshot n'ont "
+            "produit de lignes)."
+        )
+
+
+# Marqueurs d'échafaudage à ignorer lors du comptage des lignes métier.
+_QA_SCAFFOLD = {
+    _n
+    for _n in (
+        NOT_AVAILABLE.strip().lower(),
+        "(onglet vide dans la source i3f)",
+        "synthèse",
+    )
+}
+
+
+def _count_business_rows(path: Path) -> int:
+    """Ouvre une annexe et compte ses **lignes métier**.
+
+    Ignore le bandeau (3 premières lignes), la ligne d'en-tête de chaque
+    onglet, les marqueurs d'échafaudage (``NOT_AVAILABLE``, onglet vide) et
+    le bloc « Synthèse » (KPI). Sert de garde qualité anti-livrable vide.
+    """
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception:
+        return 0
+    total = 0
+    try:
+        for ws in wb.worksheets:
+            header_seen = False
+            for row in ws.iter_rows(min_row=4, values_only=True):
+                cells = [c for c in row if c not in (None, "")]
+                if not cells:
+                    continue
+                first = str(cells[0]).strip().lower()
+                if first == "synthèse":
+                    break  # début du bloc KPI → stop pour cet onglet
+                if first in _QA_SCAFFOLD:
+                    continue
+                if not header_seen:
+                    header_seen = True  # 1re ligne utile = en-tête
+                    continue
+                total += 1
+    finally:
+        wb.close()
+    return total
 
 
 # ── Helpers Excel (charte BIMData réutilisée) ──────────────────────────────
@@ -967,6 +1032,24 @@ def write_avp_i3f_report_pack(
         sources = load_sources(sources)
     # sources est désormais AvpSources | None
 
+    # ── Source-first, snapshot en repli ─────────────────────────────────
+    # Les fichiers I3F priment (extraction autoritaire des outils externes).
+    # Pour chaque export absent/vide, on génère depuis ``result.snapshot``
+    # afin de ne jamais livrer une annexe réduite au seul bandeau.
+    snap = result.snapshot if result is not None else None
+    if snap is not None:
+        fallback = build_sources_from_snapshot(snap)
+        if sources is None:
+            sources = AvpSources()
+        if _multisheet_is_empty(sources.shab):
+            sources.shab = fallback.shab
+        if _multisheet_is_empty(sources.zones_espaces):
+            sources.zones_espaces = fallback.zones_espaces
+        if _tabular_is_empty(sources.enveloppe):
+            sources.enveloppe = fallback.enveloppe
+        if _tabular_is_empty(sources.menuiseries):
+            sources.menuiseries = fallback.menuiseries
+
     controle = _build_controle_maquettes_xlsx(out / fn_controle, result, sources, meta)
     shab = _build_multisheet_export_xlsx(
         out / fn_shab,
@@ -988,7 +1071,7 @@ def write_avp_i3f_report_pack(
 
     pdf = docx_to_pdf(analyse) if export_pdf else None
 
-    return AvpReportPack(
+    pack = AvpReportPack(
         controle_xlsx=controle,
         shab_xlsx=shab,
         zones_espaces_xlsx=zones,
@@ -997,3 +1080,46 @@ def write_avp_i3f_report_pack(
         analyse_docx=analyse,
         analyse_pdf=pdf,
     )
+
+    # ── QA gate : anti-livrable vide ────────────────────────────────────
+    # On rouvre chaque annexe et on compte les lignes métier. Échec si un
+    # export sort sans ligne alors que la maquette contient des entités
+    # exploitables (espaces / murs / zones). On lève : le tool renverra un
+    # statut d'erreur explicite plutôt qu'un fichier vide.
+    empty = _qa_empty_deliverables(pack, snap)
+    if empty:
+        raise AvpQaError(empty)
+
+    return pack
+
+
+def _multisheet_is_empty(multi) -> bool:
+    """Un ``MultiSheetSource`` est vide si aucun onglet ne porte de ligne."""
+    if multi is None:
+        return True
+    grids = getattr(multi, "grids", None) or []
+    return not any(getattr(g, "rows", None) for g in grids)
+
+
+def _tabular_is_empty(src) -> bool:
+    """Une source tabulaire (enveloppe/menuiseries) est vide sans lignes."""
+    if src is None:
+        return True
+    table = getattr(src, "table", None)
+    return table is None or not getattr(table, "rows", None)
+
+
+def _qa_empty_deliverables(pack: AvpReportPack, snap) -> list[str]:
+    """Liste des annexes vides alors que la maquette a des données."""
+    if snap is None:
+        return []
+    problems: list[str] = []
+    has_spaces_or_zones = bool(getattr(snap, "spaces", None)) or bool(getattr(snap, "zones", None))
+    if has_spaces_or_zones:
+        if _count_business_rows(pack.shab_xlsx) == 0:
+            problems.append("SHAB")
+        if _count_business_rows(pack.zones_espaces_xlsx) == 0:
+            problems.append("Zones/Espaces")
+    if count_envelope_walls(snap) > 0 and _count_business_rows(pack.enveloppe_xlsx) == 0:
+        problems.append("Enveloppe")
+    return problems

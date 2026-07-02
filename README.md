@@ -528,11 +528,26 @@ référence) alimentent « Données d'entrée » et « Usages BIM 3F » — pass
 `nombre_logements`, `temoin_virtuel`, `date_controle`, `auteur_controle`.
 Absentes → « Information non disponible… » (jamais inventées).
 
-**Hybride** : les données natives viennent de l'audit BIMData courant
-(`_State.result`, si chargé) ; les colonnes issues d'outils externes
+**Hybride, source-first** : les colonnes issues d'outils externes
 (Solibri / ArchiCAD / écarts) sont lues dans les **.xlsx sources I3F**
-fournis. Toute donnée absente (snapshot ET source) → « Information non
-disponible dans les documents fournis. » (**jamais inventée**).
+fournis ; **si ces fichiers sont absents**, les exports SHAB, Zones/Espaces,
+Enveloppe et Menuiseries sont **générés depuis `AuditResult.snapshot`**
+(module `reporting/avp_snapshot.py`) — on ne livre jamais une annexe réduite
+au bandeau. L'enveloppe sélectionne les murs par **layer** normalisé
+(« MURS - Extérieurs périphériques.Exnd », tolérance casse/accents/espaces ;
+`IfcWall`/`IfcWallStandardCase`, `IfcCurtainWall` exclu) et résout la surface
+`NetSideArea` → `GrossSideArea` → `NetArea` → `GrossArea` puis
+« Superficie calculée », **source tracée**. Espaces/zones : libellé
+`LongName` sinon `Name`, surfaces BaseQuantities puis « Superficie
+calculée », zone sans surface propre = somme des espaces rattachés. Toute
+donnée absente (snapshot ET source) → « Information non disponible dans les
+documents fournis. » (**jamais inventée**).
+
+**QA gate** : après génération, chaque annexe est rouverte et ses lignes
+métier comptées. Si SHAB, Zones/Espaces ou Enveloppe sortent sans ligne alors
+que le snapshot contient des entités exploitables, le tool renvoie
+`{status: "error", error: "empty_deliverable", empty_deliverables: [...]}` —
+pas un fichier client vide.
 
 ```python
 generate_avp_i3f_pack(

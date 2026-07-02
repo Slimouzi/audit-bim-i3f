@@ -40,6 +40,31 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   (`#2F374A`/`#F9C72C`/Roboto/bannière), **absence de l'ancienne charte**,
   never-invent, sections du consolidé, PDF best-effort.
 
+#### Extraction AVP source-first, snapshot en repli + QA gate anti-livrable vide
+
+- Nouveau module `reporting/avp_snapshot.py` : si les fichiers sources I3F
+  sont **absents**, les exports SHAB, Zones/Espaces, Enveloppe et Menuiseries
+  sont générés depuis `AuditResult.snapshot` (les sources I3F priment quand
+  elles existent). Fini les annexes réduites au seul bandeau.
+- **Enveloppe** : sélection des murs par **layer** normalisé
+  (« MURS - Extérieurs périphériques.Exnd », tolérance casse/accents/espaces),
+  classes `IfcWall` + `IfcWallStandardCase`. **`IfcCurtainWall` exclu**
+  (façade vitrée comptée en menuiseries — décision documentée). Surface par
+  ordre `NetSideArea` → `GrossSideArea` → `NetArea` → `GrossArea` puis repli
+  propriété **« Superficie calculée »** (accent-insensible, tous Psets). La
+  **source de la valeur** (BaseQuantities vs Superficie calculée) est tracée
+  dans une colonne dédiée.
+- **Espaces / zones** : libellé = `LongName`, sinon `Name` (repli si vide) ;
+  surface `NetFloorArea` → `GrossFloorArea` → `NetArea` → `GrossArea` puis
+  « Superficie calculée ». Zone sans surface propre → **somme des espaces
+  rattachés** si la relation zone/espace est disponible.
+- **QA gate post-génération** : chaque annexe est rouverte et ses lignes
+  métier comptées. Si SHAB, Zones/Espaces ou Enveloppe sortent **sans ligne**
+  alors que le snapshot contient des espaces/murs/zones exploitables, le tool
+  `generate_avp_i3f_pack` renvoie `{status: "error", error:
+  "empty_deliverable", empty_deliverables: [...]}` (exception `AvpQaError`) —
+  jamais un fichier client vide.
+
 #### Phase : question unique (loi MOP / phase BIM) + nommage I3F des livrables
 
 - **Une seule question de phase** — plus de doublon « phase loi MOP » /
