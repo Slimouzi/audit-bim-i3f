@@ -638,6 +638,73 @@ def generate_xlsx_annex(output_path: str | None = None, overwrite: bool = False)
     return {"path": str(written), "size_bytes": written.stat().st_size}
 
 
+@mcp.tool()
+def generate_avp_i3f_pack(
+    output_dir: str | None = None,
+    controle_xlsx: str | None = None,
+    shab_xlsx: str | None = None,
+    zones_espaces_xlsx: str | None = None,
+    enveloppe_xlsx: str | None = None,
+    menuiseries_xlsx: str | None = None,
+    project_name: str = "Tarare",
+    project_code: str = "0546L",
+    phase: str = "AVP",
+    auditor: str = "AMO BIM",
+    export_pdf: bool = True,
+) -> dict:
+    """Génère le pack de livrables AVP I3F (charte BIMData).
+
+    Produit les 5 Excel (Contrôle Maquettes, SHAB, Zones/Espaces, Enveloppe,
+    Menuiseries) + le rapport consolidé « Analyse BIM AVP » (.docx, + .pdf
+    best-effort). **Hybride** : données natives de l'audit courant
+    (``_State.result``, si disponible) + lecture des .xlsx sources I3F
+    fournis pour les colonnes d'outils externes. Toute donnée absente →
+    « Information non disponible dans les documents fournis. » (jamais
+    inventée).
+
+    Args:
+        output_dir: sous-dossier d'export (sandbox ``AUDIT_OUTPUT_DIR``).
+        controle_xlsx … menuiseries_xlsx: chemins des .xlsx sources I3F
+            (optionnels, sandbox lecture ``safe_input_path``).
+        export_pdf: tente la conversion .docx → .pdf (LibreOffice si présent).
+
+    Returns:
+        ``{output_dir, paths, analyse_docx, analyse_pdf, pdf_available}``.
+    """
+    from ..reporting.avp_i3f import write_avp_i3f_report_pack
+    from ..reporting.avp_sources import AvpSourcePaths
+
+    def _src(p: str | None) -> str | None:
+        return str(safe_input_path(p, allowed_extensions={".xlsx", ".xlsm"})) if p else None
+
+    sources = AvpSourcePaths(
+        controle=_src(controle_xlsx),
+        shab=_src(shab_xlsx),
+        zones_espaces=_src(zones_espaces_xlsx),
+        enveloppe=_src(enveloppe_xlsx),
+        menuiseries=_src(menuiseries_xlsx),
+    )
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = safe_export_dir(output_dir or f"avp_pack_{ts}")
+    pack = write_avp_i3f_report_pack(
+        _State.result,  # peut être None : le pack se limite alors aux sources
+        out_dir,
+        sources=sources,
+        project_name=project_name,
+        project_code=project_code,
+        phase=phase,
+        auditor=auditor,
+        export_pdf=export_pdf,
+    )
+    return {
+        "output_dir": str(out_dir),
+        "paths": [str(p) for p in pack.paths()],
+        "analyse_docx": str(pack.analyse_docx),
+        "analyse_pdf": str(pack.analyse_pdf) if pack.analyse_pdf else None,
+        "pdf_available": pack.analyse_pdf is not None,
+    }
+
+
 _VALID_PHASES = {p.value for p in BIMPhase}
 
 
