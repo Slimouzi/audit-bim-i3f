@@ -53,6 +53,11 @@ _SPACE_BQ_ORDER = ("NetFloorArea", "GrossFloorArea", "NetArea", "GrossArea")
 _WINDOW_BQ_AREA = ("Area", "NetArea", "GrossArea")
 _SUPERFICIE_PROP = "Superficie calculée"
 
+# Classes de menuiseries : IFC2x3 (IfcWindow/IfcDoor) **et** IFC4
+# (…StandardCase). Sans les StandardCase, un modèle IFC4 sortirait une
+# annexe Menuiseries quasi vide sans erreur.
+_MENUISERIE_CLASSES = ("IfcWindow", "IfcWindowStandardCase", "IfcDoor", "IfcDoorStandardCase")
+
 
 def _norm(s: Any) -> str:
     """Normalise pour comparaison tolérante (accents / casse / espaces)."""
@@ -194,7 +199,7 @@ def count_menuiseries(snap: ModelSnapshot | None) -> int:
     """Nombre de menuiseries exploitables (IfcWindow + IfcDoor)."""
     if snap is None:
         return 0
-    return len(snap.of_class("IfcWindow")) + len(snap.of_class("IfcDoor"))
+    return sum(len(snap.of_class(cls)) for cls in _MENUISERIE_CLASSES)
 
 
 def snapshot_shab_total(snap: ModelSnapshot | None) -> float | None:
@@ -281,6 +286,30 @@ def _walk_structure_tree(snap: ModelSnapshot) -> tuple[dict[str, list[str]], dic
     for root in snap.structure_tree or []:
         visit(root, None, None)
     return st_map, zn_map
+
+
+def _zone_members_from_tree(snap: ModelSnapshot) -> dict[str, list[str]]:
+    """``zone_uuid → [space_uuid]`` depuis ``structure_tree``.
+
+    Permet de retrouver les pièces d'une IfcZone quand ``/zone`` ne porte
+    pas la liste ``spaces`` (fréquent en réel) mais que l'arborescence
+    spatiale BIMData contient bien Zone → Space.
+    """
+    out: dict[str, list[str]] = defaultdict(list)
+
+    def visit(node: dict, zone_uuid: str | None) -> None:
+        ntype = node.get("type")
+        nuuid = node.get("uuid")
+        if ntype == "IfcZone":
+            zone_uuid = nuuid or zone_uuid
+        elif ntype == "IfcSpace" and nuuid and zone_uuid and nuuid not in out[zone_uuid]:
+            out[zone_uuid].append(nuuid)
+        for child in node.get("children") or []:
+            visit(child, zone_uuid)
+
+    for root in snap.structure_tree or []:
+        visit(root, None)
+    return out
 
 
 def _build_space_zone_map(snap: ModelSnapshot) -> dict[str, list[str]]:
@@ -432,12 +461,16 @@ def _zones_grid(snap: ModelSnapshot) -> SheetGrid:
     zones = snap.zones or []
     by_uuid = {sp.get("uuid"): _rich(snap, sp) for sp in spaces}
     storey_map = _build_space_storey_map(snap)
+    tree_members = _zone_members_from_tree(snap)
     rows: list[list[Any]] = [list(_ZONE_HEADERS)]
     for z in zones:
         zel = _rich(snap, z)
         members = _zone_member_uuids(z)
         if not members:
             members = [sp.get("uuid") for sp in spaces if _space_zone_uuid(sp) == z.get("uuid")]
+        if not members:
+            # Repli : appartenance Zone → Space depuis l'arborescence spatiale.
+            members = list(tree_members.get(z.get("uuid"), []))
         # Étage(s) couvert(s) par la zone = union des étages de ses pièces.
         storeys: list[str] = []
         for u in members:
@@ -499,7 +532,7 @@ def build_menuiseries_from_snapshot(
     snap: ModelSnapshot,
 ) -> tuple[MenuiseriesSource | None, float | None]:
     """Export Menuiseries depuis la maquette (IfcWindow + IfcDoor)."""
-    items = list(snap.of_class("IfcWindow")) + list(snap.of_class("IfcDoor"))
+    items = [el for cls in _MENUISERIE_CLASSES for el in snap.of_class(cls)]
     if not items:
         return None, None
     headers = [

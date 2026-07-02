@@ -440,6 +440,118 @@ def test_storey_from_structure_tree(tmp_path):
     assert "Logement Z" in txt  # zone résolue via structure_tree
 
 
+def test_zones_grid_members_from_structure_tree(tmp_path):
+    """P1 : /zone sans liste ``spaces`` mais structure_tree contient
+    Zone → Space → l'onglet Zones remplit Étage(s) / Nombre de pièces /
+    Surface."""
+    sejour = {
+        "uuid": "SP-A",
+        "type": "IfcSpace",
+        "name": "SEJOUR",
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetFloorArea"}, "value": 20.0}],
+            }
+        ],
+    }
+    chambre = {
+        "uuid": "SP-B",
+        "type": "IfcSpace",
+        "name": "CHAMBRE",
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetFloorArea"}, "value": 10.0}],
+            }
+        ],
+    }
+    # La zone NE porte PAS de liste spaces ; l'arborescence, si.
+    zone = {"uuid": "Z1", "type": "IfcZone", "name": "Logement Z"}
+    tree = [
+        {
+            "type": "IfcBuildingStorey",
+            "uuid": "ST1",
+            "name": "R+1",
+            "children": [
+                {
+                    "type": "IfcZone",
+                    "uuid": "Z1",
+                    "name": "Logement Z",
+                    "children": [
+                        {"type": "IfcSpace", "uuid": "SP-A", "name": "SEJOUR"},
+                        {"type": "IfcSpace", "uuid": "SP-B", "name": "CHAMBRE"},
+                    ],
+                }
+            ],
+        }
+    ]
+    snap = ModelSnapshot(
+        project={"name": "P"},
+        model={"name": "M.ifc"},
+        spaces=[sejour, chambre],
+        zones=[zone],
+        structure_tree=tree,
+    ).index()
+    result = AuditResult(phase=BIMPhase.AVP, catalog=_catalog(), snapshot=snap, findings=[])
+    pack = write_avp_i3f_report_pack(
+        result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
+    )
+    wb = openpyxl.load_workbook(pack.zones_espaces_xlsx, data_only=True)
+    first = wb.worksheets[0]  # onglet Zones
+    rows = [tuple(r) for r in first.iter_rows(values_only=True)]
+    flat = "\n".join(str(c) for r in rows for c in r if c is not None)
+    wb.close()
+    assert "Logement Z" in flat
+    assert "R+1" in flat  # étage retrouvé via structure_tree
+    assert "30" in flat  # surface = 20 + 10 (somme des espaces rattachés)
+    # Nombre de pièces = 2.
+    zone_row = next(r for r in rows if r and r[0] == "Logement Z")
+    assert 2 in zone_row
+
+
+def test_menuiseries_standardcase_ifc4(tmp_path):
+    """P2 : un IFC4 avec uniquement des …StandardCase remplit Menuiseries
+    (builder) et n'échappe pas à la QA gate."""
+    win = {
+        "uuid": "W-SC",
+        "type": "IfcWindowStandardCase",
+        "name": "F-SC",
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [
+                    {"definition": {"name": "Width"}, "value": 1.0},
+                    {"definition": {"name": "Height"}, "value": 1.2},
+                ],
+            }
+        ],
+    }
+    door = {"uuid": "D-SC", "type": "IfcDoorStandardCase", "name": "P-SC"}
+    space = {
+        "uuid": "S1",
+        "type": "IfcSpace",
+        "name": "CHAMBRE",
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetFloorArea"}, "value": 12.0}],
+            }
+        ],
+    }
+    snap = ModelSnapshot(
+        project={"name": "P"}, model={"name": "M.ifc"}, spaces=[space], elements=[win, door]
+    ).index()
+    result = AuditResult(phase=BIMPhase.AVP, catalog=_catalog(), snapshot=snap, findings=[])
+    # Ne doit PAS lever (Menuiseries remplies via StandardCase).
+    pack = write_avp_i3f_report_pack(
+        result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
+    )
+    men = _all_text(pack.menuiseries_xlsx)
+    assert "F-SC" in men
+    assert "P-SC" in men
+
+
 def test_docx_ecarts_uses_superficie_calculee_fallback(tmp_path):
     """P2 : la section Écarts du DOCX calcule la SHAB snapshot avec le repli
     « Superficie calculée » (espaces sans BaseQuantities)."""
