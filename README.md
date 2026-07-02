@@ -479,9 +479,17 @@ I3F pour une opération en phase AVP (ex. Tarare 0546L) :
    écarts, grille de contrôle, points bloquants, recommandations AMO BIM,
    annexes statistiques).
 
-Les exports **préservent les onglets I3F** (pivots `Feuil1`/`Feuil2` +
-détail `TDB…`), et les fichiers produits **reprennent le nom des sources**
-fournies (traçabilité documentaire I3F ; ex. `260201 … SHAB …`).
+Les exports **préservent tous les onglets I3F** (pivots `Feuil1`/`Feuil2` +
+détail `TDB…`, y compris onglets vides), et les fichiers produits
+**reprennent le nom des sources** fournies (traçabilité documentaire I3F ;
+ex. `260201 … SHAB …`). Le consolidé restitue la **synthèse d'audit BIMData
+réelle** (répartition CRITICAL→INFO, top thèmes, quantités manquantes).
+
+Les **métadonnées opérationnelles du contrôle** (issues du rapport I3F de
+référence) alimentent « Données d'entrée » et « Usages BIM 3F » — passées à
+`generate_avp_i3f_pack` / `write_avp_i3f_report_pack` : `usages_bim`,
+`nombre_logements`, `temoin_virtuel`, `date_controle`, `auteur_controle`.
+Absentes → « Information non disponible… » (jamais inventées).
 
 **Hybride** : les données natives viennent de l'audit BIMData courant
 (`_State.result`, si chargé) ; les colonnes issues d'outils externes

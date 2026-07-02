@@ -385,6 +385,102 @@ def test_consolidated_grille_is_landscape(tmp_path, sources):
     assert any(s.orientation == WD_ORIENT.LANDSCAPE for s in doc.sections)
 
 
+# ── 3e revue : LOW/INFO, métadonnées opérationnelles, onglet vide ────────
+
+
+def _low_audit_result(n_low=3362):
+    from audit_bim.audit.engine import AuditResult
+    from audit_bim.audit.findings import ErrorType, Finding, Severity, Theme
+    from audit_bim.extraction.model_data import ModelSnapshot
+    from audit_bim.requirements.models import BIMPhase, RequirementsCatalog
+
+    cat = RequirementsCatalog(
+        cch_version="3.6",
+        properties=[],
+        naming_rules=[],
+        storey_names=[],
+        zone_specs=[],
+        room_specs=[],
+    )
+    snap = ModelSnapshot(project={"name": "T"}, model={"name": "MN.ifc"}).index()
+    findings = [
+        Finding(
+            theme=Theme.NAMING_SPACE,
+            severity=Severity.LOW,
+            error_type=ErrorType.NAMING_TOO_LONG,
+            element_uuid=f"l{i}",
+            ifc_type="IfcSpace",
+        )
+        for i in range(n_low)
+    ]
+    return AuditResult(phase=BIMPhase.AVP, catalog=cat, snapshot=snap, findings=findings)
+
+
+def test_audit_synthese_includes_low_and_info(tmp_path, sources):
+    pack = write_avp_i3f_report_pack(
+        _low_audit_result(3362), tmp_path / "out", sources=sources, export_pdf=False
+    )
+    doc = Document(str(pack.analyse_docx))
+    rows = {
+        r.cells[0].text: r.cells[1].text
+        for tbl in doc.tables
+        for r in tbl.rows
+        if len(r.cells) >= 2
+    }
+    assert rows.get("LOW") == "3362"  # la répartition se réconcilie (plus de LOW masqué)
+    assert "INFO" in rows
+
+
+def test_metadata_fill_usages_and_donnees(tmp_path, sources):
+    pack = write_avp_i3f_report_pack(
+        None,
+        tmp_path / "out",
+        sources=sources,
+        usages_bim=["Usage 3F 1", "Usage 3F 2"],
+        nombre_logements="24 logements",
+        temoin_virtuel="Absent",
+        date_controle="2026-01-30",
+        auteur_controle="CdP BIM 3F",
+        export_pdf=False,
+    )
+    doc = Document(str(pack.analyse_docx))
+    txt = "\n".join(p.text for p in doc.paragraphs)
+    labels = {c.text for tbl in doc.tables for r in tbl.rows for c in r.cells}
+    assert "Usage 3F 1" in txt and "Usage 3F 2" in txt
+    assert "24 logements" in labels and "Absent" in labels and "CdP BIM 3F" in labels
+
+
+def test_metadata_absent_not_invented(tmp_path, sources):
+    from audit_bim.reporting.avp_i3f import NOT_AVAILABLE
+
+    pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
+    doc = Document(str(pack.analyse_docx))
+    txt = "\n".join(p.text for p in doc.paragraphs)
+    # Usages absents -> NOT_AVAILABLE, jamais inventés.
+    assert f"Usages BIM 3F : {NOT_AVAILABLE}" in txt
+
+
+def test_empty_source_sheet_preserved(tmp_path):
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    zones = _wb(
+        src_dir / "zones.xlsx",
+        {
+            "Feuil1": [],  # onglet vide (structure I3F stricte)
+            "TDB 2022 01.3 - Export Zones": [
+                ["Composant", "Nom Zone"],
+                ["Zone", "0546L-1101"],
+            ],
+        },
+    )
+    pack = write_avp_i3f_report_pack(
+        None, tmp_path / "out", sources=AvpSourcePaths(zones_espaces=zones), export_pdf=False
+    )
+    wb = openpyxl.load_workbook(pack.zones_espaces_xlsx)
+    assert "Feuil1" in wb.sheetnames  # onglet vide préservé
+    wb.close()
+
+
 # ── PDF best-effort ──────────────────────────────────────────────────────
 
 

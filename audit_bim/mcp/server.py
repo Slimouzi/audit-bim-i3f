@@ -650,6 +650,11 @@ def generate_avp_i3f_pack(
     project_code: str = "0546L",
     phase: str = "AVP",
     auditor: str = "AMO BIM",
+    usages_bim: list[str] | None = None,
+    nombre_logements: str | None = None,
+    temoin_virtuel: str | None = None,
+    date_controle: str | None = None,
+    auteur_controle: str | None = None,
     export_pdf: bool = True,
 ) -> dict:
     """Génère le pack de livrables AVP I3F (charte BIMData).
@@ -666,6 +671,10 @@ def generate_avp_i3f_pack(
         output_dir: sous-dossier d'export (sandbox ``AUDIT_OUTPUT_DIR``).
         controle_xlsx … menuiseries_xlsx: chemins des .xlsx sources I3F
             (optionnels, sandbox lecture ``safe_input_path``).
+        usages_bim, nombre_logements, temoin_virtuel, date_controle,
+            auteur_controle: métadonnées opérationnelles du contrôle (issues
+            du rapport I3F de référence) pour « Données d'entrée » / « Usages
+            BIM 3F ». Absentes → « Information non disponible… ».
         export_pdf: tente la conversion .docx → .pdf (LibreOffice si présent).
 
     Returns:
@@ -694,6 +703,11 @@ def generate_avp_i3f_pack(
         project_code=project_code,
         phase=phase,
         auditor=auditor,
+        usages_bim=usages_bim,
+        nombre_logements=nombre_logements,
+        temoin_virtuel=temoin_virtuel,
+        date_controle=date_controle,
+        auteur_controle=auteur_controle,
         export_pdf=export_pdf,
     )
     return {

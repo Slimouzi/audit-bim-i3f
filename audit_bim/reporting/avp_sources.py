@@ -296,16 +296,14 @@ def _grid(ws) -> list[list[Any]]:
 
 
 def read_all_grids(path: str | Path) -> list[SheetGrid]:
-    """Lit **tous** les onglets non vides d'un classeur en grilles brutes.
+    """Lit **tous** les onglets d'un classeur en grilles brutes.
 
-    Préserve les onglets I3F (pivots ``Feuil1``/``Feuil2`` + détail ``TDB``).
+    Préserve **tous** les onglets I3F, y compris vides (structure Excel
+    stricte : pivots ``Feuil1``/``Feuil2`` + détail ``TDB``). Un onglet
+    vide donne un ``SheetGrid`` à lignes vides.
     """
     wb = _open(path)
-    out: list[SheetGrid] = []
-    for ws in wb.worksheets:
-        rows = _grid(ws)
-        if rows:
-            out.append(SheetGrid(title=ws.title, rows=rows))
+    out: list[SheetGrid] = [SheetGrid(title=ws.title, rows=_grid(ws)) for ws in wb.worksheets]
     wb.close()
     return out
 

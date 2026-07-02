@@ -79,6 +79,14 @@ class AvpMeta:
     project_code: str = "0546L"
     phase: str = "AVP"
     auditor: str = "AMO BIM"
+    # Métadonnées opérationnelles du contrôle (issues du rapport I3F de
+    # référence, fournies par l'appelant). Absentes → NOT_AVAILABLE, jamais
+    # inventées.
+    usages_bim: list[str] | None = None
+    nombre_logements: str | None = None
+    temoin_virtuel: str | None = None
+    date_controle: str | None = None
+    auteur_controle: str | None = None
 
 
 @dataclass
@@ -354,7 +362,12 @@ def _build_multisheet_export_xlsx(path, banner: str, title: str, multi, meta) ->
         row = _write_banner(
             ws, fmts, banner, f"{meta.project_name} {meta.project_code} — {g.title}"
         )
-        _write_grid(ws, fmts, g.rows, start_row=row)
+        if g.rows:
+            _write_grid(ws, fmts, g.rows, start_row=row)
+        else:
+            # Onglet source vide : préservé (structure I3F stricte) mais
+            # signalé comme tel (ce n'est PAS une donnée manquante).
+            write_safe(ws, row, 0, "(onglet vide dans la source I3F)", fmts["row"])
     wb.close()
     return path
 
@@ -469,14 +482,15 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta) -> Path:
 
     # 1. Données d'entrée
     _add_heading(doc, "1. Données d'entrée", level=1)
-    _write_donnees_entree(doc, ctrl)
+    _write_donnees_entree(doc, ctrl, meta)
 
     # 2. Usages BIM 3F
     _add_heading(doc, "2. Usages BIM 3F", level=1)
-    doc.add_paragraph(
-        "Usages BIM 3F attendus pour la phase : " + NOT_AVAILABLE + " (non explicités "
-        "dans les livrables fournis)."
-    )
+    if meta.usages_bim:
+        for u in meta.usages_bim:
+            doc.add_paragraph(f"• {u}", style="List Bullet")
+    else:
+        doc.add_paragraph("Usages BIM 3F : " + NOT_AVAILABLE + ".")
 
     # 3. Synthèse
     _add_heading(doc, "3. Synthèse", level=1)
@@ -611,6 +625,8 @@ def _write_audit_synthese(doc, result) -> None:
     by_type = result.count_by_error_type()
     p = doc.add_paragraph()
     p.add_run("Audit BIMData automatisé de la maquette active").bold = True
+    # Répartition par sévérité COMPLÈTE (CRITICAL→INFO) pour que le total
+    # se réconcilie côté client.
     _kpi_table(
         doc,
         [
@@ -619,6 +635,8 @@ def _write_audit_synthese(doc, result) -> None:
             ("CRITICAL", str(by_sev.get("CRITICAL", 0))),
             ("HIGH", str(by_sev.get("HIGH", 0))),
             ("MEDIUM", str(by_sev.get("MEDIUM", 0))),
+            ("LOW", str(by_sev.get("LOW", 0))),
+            ("INFO", str(by_sev.get("INFO", 0))),
             ("Quantités manquantes", str(by_type.get("spatial_missing_quantity", 0))),
         ],
     )
@@ -629,14 +647,18 @@ def _write_audit_synthese(doc, result) -> None:
             doc.add_paragraph(f"• {theme} : {count}", style="List Bullet")
 
 
-def _write_donnees_entree(doc, ctrl) -> None:
+def _write_donnees_entree(doc, ctrl, meta) -> None:
     h = (ctrl.header if ctrl else {}) or {}
     _kpi_table(
         doc,
         [
+            ("Opération", _fmt_meta(meta.nombre_logements)),
             ("Maquettes IFC transmises le", _fmt_meta(h.get("maquettes ifc transmises le"))),
             ("Date d'analyse", _fmt_meta(h.get("date d'analyse"))),
             ("Version d'analyse", _fmt_meta(h.get("version d'analyse"))),
+            ("Date du contrôle", _fmt_meta(meta.date_controle)),
+            ("Auteur du contrôle", _fmt_meta(meta.auteur_controle)),
+            ("Témoin virtuel", _fmt_meta(meta.temoin_virtuel)),
         ],
     )
 
@@ -818,6 +840,11 @@ def write_avp_i3f_report_pack(
     project_code: str = "0546L",
     phase: str = "AVP",
     auditor: str = "AMO BIM",
+    usages_bim: list[str] | None = None,
+    nombre_logements: str | None = None,
+    temoin_virtuel: str | None = None,
+    date_controle: str | None = None,
+    auteur_controle: str | None = None,
     export_pdf: bool = True,
     context: ReportProjectContext | None = None,  # noqa: ARG001 (compat future)
 ) -> AvpReportPack:
@@ -830,12 +857,24 @@ def write_avp_i3f_report_pack(
         sources: chemins des .xlsx I3F (``AvpSourcePaths``) ou sources déjà
             chargées (``AvpSources``). ``None`` → pack sans données externes
             (colonnes → ``NOT_AVAILABLE``).
+        usages_bim, nombre_logements, temoin_virtuel, date_controle,
+            auteur_controle: métadonnées opérationnelles du contrôle (issues
+            du rapport I3F de référence) pour les sections « Données
+            d'entrée » et « Usages BIM 3F ». Absentes → ``NOT_AVAILABLE``.
         export_pdf: tente la conversion .docx → .pdf (best-effort).
     """
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     meta = AvpMeta(
-        project_name=project_name, project_code=project_code, phase=phase, auditor=auditor
+        project_name=project_name,
+        project_code=project_code,
+        phase=phase,
+        auditor=auditor,
+        usages_bim=usages_bim,
+        nombre_logements=nombre_logements,
+        temoin_virtuel=temoin_virtuel,
+        date_controle=date_controle,
+        auteur_controle=auteur_controle,
     )
 
     # Traçabilité I3F : reprendre le nom de fichier source quand fourni.

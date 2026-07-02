@@ -30,6 +30,12 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   (`Feuil1`/`Feuil2` + `TDB…`), noms de fichiers **repris des sources**
   (traçabilité), seuil 3F **jamais inventé** (NOT_AVAILABLE si absent),
   consolidé enrichi (données d'entrée, usages 3F, grille, annexes stats).
+  Reproduction des **grilles détaillées** des onglets de contrôle,
+  **synthèse d'audit BIMData réelle** (répartition CRITICAL→INFO, top
+  thèmes, quantités manquantes), grille de contrôle Word en **paysage**,
+  préservation de **tous** les onglets source (y compris vides), et
+  **métadonnées opérationnelles** du contrôle (`usages_bim`,
+  `nombre_logements`, `temoin_virtuel`, `date_controle`, `auteur_controle`).
 - Tests : structure d'onglets, ordre des en-têtes, branding BIMData
   (`#2F374A`/`#F9C72C`/Roboto/bannière), **absence de l'ancienne charte**,
   never-invent, sections du consolidé, PDF best-effort.
