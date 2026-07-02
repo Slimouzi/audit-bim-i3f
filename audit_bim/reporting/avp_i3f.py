@@ -54,16 +54,55 @@ from .theming import (
 from .word_report import NOT_AVAILABLE, _add_heading, _hex_to_rgb, _kpi_table, _shade_cell
 from .xlsx_annex import _build_formats, write_safe
 
-# Noms de livrables (préfixe daté I3F conservé, opération Tarare 0546L).
-_PREFIX = "260211 Tarare 0546L"
-FILENAMES = {
-    "controle": f"{_PREFIX} Contrôle Maquettes AVP.xlsx",
-    "shab": f"{_PREFIX} AVP - export SHAB maquette.xlsx",
-    "zones_espaces": "260130 Tarare Export Zones et Espaces.xlsx",
-    "enveloppe": "260130 Tarare Extraction surface enveloppe.xlsx",
-    "menuiseries": "260130 Tarare export Menuiseries.xlsx",
-    "analyse": f"{_PREFIX} Analyse BIM AVP.docx",
+# Convention de nommage documentaire I3F, **générée à partir de données
+# projet confirmées** :
+#
+#     YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>
+#
+# ``YYMMDD`` = date de génération du livrable. Chaque livrable a un libellé
+# de type et une extension fixes ; le nom du projet, le code (ESI) et la
+# phase sont injectés depuis les valeurs confirmées par l'utilisateur.
+_DELIVERABLE_LABELS: dict[str, tuple[str, str]] = {
+    "controle": ("Contrôle Maquettes", "xlsx"),
+    "shab": ("export SHAB maquette", "xlsx"),
+    "zones_espaces": ("Export Zones et Espaces", "xlsx"),
+    "enveloppe": ("Extraction surface enveloppe", "xlsx"),
+    "menuiseries": ("export Menuiseries", "xlsx"),
+    "analyse": ("Rapport analyse BIM", "docx"),
 }
+
+# Caractères interdits / risqués dans un nom de fichier (séparateurs de
+# chemin, caractères réservés Windows). Remplacés par un espace.
+_FILENAME_BAD = '/\\:*?"<>|\r\n\t'
+
+
+def _sanitize_filename_part(value: str | None) -> str:
+    """Nettoie un fragment de nom de fichier (séparateurs, espaces)."""
+    if not value:
+        return ""
+    out = "".join(" " if c in _FILENAME_BAD else c for c in str(value))
+    return " ".join(out.split()).strip()
+
+
+def _deliverable_filename(
+    key: str, *, date: str, project_name: str, project_code: str, phase: str
+) -> str:
+    """Construit le nom d'un livrable selon la convention I3F.
+
+    ``YYMMDD Nom Code Phase - TypeLivrable.ext`` — les fragments vides
+    (code / phase absents) sont simplement omis (jamais inventés).
+    """
+    label, ext = _DELIVERABLE_LABELS[key]
+    head_parts = [
+        _sanitize_filename_part(date),
+        _sanitize_filename_part(project_name),
+        _sanitize_filename_part(project_code),
+        _sanitize_filename_part(phase),
+    ]
+    head = " ".join(p for p in head_parts if p)
+    label = _sanitize_filename_part(label)
+    return f"{head} - {label}.{ext}"
+
 
 _CONTROLE_STATS_SHEETS = (
     "Zones Nommage",
@@ -840,6 +879,7 @@ def write_avp_i3f_report_pack(
     project_code: str = "0546L",
     phase: str = "AVP",
     auditor: str = "AMO BIM",
+    date: str | None = None,
     usages_bim: list[str] | None = None,
     nombre_logements: str | None = None,
     temoin_virtuel: str | None = None,
@@ -850,6 +890,10 @@ def write_avp_i3f_report_pack(
 ) -> AvpReportPack:
     """Génère le pack de livrables AVP I3F dans ``output_dir``.
 
+    Les noms de livrables suivent la convention documentaire I3F,
+    **générés à partir des données projet confirmées** :
+    ``YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>``.
+
     Args:
         result: ``AuditResult`` BIMData (peut être ``None`` : le pack se
             limite alors aux données sources fournies).
@@ -857,6 +901,10 @@ def write_avp_i3f_report_pack(
         sources: chemins des .xlsx I3F (``AvpSourcePaths``) ou sources déjà
             chargées (``AvpSources``). ``None`` → pack sans données externes
             (colonnes → ``NOT_AVAILABLE``).
+        project_name, project_code, phase: identité projet **confirmée**
+            injectée dans les noms de livrables (et les entêtes).
+        date: préfixe daté ``YYMMDD`` des noms de livrables. ``None`` →
+            date de génération (aujourd'hui).
         usages_bim, nombre_logements, temoin_virtuel, date_controle,
             auteur_controle: métadonnées opérationnelles du contrôle (issues
             du rapport I3F de référence) pour les sections « Données
@@ -868,6 +916,12 @@ def write_avp_i3f_report_pack(
     """
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    # Date de génération du livrable (YYMMDD) si non imposée par l'appelant.
+    gen_date = (
+        date.strip()
+        if isinstance(date, str) and date.strip()
+        else datetime.now().strftime("%y%m%d")
+    )
     # « Auteur du contrôle » : champ opérationnel distinct du rédacteur
     # AMO (``auditor``). Sur le pack I3F il est facultatif ; plutôt que
     # d'écrire ``NOT_AVAILABLE`` quand il n'est pas précisé, on l'aligne
@@ -888,17 +942,24 @@ def write_avp_i3f_report_pack(
         auteur_controle=eff_auteur_controle,
     )
 
-    # Traçabilité I3F : reprendre le nom de fichier source quand fourni.
-    src_paths = sources if isinstance(sources, AvpSourcePaths) else None
+    # Noms de livrables générés depuis l'identité projet confirmée
+    # (convention I3F uniforme). On n'hérite plus du basename des sources :
+    # le livrable BIMData porte l'identité et la date de génération.
+    def _name(key: str) -> str:
+        return _deliverable_filename(
+            key,
+            date=gen_date,
+            project_name=project_name,
+            project_code=project_code,
+            phase=phase,
+        )
 
-    def _name(key: str, src_path) -> str:
-        return Path(src_path).name if src_path else FILENAMES[key]
-
-    fn_controle = _name("controle", src_paths.controle if src_paths else None)
-    fn_shab = _name("shab", src_paths.shab if src_paths else None)
-    fn_zones = _name("zones_espaces", src_paths.zones_espaces if src_paths else None)
-    fn_env = _name("enveloppe", src_paths.enveloppe if src_paths else None)
-    fn_men = _name("menuiseries", src_paths.menuiseries if src_paths else None)
+    fn_controle = _name("controle")
+    fn_shab = _name("shab")
+    fn_zones = _name("zones_espaces")
+    fn_env = _name("enveloppe")
+    fn_men = _name("menuiseries")
+    fn_analyse = _name("analyse")
 
     if isinstance(sources, AvpSourcePaths):
         sources = load_sources(sources)
@@ -921,7 +982,7 @@ def write_avp_i3f_report_pack(
     )
     enveloppe = _build_enveloppe_xlsx(out / fn_env, sources, meta)
     menuiseries = _build_menuiseries_xlsx(out / fn_men, sources, meta)
-    analyse = _build_analyse_bim_avp_docx(out / FILENAMES["analyse"], result, sources, meta)
+    analyse = _build_analyse_bim_avp_docx(out / fn_analyse, result, sources, meta)
 
     pdf = docx_to_pdf(analyse) if export_pdf else None
 

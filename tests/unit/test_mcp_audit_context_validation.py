@@ -343,6 +343,132 @@ class TestEnrichedSectionsStillPresent:
             assert section in text, f"section manquante dans le rapport : {section!r}"
 
 
+# ── Phase : question unique, aide loi MOP, détection + mapping ──────────
+
+
+class TestPhaseHelpers:
+    def test_map_phase_valid_passthrough(self):
+        assert mcp_server._map_phase("AVP") == "AVP"
+        assert mcp_server._map_phase("avp") == "AVP"
+
+    def test_map_phase_loi_mop_aliases(self):
+        assert mcp_server._map_phase("APD") == "AVP"
+        assert mcp_server._map_phase("ACT") == "EXE"
+        assert mcp_server._map_phase("VISA") == "EXE"
+        assert mcp_server._map_phase("DET") == "EXE"
+
+    def test_map_phase_unknown_returns_none(self):
+        assert mcp_server._map_phase("ZZZ") is None
+        assert mcp_server._map_phase("") is None
+        assert mcp_server._map_phase(None) is None
+
+
+class TestPhaseValidationDialogue:
+    def test_single_phase_question_with_reading_aid(self):
+        """Une seule question de phase, avec l'aide loi MOP embarquée
+        (pas de second champ)."""
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase=None,
+            auditor_name="Stan",
+            confirm_context=False,
+        )
+        phase_qs = [q for q in res["questions"] if q["key"] == "project_phase"]
+        assert len(phase_qs) == 1
+        q = phase_qs[0]
+        assert "phase du projet à auditer" in q["question"]
+        # Aide de lecture loi MOP présente dans la même question.
+        aid = q["aide_lecture_loi_mop"]
+        assert aid["APS"] == "avant-projet sommaire"
+        assert "APD" in aid["AVP"]
+        assert "GESTION" in aid
+
+    def test_recognized_detected_phase_asks_confirmation(self):
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="AVP",
+            auditor_name="Stan",
+            confirm_context=False,
+            suggested_phase="AVP",
+            detected_phase_raw="AVP",
+            require_phase_confirmation=True,
+        )
+        q = next(q for q in res["questions"] if q["key"] == "project_phase")
+        assert q.get("suggested_value") == "AVP"
+        assert "Phase détectée dans l'IFC" in q["question"]
+        assert "Confirmez-vous" in q["question"]
+
+    def test_unrecognized_phase_proposes_mapping(self):
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="AVP",
+            auditor_name="Stan",
+            confirm_context=False,
+            suggested_phase="AVP",
+            detected_phase_raw="APD",
+            require_phase_confirmation=True,
+        )
+        q = next(q for q in res["questions"] if q["key"] == "project_phase")
+        assert "Phase détectée : « APD »" in q["question"]
+        assert "Proposition d'audit : AVP" in q["question"]
+
+    def test_explicit_valid_phase_no_confirmation(self):
+        """Phase valide + pas de demande de confirmation → pas de question."""
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="PRO",
+            auditor_name="Stan",
+            confirm_context=False,
+            require_phase_confirmation=False,
+        )
+        assert res is None
+
+    def test_no_duplicate_phase_field(self):
+        """Une seule clé de phase dans les questions (pas de doublon
+        loi MOP / phase BIM)."""
+        res = mcp_server._validate_audit_context(
+            project_address=None,
+            project_phase=None,
+            auditor_name=None,
+            confirm_context=False,
+            require_phase_confirmation=True,
+        )
+        keys = [q["key"] for q in res["questions"]]
+        assert keys.count("project_phase") == 1
+        assert "mop_phase" not in keys
+
+
+class TestFullAuditPhaseConfirmation:
+    def test_no_explicit_phase_asks_confirmation(self, _isolated):
+        """full_audit sans phase explicite → needs_context sur la phase
+        (confirmation exigée), avant toute extraction."""
+        sess, _ = _isolated
+        res = mcp_server.full_audit(
+            project_address="12 rue X",
+            auditor_name="Stan",
+            push_mode="none",
+            # phase omise → confirmation exigée
+        )
+        assert res.get("status") == "needs_context"
+        assert "project_phase" in res["missing"]
+
+    def test_detected_phase_proposed_as_suggestion(self, _isolated):
+        sess, _ = _isolated
+        _wire_audit(sess)
+        # Injecte une phase brute loi MOP dans le snapshot.
+        sess.snapshot.project = {"name": "Programme Test", "phase": "APD"}
+        res = mcp_server.full_audit(
+            project_address="12 rue X",
+            auditor_name="Stan",
+            push_mode="none",
+        )
+        assert res.get("status") == "needs_context"
+        q = next(q for q in res["questions"] if q["key"] == "project_phase")
+        # APD (loi MOP) → proposition AVP.
+        assert q.get("suggested_value") == "AVP"
+        assert "APD" in q["question"]
+
+
 # ── R4 : suggestions maquette + validation description ──────────────────
 
 

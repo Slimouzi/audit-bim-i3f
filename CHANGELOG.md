@@ -40,6 +40,29 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   (`#2F374A`/`#F9C72C`/Roboto/bannière), **absence de l'ancienne charte**,
   never-invent, sections du consolidé, PDF best-effort.
 
+#### Phase : question unique (loi MOP / phase BIM) + nommage I3F des livrables
+
+- **Une seule question de phase** — plus de doublon « phase loi MOP » /
+  « phase BIM ». La phase confirmée est l'**unique source de vérité** et
+  alimente à la fois l'audit, le rapport Word et le pack AVP. La question
+  affiche une **aide de lecture loi MOP / mission MOE** dans le même champ
+  (APS…GESTION) — pas de second champ.
+- **Proposition automatique + validation explicite** : si une phase est
+  déclarée dans l'IFC / les métadonnées BIMData, elle est proposée comme
+  valeur par défaut (`suggested_value`) et confirmée explicitement. Une
+  phase non reconnue (APD, ACT, VISA, DET…) est **rapprochée** de la phase
+  d'audit (APD→AVP, ACT/VISA/DET→EXE, ESQ→APS, AOR→DOE) à confirmer ou
+  corriger. `full_audit` ne défaute plus silencieusement sur `PRO` : sans
+  phase explicite, il demande confirmation (sauf `confirm_context=True`).
+- **Nommage documentaire I3F** des livrables du pack AVP, **généré à partir
+  de données projet confirmées** :
+  `YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>` où
+  `YYMMDD` est la **date de génération**. Le nom du projet est cherché dans
+  la maquette (`project.name` / `IfcSite.Name`), le code (ESI) dans le
+  contrôle maquettes I3F, la phase est la phase d'audit confirmée. Nom ou
+  code introuvable → `generate_avp_i3f_pack` renvoie `needs_context` avec la
+  question à poser. Les noms ne reprennent plus le basename des sources.
+
 #### Dialogue de contexte : adresse suggérée + description projet
 
 - `full_audit` et `generate_word_report` **proposent l'adresse** extraite

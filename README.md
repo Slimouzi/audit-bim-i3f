@@ -152,6 +152,18 @@ Si vous l'oubliez, vous recevez en réponse :
 et le rapport n'est pas généré — re-appeler avec les champs renseignés
 ou ajouter `confirm_context=True`.
 
+#### Phase : une seule question (loi MOP / phase BIM)
+
+La phase est demandée **une seule fois** — « Quelle est la phase du projet
+à auditer ? » (APS, AVP, PRO, DCE, EXE, DOE, GESTION) — avec une aide de
+lecture loi MOP / mission MOE dans la même question (pas de second champ).
+La phase confirmée est l'**unique source de vérité** (audit + rapport Word +
+pack AVP). Si l'IFC déclare une phase, elle est proposée par défaut et
+confirmée ; une phase non reconnue (APD, ACT, VISA, DET…) est rapprochée
+(APD→AVP, ACT/VISA/DET→EXE) à valider ou corriger. Sans phase explicite,
+`full_audit` demande confirmation au lieu de défauter sur `PRO` (sauf
+`confirm_context=True`).
+
 ### Et `full_audit` ?
 
 Si vous avez le moindre doute sur la maquette active (changement de
@@ -492,10 +504,23 @@ I3F pour une opération en phase AVP (ex. Tarare 0546L) :
    annexes statistiques).
 
 Les exports **préservent tous les onglets I3F** (pivots `Feuil1`/`Feuil2` +
-détail `TDB…`, y compris onglets vides), et les fichiers produits
-**reprennent le nom des sources** fournies (traçabilité documentaire I3F ;
-ex. `260201 … SHAB …`). Le consolidé restitue la **synthèse d'audit BIMData
-réelle** (répartition CRITICAL→INFO, top thèmes, quantités manquantes).
+détail `TDB…`, y compris onglets vides). Les fichiers produits suivent la
+**convention documentaire I3F, générée à partir de données projet
+confirmées** :
+
+```
+YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>
+```
+
+où `YYMMDD` est la **date de génération**. Le **nom du projet** est cherché
+dans la maquette (`project.name` / `IfcSite.Name`), le **code (ESI)** dans
+le contrôle maquettes I3F, la **phase** est la phase d'audit confirmée. Si
+le nom ou le code restent introuvables, `generate_avp_i3f_pack` renvoie
+`{status: needs_context}` avec la question à poser (ex. « Quel code projet /
+ESI doit apparaître dans les livrables ? »). Exemple : `260702 Tarare 0546L
+AVP - export SHAB maquette.xlsx`. Le consolidé restitue la **synthèse
+d'audit BIMData réelle** (répartition CRITICAL→INFO, top thèmes, quantités
+manquantes).
 
 Les **métadonnées opérationnelles du contrôle** (issues du rapport I3F de
 référence) alimentent « Données d'entrée » et « Usages BIM 3F » — passées à

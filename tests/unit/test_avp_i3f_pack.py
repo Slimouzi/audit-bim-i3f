@@ -256,10 +256,66 @@ def test_exports_preserve_source_sheets(tmp_path, sources):
     wb.close()
 
 
-def test_filenames_track_source_basenames(tmp_path, sources):
-    # Traçabilité I3F : le fichier SHAB reprend le nom de la source (260201…).
+def test_filenames_follow_i3f_convention(tmp_path, sources):
+    # Convention documentaire I3F générée depuis l'identité projet confirmée :
+    # YYMMDD Nom Code Phase - TypeLivrable.ext (date de génération imposée ici).
+    pack = write_avp_i3f_report_pack(
+        None,
+        tmp_path / "out",
+        sources=sources,
+        project_name="Tarare",
+        project_code="0546L",
+        phase="AVP",
+        date="260702",
+        export_pdf=False,
+    )
+    assert pack.controle_xlsx.name == "260702 Tarare 0546L AVP - Contrôle Maquettes.xlsx"
+    assert pack.shab_xlsx.name == "260702 Tarare 0546L AVP - export SHAB maquette.xlsx"
+    assert pack.zones_espaces_xlsx.name == "260702 Tarare 0546L AVP - Export Zones et Espaces.xlsx"
+    assert pack.enveloppe_xlsx.name == "260702 Tarare 0546L AVP - Extraction surface enveloppe.xlsx"
+    assert pack.menuiseries_xlsx.name == "260702 Tarare 0546L AVP - export Menuiseries.xlsx"
+    assert pack.analyse_docx.name == "260702 Tarare 0546L AVP - Rapport analyse BIM.docx"
+
+
+def test_filenames_default_date_is_generation_date(tmp_path, sources):
+    from datetime import datetime
+
     pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
-    assert pack.shab_xlsx.name == "260201 shab.xlsx"
+    today = datetime.now().strftime("%y%m%d")
+    # Date de génération (YYMMDD) en préfixe, phase avant le tiret.
+    assert pack.shab_xlsx.name.startswith(f"{today} ")
+    assert pack.shab_xlsx.name.endswith(" AVP - export SHAB maquette.xlsx")
+
+
+def test_filenames_omit_missing_code(tmp_path, sources):
+    # Code absent → fragment simplement omis (jamais inventé).
+    pack = write_avp_i3f_report_pack(
+        None,
+        tmp_path / "out",
+        sources=sources,
+        project_name="Tarare",
+        project_code="",
+        phase="AVP",
+        date="260702",
+        export_pdf=False,
+    )
+    assert pack.shab_xlsx.name == "260702 Tarare AVP - export SHAB maquette.xlsx"
+
+
+def test_filename_sanitizes_path_separators(tmp_path, sources):
+    pack = write_avp_i3f_report_pack(
+        None,
+        tmp_path / "out",
+        sources=sources,
+        project_name="Rue A/B",
+        project_code="05/46",
+        phase="AVP",
+        date="260702",
+        export_pdf=False,
+    )
+    # Aucun séparateur de chemin ne doit subsister dans le nom de fichier.
+    assert "/" not in pack.shab_xlsx.name
+    assert pack.shab_xlsx.name == "260702 Rue A B 05 46 AVP - export SHAB maquette.xlsx"
 
 
 def test_materiau_ratio_not_exploded(tmp_path, sources):
