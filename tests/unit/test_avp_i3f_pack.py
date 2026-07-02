@@ -47,12 +47,18 @@ def sources(tmp_path):
         },
     )
     shab = _wb(
-        src_dir / "shab.xlsx",
+        src_dir / "260201 shab.xlsx",
         {
+            # Onglet pivot (doit être préservé) + onglet détail TDB.
+            "Feuil1": [
+                ["SHAB (Qté de Base)", "Pièces"],
+                ["Logement", "SEJOUR", "CHAMBRE 01", "Total général"],
+                ["Zone Logement T3", "", 12.98, 12.98],
+            ],
             "TDB 2022 01.3 - Export Zones": [
                 ["Composant", "Nom Zone", "Pièce", "Surface Nette (Qté de Base)", "Étage"],
                 ["Zone", "0546L-1101", "CHAMBRE 01", 12.98, "R+1"],
-            ]
+            ],
         },
     )
     zones = _wb(
@@ -98,6 +104,22 @@ def sources(tmp_path):
                 [None, "Nombre de Noms"],
                 [None, None, "MN", None, "Conforme", None, "Non Conforme"],
                 [None, "Nombre de Noms", 316, 247, 0.7816, 16, 0.0506],
+            ],
+            "Zones Nommage": [
+                [None, None, "MN", None, "Conforme", None, "Non Conforme"],
+                [None, "Noms (nbre)", 24, 24, 1, 0, 0],
+            ],
+            "ARC bsence de matériau": [
+                [None, None, "MN"],
+                [
+                    None,
+                    "Nombre d'élements sans matériaux",
+                    617,
+                    0.0586,
+                    None,
+                    "Nombre d'élements :",
+                    10530,
+                ],
             ],
         },
     )
@@ -210,13 +232,76 @@ def test_consolidated_docx_sections(tmp_path, sources):
     txt = "\n".join(p.text for p in doc.paragraphs)
     for section in (
         "Analyse BIM",
-        "1. Synthèse",
-        "2. Indicateurs de conformité",
-        "3. Écarts",
-        "4. Points bloquants",
-        "5. Recommandations AMO BIM",
+        "1. Données d'entrée",
+        "2. Usages BIM 3F",
+        "3. Synthèse",
+        "4. Indicateurs de conformité",
+        "5. Écarts",
+        "6. Grille de contrôle",
+        "7. Points bloquants",
+        "8. Recommandations AMO BIM",
+        "9. Annexes",
     ):
         assert section in txt, f"section manquante : {section}"
+
+
+# ── Conformité aux fichiers I3F réels (bugs de revue) ────────────────────
+
+
+def test_exports_preserve_source_sheets(tmp_path, sources):
+    # Les onglets pivot + détail des exports SHAB/Zones sont préservés.
+    pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
+    wb = openpyxl.load_workbook(pack.shab_xlsx)
+    assert wb.sheetnames == ["Feuil1", "TDB 2022 01.3 - Export Zones"]
+    wb.close()
+
+
+def test_filenames_track_source_basenames(tmp_path, sources):
+    # Traçabilité I3F : le fichier SHAB reprend le nom de la source (260201…).
+    pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
+    assert pack.shab_xlsx.name == "260201 shab.xlsx"
+
+
+def test_materiau_ratio_not_exploded(tmp_path, sources):
+    # ARC matériau : le taux consolidé n'explose plus (bug 1053000 %).
+    pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
+    doc = Document(str(pack.analyse_docx))
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            cells = [c.text for c in row.cells]
+            if cells and cells[0].startswith("Éléments sans matériau"):
+                # source ARC absente dans cette fixture -> NOT_AVAILABLE (jamais 1053000 %)
+                assert "%" not in cells[1] or float(cells[1].rstrip(" %")) < 100
+
+
+def test_seuil_not_invented(tmp_path):
+    from audit_bim.reporting.avp_i3f import NOT_AVAILABLE
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    env = _wb(
+        src_dir / "env.xlsx",
+        {
+            "TDB": [
+                ["Composant", "Type", "Surface Solibri"],
+                ["Mur", "ME", 100.0],
+                [],
+                [None, None, "ratio FAC/SHAB : ", 0.95],  # pas de « Seuil 3F 2026 »
+            ]
+        },
+    )
+    pack = write_avp_i3f_report_pack(
+        None, tmp_path / "out", sources=AvpSourcePaths(enveloppe=env), export_pdf=False
+    )
+    doc = Document(str(pack.analyse_docx))
+    seuil_value = None
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            cells = [c.text for c in row.cells]
+            if cells and cells[0].startswith("Seuil 3F 2026"):
+                assert cells[0] == "Seuil 3F 2026"  # pas de « (≥ 0.9) » inventé
+                seuil_value = cells[1]
+    assert seuil_value == NOT_AVAILABLE  # verdict indisponible faute de seuil source
 
 
 # ── PDF best-effort ──────────────────────────────────────────────────────

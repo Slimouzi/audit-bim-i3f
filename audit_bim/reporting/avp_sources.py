@@ -84,10 +84,25 @@ class TabularSource:
 
 
 @dataclass
+class SheetGrid:
+    """Grille brute d'un onglet (reproduction fidèle multi-onglets)."""
+
+    title: str
+    rows: list[list[Any]] = field(default_factory=list)
+
+
+@dataclass
+class MultiSheetSource:
+    """Ensemble d'onglets d'un export I3F (pivots + détail préservés)."""
+
+    grids: list[SheetGrid] = field(default_factory=list)
+
+
+@dataclass
 class AvpSources:
     controle: ControleMaquettesSource | None = None
-    shab: TabularSource | None = None
-    zones_espaces: TabularSource | None = None
+    shab: MultiSheetSource | None = None
+    zones_espaces: MultiSheetSource | None = None
     enveloppe: EnveloppeSource | None = None
     menuiseries: MenuiseriesSource | None = None
 
@@ -206,43 +221,92 @@ def read_controle(path: str | Path) -> ControleMaquettesSource:
         )
         if ws_s is None:
             continue
-        src.stats[sheet_name] = _read_stats(ws_s)
+        materiau = "mat" in sheet_name.lower()
+        src.stats[sheet_name] = _read_stats(ws_s, materiau=materiau)
     wb.close()
     return src
 
 
-def _read_stats(ws) -> dict[str, Any]:
-    """Extrait les stats conformité d'un onglet (ligne « Nombre… »)."""
-    out: dict[str, Any] = {}
-    for r in range(1, min(ws.max_row, 12) + 1):
-        label = ws.cell(r, 2).value
-        if isinstance(label, str) and label.strip().lower().startswith("nombre"):
-            out["label"] = label.strip()
-            out["total"] = ws.cell(r, 3).value
-            out["conforme"] = ws.cell(r, 4).value
-            out["conforme_ratio"] = ws.cell(r, 5).value
-            out["non_conforme"] = ws.cell(r, 6).value
-            out["non_conforme_ratio"] = ws.cell(r, 7).value
-            break
+def _read_stats(ws, *, materiau: bool) -> dict[str, Any]:
+    """Extrait les stats conformité d'un onglet.
+
+    Deux structures I3F distinctes :
+
+    - **Nommage** (Zones/Pièces Nommage, Zones ObjectType) : ligne
+      ``label | total | conforme | taux | non_conforme | taux`` (le label
+      varie : « Noms (nbre) », « Nombre de Noms »…). On détecte la 1re
+      ligne où col B est un libellé et col C/D/E sont numériques.
+    - **Matériau** (« ARC bsence de matériau ») : ``label sans mat. | count
+      | ratio`` + total à droite de « Nombre d'élements : ».
+    """
+    if materiau:
+        out: dict[str, Any] = {}
+        for r in range(1, min(ws.max_row, 12) + 1):
+            lab = ws.cell(r, 2).value
+            if isinstance(lab, str) and "sans mat" in lab.lower():
+                out["label"] = lab.strip()
+                out["non_conforme"] = ws.cell(r, 3).value
+                out["non_conforme_ratio"] = ws.cell(r, 4).value
+                break
+        total = _scan_value(ws, "ements :")  # « Nombre d'élements : » (typo source)
+        if total is not None:
+            out["total"] = total
+        return out if out.get("non_conforme") is not None else {}
+
+    for r in range(1, min(ws.max_row, 14) + 1):
+        lab = ws.cell(r, 2).value
+        c3, c4, c5 = ws.cell(r, 3).value, ws.cell(r, 4).value, ws.cell(r, 5).value
+        num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
+        if isinstance(lab, str) and lab.strip() and num(c3) and num(c4) and num(c5):
+            return {
+                "label": lab.strip(),
+                "total": c3,
+                "conforme": c4,
+                "conforme_ratio": c5,
+                "non_conforme": ws.cell(r, 6).value,
+                "non_conforme_ratio": ws.cell(r, 7).value,
+            }
+    return {}
+
+
+def _grid(ws) -> list[list[Any]]:
+    """Grille brute (used range), triée des lignes/colonnes vides finales."""
+    rows: list[list[Any]] = [
+        [ws.cell(r, c).value for c in range(1, ws.max_column + 1)] for r in range(1, ws.max_row + 1)
+    ]
+    while rows and all(v in (None, "") for v in rows[-1]):
+        rows.pop()
+    if not rows:
+        return []
+    last_col = 0
+    for row in rows:
+        for i, v in enumerate(row):
+            if v not in (None, ""):
+                last_col = max(last_col, i + 1)
+    return [row[:last_col] for row in rows]
+
+
+def read_all_grids(path: str | Path) -> list[SheetGrid]:
+    """Lit **tous** les onglets non vides d'un classeur en grilles brutes.
+
+    Préserve les onglets I3F (pivots ``Feuil1``/``Feuil2`` + détail ``TDB``).
+    """
+    wb = _open(path)
+    out: list[SheetGrid] = []
+    for ws in wb.worksheets:
+        rows = _grid(ws)
+        if rows:
+            out.append(SheetGrid(title=ws.title, rows=rows))
+    wb.close()
     return out
 
 
-def read_shab(path: str | Path) -> TabularSource:
-    wb = _open(path)
-    table = _read_table(
-        _find_sheet(wb, "export zones", "tdb 2022 01") or wb.worksheets[-1], "Composant"
-    )
-    wb.close()
-    return TabularSource(table=table)
+def read_shab(path: str | Path) -> MultiSheetSource:
+    return MultiSheetSource(grids=read_all_grids(path))
 
 
-def read_zones_espaces(path: str | Path) -> TabularSource:
-    wb = _open(path)
-    table = _read_table(
-        _find_sheet(wb, "export zones", "tdb 2022 01") or wb.worksheets[0], "Composant"
-    )
-    wb.close()
-    return TabularSource(table=table)
+def read_zones_espaces(path: str | Path) -> MultiSheetSource:
+    return MultiSheetSource(grids=read_all_grids(path))
 
 
 def read_enveloppe(path: str | Path) -> EnveloppeSource:

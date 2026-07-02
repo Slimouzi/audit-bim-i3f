@@ -24,7 +24,12 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   parallèle. Nouveaux modules `reporting/avp_sources.py` (lecteurs),
   `reporting/avp_i3f.py` (builders/orchestration), `reporting/pdf_export.py`
   (conversion .docx→.pdf best-effort via LibreOffice, `AUDIT_BIM_SOFFICE`).
-- Fidélité « tables à plat » (mêmes onglets/colonnes/ordre/unités/vocabulaire).
+- Fidélité « tables à plat » (mêmes onglets/colonnes/ordre/unités/vocabulaire) :
+  parsing structure-aware des stats de contrôle (nommage « Noms (nbre) » vs
+  matériau), **préservation des onglets** pivot/synthèse des exports
+  (`Feuil1`/`Feuil2` + `TDB…`), noms de fichiers **repris des sources**
+  (traçabilité), seuil 3F **jamais inventé** (NOT_AVAILABLE si absent),
+  consolidé enrichi (données d'entrée, usages 3F, grille, annexes stats).
 - Tests : structure d'onglets, ordre des en-têtes, branding BIMData
   (`#2F374A`/`#F9C72C`/Roboto/bannière), **absence de l'ancienne charte**,
   never-invent, sections du consolidé, PDF best-effort.

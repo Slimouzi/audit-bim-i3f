@@ -264,27 +264,80 @@ def _write_stats_block(ws, fmts, stats: dict | None, *, start_row: int) -> None:
     if not stats:
         write_safe(ws, start_row, 0, NOT_AVAILABLE, fmts["row"])
         return
-    labels = [
-        ("Indicateur", "label"),
-        ("Total", "total"),
-        ("Conforme", "conforme"),
-        ("Taux conforme", "conforme_ratio"),
-        ("Non conforme", "non_conforme"),
-        ("Taux non conforme", "non_conforme_ratio"),
-    ]
+    # Structure « nommage » (avec conforme) ou « matériau » (sans conforme).
+    if "conforme" in stats:
+        labels = [
+            ("Indicateur", "label"),
+            ("Total", "total"),
+            ("Conforme", "conforme"),
+            ("Taux conforme", "conforme_ratio"),
+            ("Non conforme", "non_conforme"),
+            ("Taux non conforme", "non_conforme_ratio"),
+        ]
+    else:
+        labels = [
+            ("Indicateur", "label"),
+            ("Total éléments", "total"),
+            ("Sans matériau", "non_conforme"),
+            ("Taux sans matériau", "non_conforme_ratio"),
+        ]
     for c, (title, _key) in enumerate(labels):
         write_safe(ws, start_row, c, title, fmts["header"])
-        ws.set_column(c, c, 18)
+        ws.set_column(c, c, 20)
     for c, (_title, key) in enumerate(labels):
         v = stats.get(key)
         write_safe(ws, start_row + 1, c, "" if v is None else v, fmts["row_alt"])
 
 
-def _build_export_xlsx(path, banner: str, title: str, table: SheetTable | None, meta) -> Path:
+def _looks_like_header(vals: list) -> bool:
+    return sum(1 for v in vals if isinstance(v, str) and v.strip()) >= 3
+
+
+def _write_grid(ws, fmts, rows: list[list], *, start_row: int) -> int:
+    """Reproduit une grille brute (pivot/synthèse I3F) en table à plat.
+
+    La 1re ligne « en-tête » (≥ 3 cellules texte) est stylée ; les autres
+    sont zébrées. Préserve l'ordre et le contenu source.
+    """
+    if not rows:
+        write_safe(ws, start_row, 0, NOT_AVAILABLE, fmts["row"])
+        return start_row + 1
+    header_idx = next((i for i, r in enumerate(rows) if _looks_like_header(r)), None)
+    ncols = max(len(r) for r in rows)
+    for c in range(ncols):
+        ws.set_column(c, c, 18)
+    r = start_row
+    for i, rowvals in enumerate(rows):
+        r = start_row + i
+        if i == header_idx:
+            fmt = fmts["header"]
+            ws.set_row(r, 26)
+        else:
+            fmt = fmts["row_alt"] if i % 2 == 0 else fmts["row"]
+        for c in range(ncols):
+            v = rowvals[c] if c < len(rowvals) else None
+            write_safe(ws, r, c, _cell(v), fmt)
+    if header_idx is not None:
+        ws.freeze_panes(start_row + header_idx + 1, 0)
+    return r + 1
+
+
+def _build_multisheet_export_xlsx(path, banner: str, title: str, multi, meta) -> Path:
+    """Export reproduisant **tous** les onglets source (pivots + détail)."""
     wb, fmts = _new_workbook(path)
-    ws = wb.add_worksheet(_safe_sheet(title))
-    row = _write_banner(ws, fmts, banner, f"{meta.project_name} {meta.project_code} — {title}")
-    _write_flat_table(ws, fmts, table, start_row=row)
+    grids = (multi.grids if multi else None) or []
+    if not grids:
+        ws = wb.add_worksheet(_safe_sheet(title))
+        row = _write_banner(ws, fmts, banner, f"{meta.project_name} {meta.project_code} — {title}")
+        write_safe(ws, row, 0, NOT_AVAILABLE, fmts["row"])
+        wb.close()
+        return path
+    for g in grids:
+        ws = wb.add_worksheet(_safe_sheet(g.title))
+        row = _write_banner(
+            ws, fmts, banner, f"{meta.project_name} {meta.project_code} — {g.title}"
+        )
+        _write_grid(ws, fmts, g.rows, start_row=row)
     wb.close()
     return path
 
@@ -393,8 +446,19 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta) -> Path:
     zones = _stat_lookup(ctrl, "Zones Nommage")
     materiau = _stat_lookup(ctrl, "ARC absence de matériau")
 
-    # 1. Synthèse
-    _add_heading(doc, "1. Synthèse", level=1)
+    # 1. Données d'entrée
+    _add_heading(doc, "1. Données d'entrée", level=1)
+    _write_donnees_entree(doc, ctrl)
+
+    # 2. Usages BIM 3F
+    _add_heading(doc, "2. Usages BIM 3F", level=1)
+    doc.add_paragraph(
+        "Usages BIM 3F attendus pour la phase : " + NOT_AVAILABLE + " (non explicités "
+        "dans les livrables fournis)."
+    )
+
+    # 3. Synthèse
+    _add_heading(doc, "3. Synthèse", level=1)
     doc.add_paragraph(
         f"Analyse BIM de la maquette {meta.project_name} {meta.project_code} en phase "
         f"{meta.phase}, consolidant le contrôle des maquettes, les exports SHAB, "
@@ -403,14 +467,16 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta) -> Path:
         "signalée « Information non disponible dans les documents fournis. »."
     )
 
-    # 2. Indicateurs de conformité
-    _add_heading(doc, "2. Indicateurs de conformité", level=1)
+    # 4. Indicateurs de conformité
+    _add_heading(doc, "4. Indicateurs de conformité", level=1)
     ratio = env.ratio_fac_shab if env else None
-    seuil = (env.seuil_3f if env else None) or 0.9
-    ratio_ok = (
-        "Conforme"
-        if isinstance(ratio, (int, float)) and ratio >= seuil
-        else ("Non conforme" if isinstance(ratio, (int, float)) else NOT_AVAILABLE)
+    seuil = env.seuil_3f if env else None  # jamais inventé : None si absent de la source
+    if isinstance(ratio, (int, float)) and isinstance(seuil, (int, float)):
+        ratio_ok = "Conforme" if ratio >= seuil else "Non conforme"
+    else:
+        ratio_ok = NOT_AVAILABLE
+    seuil_label = (
+        f"Seuil 3F 2026 (≥ {seuil})" if isinstance(seuil, (int, float)) else "Seuil 3F 2026"
     )
     _kpi_table(
         doc,
@@ -431,16 +497,20 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta) -> Path:
                 "Ratio FAC/SHAB",
                 f"{ratio:.3f}" if isinstance(ratio, (int, float)) else NOT_AVAILABLE,
             ),
-            (f"Seuil 3F 2026 (≥ {seuil})", ratio_ok),
+            (seuil_label, ratio_ok),
         ],
     )
 
-    # 3. Écarts (source vs snapshot BIMData quand disponible)
-    _add_heading(doc, "3. Écarts", level=1)
+    # 5. Écarts (source vs snapshot BIMData quand disponible)
+    _add_heading(doc, "5. Écarts", level=1)
     _write_ecarts(doc, result, sources)
 
-    # 4. Points bloquants
-    _add_heading(doc, "4. Points bloquants", level=1)
+    # 6. Grille de contrôle
+    _add_heading(doc, "6. Grille de contrôle", level=1)
+    _write_grille_table(doc, ctrl)
+
+    # 7. Points bloquants
+    _add_heading(doc, "7. Points bloquants", level=1)
     blockers = _points_bloquants(ctrl, env, ratio, seuil)
     if blockers:
         for b in blockers:
@@ -448,14 +518,94 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta) -> Path:
     else:
         doc.add_paragraph("Aucun point bloquant identifié à partir des livrables fournis.")
 
-    # 5. Recommandations AMO BIM
-    _add_heading(doc, "5. Recommandations AMO BIM", level=1)
+    # 8. Recommandations AMO BIM
+    _add_heading(doc, "8. Recommandations AMO BIM", level=1)
     recs = _recommandations(pieces, zones, materiau, ratio, seuil)
     for r in recs:
         doc.add_paragraph(f"• {r}", style="List Bullet")
 
+    # 9. Annexes — statistiques de conformité
+    _add_heading(doc, "9. Annexes — statistiques de conformité", level=1)
+    _write_stats_annex(doc, ctrl)
+
     doc.save(str(path))
     return path
+
+
+def _fmt_meta(v) -> str:
+    if v in (None, ""):
+        return NOT_AVAILABLE
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d")
+    return str(v)
+
+
+def _docx_header_table(doc, headers):
+    tbl = doc.add_table(rows=1, cols=len(headers))
+    tbl.style = "Light Grid Accent 1"
+    for i, h in enumerate(headers):
+        cell = tbl.rows[0].cells[i]
+        cell.text = str(h)
+        _shade_cell(cell, BIMDATA_PRIMARY)
+        for p in cell.paragraphs:
+            for r in p.runs:
+                r.font.color.rgb = RGBColor(255, 255, 255)
+                r.bold = True
+    return tbl
+
+
+def _write_donnees_entree(doc, ctrl) -> None:
+    h = (ctrl.header if ctrl else {}) or {}
+    _kpi_table(
+        doc,
+        [
+            ("Maquettes IFC transmises le", _fmt_meta(h.get("maquettes ifc transmises le"))),
+            ("Date d'analyse", _fmt_meta(h.get("date d'analyse"))),
+            ("Version d'analyse", _fmt_meta(h.get("version d'analyse"))),
+        ],
+    )
+
+
+def _write_grille_table(doc, ctrl, *, cap: int = 40) -> None:
+    g = ctrl.grille if ctrl else None
+    if not g or not g.headers:
+        doc.add_paragraph(NOT_AVAILABLE)
+        return
+    tbl = _docx_header_table(doc, g.headers)
+    for rowvals in g.rows[:cap]:
+        cells = tbl.add_row().cells
+        for i, v in enumerate(rowvals):
+            if i < len(cells):
+                cells[i].text = "" if v in (None, "") else str(_cell(v))
+    if len(g.rows) > cap:
+        doc.add_paragraph(
+            f"… {len(g.rows) - cap} lignes supplémentaires dans le fichier "
+            "« Contrôle Maquettes AVP ».",
+            style="Intense Quote",
+        )
+
+
+def _write_stats_annex(doc, ctrl) -> None:
+    stats = (ctrl.stats if ctrl else {}) or {}
+    if not any(stats.values()):
+        doc.add_paragraph(NOT_AVAILABLE)
+        return
+    for name, st in stats.items():
+        if not st:
+            continue
+        p = doc.add_paragraph()
+        p.add_run(name).bold = True
+        if "conforme" in st:
+            detail = (
+                f"total {st.get('total')} · conformes {st.get('conforme')} "
+                f"({_pct(st.get('conforme_ratio'))}) · non conformes {st.get('non_conforme')}"
+            )
+        else:
+            detail = (
+                f"total {st.get('total')} · sans matériau {st.get('non_conforme')} "
+                f"({_pct(st.get('non_conforme_ratio'))})"
+            )
+        doc.add_paragraph(f"• {detail}", style="List Bullet")
 
 
 def _write_ecarts(doc, result, sources) -> None:
@@ -511,7 +661,7 @@ def _snapshot_shab_total(result: AuditResult | None) -> float | None:
 
 def _points_bloquants(ctrl, env, ratio, seuil) -> list[str]:
     out: list[str] = []
-    if isinstance(ratio, (int, float)) and ratio < seuil:
+    if isinstance(ratio, (int, float)) and isinstance(seuil, (int, float)) and ratio < seuil:
         out.append(
             f"Ratio FAC/SHAB {ratio:.3f} inférieur au Seuil 3F 2026 ({seuil}) — enveloppe à revoir."
         )
@@ -547,7 +697,7 @@ def _recommandations(pieces, zones, materiau, ratio, seuil) -> list[str]:
         recs.append(
             f"Compléter le matériau sur {int(materiau['non_conforme'])} éléments ARC sans matériau."
         )
-    if isinstance(ratio, (int, float)) and ratio < seuil:
+    if isinstance(ratio, (int, float)) and isinstance(seuil, (int, float)) and ratio < seuil:
         recs.append(
             "Revoir la modélisation de l'enveloppe pour atteindre le ratio FAC/SHAB attendu."
         )
@@ -609,27 +759,39 @@ def write_avp_i3f_report_pack(
         project_name=project_name, project_code=project_code, phase=phase, auditor=auditor
     )
 
+    # Traçabilité I3F : reprendre le nom de fichier source quand fourni.
+    src_paths = sources if isinstance(sources, AvpSourcePaths) else None
+
+    def _name(key: str, src_path) -> str:
+        return Path(src_path).name if src_path else FILENAMES[key]
+
+    fn_controle = _name("controle", src_paths.controle if src_paths else None)
+    fn_shab = _name("shab", src_paths.shab if src_paths else None)
+    fn_zones = _name("zones_espaces", src_paths.zones_espaces if src_paths else None)
+    fn_env = _name("enveloppe", src_paths.enveloppe if src_paths else None)
+    fn_men = _name("menuiseries", src_paths.menuiseries if src_paths else None)
+
     if isinstance(sources, AvpSourcePaths):
         sources = load_sources(sources)
     # sources est désormais AvpSources | None
 
-    controle = _build_controle_maquettes_xlsx(out / FILENAMES["controle"], result, sources, meta)
-    shab = _build_export_xlsx(
-        out / FILENAMES["shab"],
+    controle = _build_controle_maquettes_xlsx(out / fn_controle, result, sources, meta)
+    shab = _build_multisheet_export_xlsx(
+        out / fn_shab,
         "EXPORT SHAB MAQUETTE",
         "AVP - export SHAB maquette",
-        (sources.shab.table if sources and sources.shab else None),
+        (sources.shab if sources else None),
         meta,
     )
-    zones = _build_export_xlsx(
-        out / FILENAMES["zones_espaces"],
+    zones = _build_multisheet_export_xlsx(
+        out / fn_zones,
         "EXPORT ZONES ET ESPACES",
         "Export Zones et Espaces",
-        (sources.zones_espaces.table if sources and sources.zones_espaces else None),
+        (sources.zones_espaces if sources else None),
         meta,
     )
-    enveloppe = _build_enveloppe_xlsx(out / FILENAMES["enveloppe"], sources, meta)
-    menuiseries = _build_menuiseries_xlsx(out / FILENAMES["menuiseries"], sources, meta)
+    enveloppe = _build_enveloppe_xlsx(out / fn_env, sources, meta)
+    menuiseries = _build_menuiseries_xlsx(out / fn_men, sources, meta)
     analyse = _build_analyse_bim_avp_docx(out / FILENAMES["analyse"], result, sources, meta)
 
     pdf = docx_to_pdf(analyse) if export_pdf else None

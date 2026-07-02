@@ -407,7 +407,7 @@ from audit_bim.reporting.word_report import write_word_report
 from audit_bim.reporting.xlsx_annex import write_xlsx_annex
 
 cat  = build_catalog(cch_pdf="...", data_spec_xlsx="...", naming_spec_xlsx="...")
-snap = extract_snapshot(BIMDataClient(cloud_id=33617, project_id=2698917, model_id=1674450))
+snap = extract_snapshot(BIMDataClient(cloud_id=..., project_id=..., model_id=...))  # cible BIMData
 res  = run_audit(snap, cat, BIMPhase.AVP)
 write_word_report(res, "/tmp/audit.docx")
 write_xlsx_annex(res, "/tmp/audit.xlsx")
@@ -475,8 +475,13 @@ I3F pour une opération en phase AVP (ex. Tarare 0546L) :
 4. `… Extraction surface enveloppe.xlsx` (+ ratio FAC/SHAB, Seuil 3F 2026) ;
 5. `… export Menuiseries.xlsx` ;
 6. `… Analyse BIM AVP.docx` (+ `.pdf` best-effort) — rapport consolidé
-   (synthèse, indicateurs de conformité, écarts, points bloquants,
-   recommandations AMO BIM).
+   (données d'entrée, usages BIM 3F, synthèse, indicateurs de conformité,
+   écarts, grille de contrôle, points bloquants, recommandations AMO BIM,
+   annexes statistiques).
+
+Les exports **préservent les onglets I3F** (pivots `Feuil1`/`Feuil2` +
+détail `TDB…`), et les fichiers produits **reprennent le nom des sources**
+fournies (traçabilité documentaire I3F ; ex. `260201 … SHAB …`).
 
 **Hybride** : les données natives viennent de l'audit BIMData courant
 (`_State.result`, si chargé) ; les colonnes issues d'outils externes

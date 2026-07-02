@@ -98,6 +98,24 @@ def test_read_controle_header_legend_grille_stats(tmp_path):
                 [None, None, "MN", None, "Conforme", None, "Non Conforme"],
                 [None, "Nombre de Noms", 316, 247, 0.7816, 16, 0.0506],
             ],
+            # Structure réelle : label « Noms (nbre) » (pas « Nombre… »).
+            "Zones Nommage": [
+                [None, None, "MN", None, "Conforme", None, "Non Conforme"],
+                [None, "Noms (nbre)", 24, 24, 1, 0, 0],
+            ],
+            # Structure réelle matériau : count/ratio + total à droite.
+            "ARC bsence de matériau": [
+                [None, None, "MN"],
+                [
+                    None,
+                    "Nombre d'élements sans matériaux",
+                    617,
+                    0.0586,
+                    None,
+                    "Nombre d'élements :",
+                    10530,
+                ],
+            ],
         },
     )
     src = S.read_controle(path)
@@ -114,10 +132,15 @@ def test_read_controle_header_legend_grille_stats(tmp_path):
         "Commentaires CdP Bim",
     ]
     assert src.grille.n_rows == 2
-    stats = src.stats.get("Pièces Nommage")
-    assert (
-        stats and stats["total"] == 316 and stats["conforme"] == 247 and stats["non_conforme"] == 16
-    )
+    pieces = src.stats.get("Pièces Nommage")
+    assert pieces and pieces["total"] == 316 and pieces["conforme"] == 247
+    # « Noms (nbre) » désormais détecté (bug de revue P1).
+    zones = src.stats.get("Zones Nommage")
+    assert zones and zones["label"] == "Noms (nbre)" and zones["total"] == 24
+    # Matériau : count/ratio corrects, total = 10530 (plus de taux 1053000 %).
+    mat = src.stats.get("ARC bsence de matériau")
+    assert mat and mat["non_conforme"] == 617 and mat["total"] == 10530
+    assert mat.get("non_conforme_ratio") == pytest.approx(0.0586)
 
 
 def test_missing_sources_stay_none():
