@@ -40,6 +40,26 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   (`#2F374A`/`#F9C72C`/Roboto/bannière), **absence de l'ancienne charte**,
   never-invent, sections du consolidé, PDF best-effort.
 
+#### Dialogue de contexte : adresse suggérée + description projet
+
+- `full_audit` et `generate_word_report` **proposent l'adresse** extraite
+  de la maquette (`IfcBuilding.BuildingAddress` / `IfcSite.SiteAddress`,
+  via `resolve_project_address`) dans la question `project_address`
+  (`suggested_value`) — l'utilisateur valide ou corrige au lieu de la
+  saisir à froid. Best-effort : sans adresse exploitable, question posée
+  sans suggestion.
+- Nouveau paramètre **`project_description`** sur `full_audit` et
+  `generate_word_report`, propagé au contexte (`merge_user_context`) et
+  **rendu dans le rapport Word** (section « Maquette auditée » →
+  *Description du projet*). La description est **validée** :
+  `_validate_audit_context` la réclame quand un snapshot est disponible ;
+  la description du snapshot (`project.description`) suffit (marquée
+  *déduit — à confirmer*), sinon la question est posée (P1b — plus de
+  rapport à description silencieusement manquante).
+- Pack AVP : `auteur_controle` non fourni **reprend `auditor`** (rédacteur
+  AMO = auteur du contrôle par défaut) plutôt que « Information non
+  disponible » (P2). L'appelant peut toujours distinguer les deux.
+
 #### Sélection d'objets BIM enrichie (`filter_bim_objects`)
 
 - Nouveaux filtres **structurels** sur `ObjectFilter` : quantités

@@ -674,7 +674,9 @@ def generate_avp_i3f_pack(
         usages_bim, nombre_logements, temoin_virtuel, date_controle,
             auteur_controle: métadonnées opérationnelles du contrôle (issues
             du rapport I3F de référence) pour « Données d'entrée » / « Usages
-            BIM 3F ». Absentes → « Information non disponible… ».
+            BIM 3F ». Absentes → « Information non disponible… ». Exception :
+            ``auteur_controle`` non fourni reprend ``auditor`` (rédacteur AMO
+            = auteur du contrôle par défaut).
         export_pdf: tente la conversion .docx → .pdf (LibreOffice si présent).
 
     Returns:
@@ -722,37 +724,80 @@ def generate_avp_i3f_pack(
 _VALID_PHASES = {p.value for p in BIMPhase}
 
 
+def _snapshot_address_suggestion() -> str | None:
+    """Adresse suggérée depuis le snapshot actif (``IfcBuilding.BuildingAddress``
+    / ``IfcSite.SiteAddress``), ou ``None``. Best-effort, ne lève pas."""
+    snap = _State.snapshot
+    if snap is None:
+        return None
+    try:
+        from ..enrichment.address import resolve_project_address
+
+        return resolve_project_address(snap).to_query() or None
+    except Exception:
+        return None
+
+
+def _snapshot_description() -> str | None:
+    """Description projet suggérée depuis le snapshot (``project.description``
+    / ``longname``), ou ``None``."""
+    snap = _State.snapshot
+    if snap is None:
+        return None
+    proj = snap.project or {}
+    for key in ("description", "longname", "long_name"):
+        v = proj.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
 def _validate_audit_context(
     *,
     project_address: str | None,
     project_phase: str | None,
     auditor_name: str | None,
     confirm_context: bool,
+    project_description: str | None = None,
+    require_description: bool = False,
+    suggested_address: str | None = None,
+    suggested_description: str | None = None,
 ) -> dict | None:
-    """Valide les 3 informations obligatoires de contexte avant audit.
+    """Valide les informations de contexte obligatoires avant audit.
 
     Renvoie ``None`` si tout est OK ; renvoie un dict de refus
     structuré (avec ``status='needs_context'``, ``missing`` et
     ``questions``) si une info manque et que ``confirm_context``
     n'est pas mis à ``True``.
 
-    Ne **jamais** inventer une valeur — l'utilisateur DOIT fournir.
+    Ne **jamais** inventer une valeur — l'utilisateur DOIT fournir (ou
+    valider explicitement une **suggestion** issue de la maquette,
+    fournie via ``suggested_value`` dans la question).
+
+    ``require_description`` n'active la validation de la description que
+    lorsqu'un snapshot est disponible (donc qu'on peut proposer une
+    suggestion) — un ``full_audit`` « à froid » n'est pas impacté.
     """
     missing: list[str] = []
     questions: list[dict[str, str]] = []
     if not project_address or not project_address.strip():
         missing.append("project_address")
-        questions.append(
-            {
-                "key": "project_address",
-                "question": (
-                    "Quelle est l'adresse du projet ? "
-                    "(ex: « 12 rue de la Paix, 35340 LIFFRÉ »). "
-                    "Le rapport Word affichera cette adresse comme "
-                    "donnée fiable, fournie par l'utilisateur."
-                ),
-            }
-        )
+        q: dict[str, str] = {
+            "key": "project_address",
+            "question": (
+                "Quelle est l'adresse du projet ? "
+                "(ex: « 12 rue de la Paix, 35340 LIFFRÉ »). "
+                "Le rapport Word affichera cette adresse comme "
+                "donnée fiable, fournie par l'utilisateur."
+            ),
+        }
+        if suggested_address:
+            q["suggested_value"] = suggested_address
+            q["question"] += (
+                f" Suggestion extraite de la maquette (IfcPostalAddress) : "
+                f"« {suggested_address} » — merci de la valider ou de la corriger."
+            )
+        questions.append(q)
     if not project_phase or project_phase.upper() not in _VALID_PHASES:
         missing.append("project_phase")
         questions.append(
@@ -778,6 +823,26 @@ def _validate_audit_context(
             }
         )
 
+    # Description : validée uniquement quand un snapshot est disponible
+    # (on peut alors proposer une suggestion). Un snapshot muet → question
+    # sans suggestion ; pas de snapshot → on ne bloque pas.
+    if require_description and (not project_description or not project_description.strip()):
+        missing.append("project_description")
+        q_desc: dict[str, str] = {
+            "key": "project_description",
+            "question": (
+                "Quelle description du projet afficher dans la section "
+                "« Description du projet » du rapport Word ?"
+            ),
+        }
+        if suggested_description:
+            q_desc["suggested_value"] = suggested_description
+            q_desc["question"] += (
+                f" Suggestion extraite de la maquette : « {suggested_description} » "
+                "— à valider ou corriger."
+            )
+        questions.append(q_desc)
+
     if not missing:
         return None  # tout est OK
 
@@ -794,8 +859,11 @@ def _validate_audit_context(
         "next_step": (
             "Renseigner les informations manquantes puis re-appeler le tool "
             "avec les paramètres ``project_address``, ``project_phase``, "
-            "``auditor_name``. Pour lancer malgré tout sans toutes les "
-            "infos (déconseillé), passer ``confirm_context=True``."
+            "``auditor_name`` (et ``project_description`` si demandée). Les "
+            "questions comportant ``suggested_value`` proposent une valeur "
+            "extraite de la maquette : la faire valider ou corriger par "
+            "l'utilisateur. Pour lancer malgré tout sans toutes les infos "
+            "(déconseillé), passer ``confirm_context=True``."
         ),
     }
 
@@ -809,6 +877,7 @@ def generate_word_report(
     project_address: str | None = None,
     project_phase: str | None = None,
     auditor_name: str | None = None,
+    project_description: str | None = None,
     confirm_context: bool = False,
 ) -> dict:
     """Génère le rapport Word d'audit (enrichi avec contexte projet).
@@ -856,11 +925,24 @@ def generate_word_report(
     """
     _State.ensure_result()
 
+    # Suggestions issues de la maquette pour le dialogue de contexte
+    # (adresse IfcPostalAddress, description projet). Le snapshot est
+    # présent (``ensure_result`` implique un audit sur snapshot).
+    sugg_address = _snapshot_address_suggestion()
+    sugg_description = _snapshot_description()
+    # Description « effective » : fournie par l'utilisateur, sinon
+    # suggestion snapshot — sert à décider s'il faut poser la question.
+    eff_description = project_description or sugg_description
+
     # Validation contexte
     refusal = _validate_audit_context(
         project_address=project_address,
         project_phase=project_phase,
         auditor_name=auditor_name,
+        project_description=eff_description,
+        require_description=True,
+        suggested_address=sugg_address,
+        suggested_description=sugg_description,
         confirm_context=confirm_context,
     )
     if refusal is not None:
@@ -869,13 +951,16 @@ def generate_word_report(
     raw = Path(output_path) if output_path else _default_output_paths()[0]
     target = safe_export_path(raw, overwrite=overwrite)
 
-    # Construire le contexte enrichi avec les inputs utilisateur.
+    # Construire le contexte enrichi avec les inputs utilisateur. La
+    # description utilisateur (si fournie) écrase la description déduite ;
+    # sinon ``base_ctx`` conserve la description extraite du snapshot.
     base_ctx = build_report_context(_State.result)
     ctx = merge_user_context(
         base_ctx,
         project_address=project_address,
         project_phase=project_phase,
         auditor_name=auditor_name,
+        project_description=project_description,
     )
 
     # Si auditor_name fourni, on l'utilise comme display ; sinon legacy
@@ -980,6 +1065,7 @@ def full_audit(
     access_token: str | None = None,
     project_address: str | None = None,
     auditor_name: str | None = None,
+    project_description: str | None = None,
     confirm_context: bool = False,
     expected_model_name: str | None = None,
     force_refresh_snapshot: bool = True,
@@ -1017,6 +1103,11 @@ def full_audit(
             ``{status: needs_context, ...}`` sans lancer l'audit.
         auditor_name: **obligatoire** — nom de l'auditeur (page de garde
             + section *Contexte de la mission*). Idem validation.
+        project_description: description du projet affichée dans la
+            section *Description du projet* du rapport Word. Si absente,
+            le tool propose la description extraite de la maquette
+            (``project.description``) et demande validation ; passer
+            ``confirm_context=True`` pour accepter la valeur suggérée.
         confirm_context: ``True`` pour passer outre la validation et
             lancer malgré les champs manquants (déconseillé — le
             rapport affichera ``Information non disponible``).
@@ -1062,14 +1153,32 @@ def full_audit(
     else:
         effective_phase = phase or "PRO"
 
+    # Suggestions pour le dialogue de contexte, best-effort depuis un
+    # snapshot **déjà chargé** en session (workflow standard
+    # ``set_active_model`` → ``verify_active_model`` → ``full_audit``).
+    # On ne force pas d'extraction ici : la validation reste bon marché
+    # et sans accès modèle en démarrage à froid. Snapshot présent → on
+    # propose l'adresse (IfcPostalAddress) + la description et on exige
+    # la description ; snapshot absent → question sans suggestion et
+    # description non requise.
+    sugg_address = _snapshot_address_suggestion()
+    sugg_description = _snapshot_description()
+    eff_description = project_description or sugg_description
+
     # Validation contexte projet AVANT toute exécution coûteuse :
-    # adresse + phase + nom auditeur sont obligatoires pour un livrable
-    # AMO BIM exploitable. Si une info manque et ``confirm_context``
-    # n'est pas True, on refuse en posant des questions structurées.
+    # adresse + phase + nom auditeur (+ description si un snapshot est
+    # disponible) sont obligatoires pour un livrable AMO BIM exploitable.
+    # Si une info manque et ``confirm_context`` n'est pas True, on refuse
+    # en posant des questions structurées, avec ``suggested_value`` quand
+    # la maquette permet de proposer une valeur.
     context_refusal = _validate_audit_context(
         project_address=project_address,
         project_phase=effective_phase,
         auditor_name=auditor_name,
+        project_description=eff_description,
+        require_description=_State.snapshot is not None,
+        suggested_address=sugg_address,
+        suggested_description=sugg_description,
         confirm_context=confirm_context,
     )
     if context_refusal is not None:
@@ -1194,6 +1303,7 @@ def full_audit(
         project_address=project_address,
         project_phase=effective_phase,
         auditor_name=auditor_name,
+        project_description=project_description,
     )
 
     word_written = write_word_report(

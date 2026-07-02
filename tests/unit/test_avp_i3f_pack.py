@@ -460,6 +460,47 @@ def test_metadata_absent_not_invented(tmp_path, sources):
     assert f"Usages BIM 3F : {NOT_AVAILABLE}" in txt
 
 
+def test_auteur_controle_defaults_to_auditor(tmp_path, sources):
+    """R4 P2 : sans ``auteur_controle`` explicite, on reprend ``auditor``
+    (donnée fournie) plutôt que ``NOT_AVAILABLE``."""
+    from audit_bim.reporting.avp_i3f import NOT_AVAILABLE
+
+    pack = write_avp_i3f_report_pack(
+        None,
+        tmp_path / "out",
+        sources=sources,
+        auditor="AMO BIM BIMData",
+        export_pdf=False,
+    )
+    doc = Document(str(pack.analyse_docx))
+    labels = {c.text for tbl in doc.tables for r in tbl.rows for c in r.cells}
+    assert "AMO BIM BIMData" in labels
+    # « Auteur du contrôle » ne doit pas rester NOT_AVAILABLE.
+    for tbl in doc.tables:
+        for r in tbl.rows:
+            cells = [c.text for c in r.cells]
+            if cells and cells[0] == "Auteur du contrôle":
+                assert cells[1] != NOT_AVAILABLE
+                assert cells[1] == "AMO BIM BIMData"
+
+
+def test_auteur_controle_explicit_wins(tmp_path, sources):
+    pack = write_avp_i3f_report_pack(
+        None,
+        tmp_path / "out",
+        sources=sources,
+        auditor="AMO BIM BIMData",
+        auteur_controle="CdP BIM 3F",
+        export_pdf=False,
+    )
+    doc = Document(str(pack.analyse_docx))
+    for tbl in doc.tables:
+        for r in tbl.rows:
+            cells = [c.text for c in r.cells]
+            if cells and cells[0] == "Auteur du contrôle":
+                assert cells[1] == "CdP BIM 3F"
+
+
 def test_empty_source_sheet_preserved(tmp_path):
     src_dir = tmp_path / "src"
     src_dir.mkdir()

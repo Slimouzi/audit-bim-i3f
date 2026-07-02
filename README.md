@@ -127,10 +127,15 @@ et aux espaces multiples — ex: `"LIFFRE"` matche
        project_address="12 rue du Stade, 35340 Liffré",
        project_phase="DOE",
        auditor_name="AMO BIM",
+       project_description="Résidence de 24 logements collectifs.",
    )
    # depuis v0.3.0 : project_address + project_phase + auditor_name
    # sont obligatoires (ou passer confirm_context=True pour accepter
    # "Information non disponible" dans le rapport)
+   # project_description : réclamée quand un snapshot est disponible ;
+   # la question propose l'adresse (IfcPostalAddress) et la description
+   # (project.description) extraites de la maquette via suggested_value —
+   # à valider ou corriger.
 ```
 
 Tant que `verify_active_model` ne renvoie pas `ok: true`, **ne lancez
@@ -160,8 +165,15 @@ full_audit(
     expected_model_name="LIFFRE",
     force_refresh_snapshot=True,    # défaut
     push_mode="none",
+    project_address="12 rue du Stade, 35340 Liffré",
+    auditor_name="AMO BIM",
+    project_description="Résidence de 24 logements collectifs.",
 )
 ```
+
+Comme `generate_word_report`, `full_audit` propose l'adresse et la
+description extraites de la maquette (`suggested_value`) quand un snapshot
+est déjà chargé, et réclame `project_description` dans ce cas.
 
 - `expected_model_name` (optionnel) : si fourni, l'orchestrateur lève
   `ValueError` avant toute génération de livrable en cas de mismatch.

@@ -861,10 +861,21 @@ def write_avp_i3f_report_pack(
             auteur_controle: métadonnées opérationnelles du contrôle (issues
             du rapport I3F de référence) pour les sections « Données
             d'entrée » et « Usages BIM 3F ». Absentes → ``NOT_AVAILABLE``.
+            Exception : ``auteur_controle`` non fourni est aligné sur
+            ``auditor`` (le rédacteur AMO est aussi l'auteur du contrôle
+            par défaut) plutôt que ``NOT_AVAILABLE``.
         export_pdf: tente la conversion .docx → .pdf (best-effort).
     """
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    # « Auteur du contrôle » : champ opérationnel distinct du rédacteur
+    # AMO (``auditor``). Sur le pack I3F il est facultatif ; plutôt que
+    # d'écrire ``NOT_AVAILABLE`` quand il n'est pas précisé, on l'aligne
+    # sur ``auditor`` (donnée fournie par l'utilisateur, jamais inventée).
+    # L'appelant peut toujours le distinguer en passant ``auteur_controle``.
+    eff_auteur_controle = (
+        auteur_controle if auteur_controle and auteur_controle.strip() else auditor
+    )
     meta = AvpMeta(
         project_name=project_name,
         project_code=project_code,
@@ -874,7 +885,7 @@ def write_avp_i3f_report_pack(
         nombre_logements=nombre_logements,
         temoin_virtuel=temoin_virtuel,
         date_controle=date_controle,
-        auteur_controle=auteur_controle,
+        auteur_controle=eff_auteur_controle,
     )
 
     # Traçabilité I3F : reprendre le nom de fichier source quand fourni.
