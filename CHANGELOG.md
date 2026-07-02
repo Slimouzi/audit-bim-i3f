@@ -9,6 +9,26 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Added
 
+#### Pack de livrables AVP I3F (`generate_avp_i3f_pack` / `write_avp_i3f_report_pack`)
+
+- Nouveau livrable dédié reproduisant, sous **charte BIMData**, le jeu I3F
+  d'une opération AVP (Tarare 0546L) : 5 Excel (Contrôle Maquettes, SHAB,
+  Zones/Espaces, Enveloppe + ratio FAC/SHAB & Seuil 3F 2026, Menuiseries)
+  + rapport consolidé **Analyse BIM AVP** (.docx, + .pdf best-effort).
+- **Hybride** : données natives de l'audit BIMData (`_State.result`) +
+  lecture des .xlsx sources I3F pour les colonnes d'outils externes
+  (Solibri/ArchiCAD/écarts). **Ne jamais inventer** : donnée absente →
+  « Information non disponible dans les documents fournis. ».
+- Réutilise l'infra existante (`xlsx_annex._build_formats`/`write_safe`,
+  helpers `word_report`, `theming`/`bimdata_brand`) — pas de stack
+  parallèle. Nouveaux modules `reporting/avp_sources.py` (lecteurs),
+  `reporting/avp_i3f.py` (builders/orchestration), `reporting/pdf_export.py`
+  (conversion .docx→.pdf best-effort via LibreOffice, `AUDIT_BIM_SOFFICE`).
+- Fidélité « tables à plat » (mêmes onglets/colonnes/ordre/unités/vocabulaire).
+- Tests : structure d'onglets, ordre des en-têtes, branding BIMData
+  (`#2F374A`/`#F9C72C`/Roboto/bannière), **absence de l'ancienne charte**,
+  never-invent, sections du consolidé, PDF best-effort.
+
 #### Sélection d'objets BIM enrichie (`filter_bim_objects`)
 
 - Nouveaux filtres **structurels** sur `ObjectFilter` : quantités

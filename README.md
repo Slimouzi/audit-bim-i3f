@@ -461,6 +461,49 @@ rapport reste générable : la couverture dégrade en wordmark texte
 « BIMDATA ». La charte de couleurs et la typographie restent
 appliquées dans tous les cas (pas de dépendance au brand kit).
 
+## Pack de livrables AVP I3F (`generate_avp_i3f_pack`)
+
+Livrable dédié reproduisant, sous **charte BIMData**, le jeu de fichiers
+I3F pour une opération en phase AVP (ex. Tarare 0546L) :
+
+1. `… Contrôle Maquettes AVP.xlsx` — grille de contrôle (CODE 3F / points
+   de contrôle / exigence CCH / évaluation 0-1-2 / commentaires) + onglets
+   de stats conformité (Zones/Pièces Nommage, ARC absence matériau, Zones
+   ObjectType) ;
+2. `… AVP - export SHAB maquette.xlsx` ;
+3. `… Export Zones et Espaces.xlsx` ;
+4. `… Extraction surface enveloppe.xlsx` (+ ratio FAC/SHAB, Seuil 3F 2026) ;
+5. `… export Menuiseries.xlsx` ;
+6. `… Analyse BIM AVP.docx` (+ `.pdf` best-effort) — rapport consolidé
+   (synthèse, indicateurs de conformité, écarts, points bloquants,
+   recommandations AMO BIM).
+
+**Hybride** : les données natives viennent de l'audit BIMData courant
+(`_State.result`, si chargé) ; les colonnes issues d'outils externes
+(Solibri / ArchiCAD / écarts) sont lues dans les **.xlsx sources I3F**
+fournis. Toute donnée absente (snapshot ET source) → « Information non
+disponible dans les documents fournis. » (**jamais inventée**).
+
+```python
+generate_avp_i3f_pack(
+    output_dir="avp_tarare",
+    controle_xlsx="…/260211 … Contrôle Maquettes AVP.xlsx",
+    shab_xlsx="…/260201 … export SHAB maquette.xlsx",
+    zones_espaces_xlsx="…/260130 … Export Zones et Espaces.xlsx",
+    enveloppe_xlsx="…/260130 … Extraction surface enveloppe.xlsx",
+    menuiseries_xlsx="…/260130 … export Menuiseries.xlsx",
+    project_name="Tarare", project_code="0546L", phase="AVP",
+)
+```
+
+Fidélité « tables à plat » : mêmes onglets, colonnes, ordre, unités et
+vocabulaire que les sources ; les tableaux croisés et blocs de synthèse
+sont rendus en tables structurées équivalentes.
+
+**Export PDF** (consolidé) : best-effort via LibreOffice
+(`soffice`/`libreoffice`, binaire overridable par `AUDIT_BIM_SOFFICE`).
+Absent → le `.docx` reste le livrable (`pdf_available: false`), aucun échec.
+
 ## Couverture des règles d'audit
 
 | Thème | Règles |
