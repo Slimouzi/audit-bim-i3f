@@ -137,6 +137,112 @@ def test_snapshot_fallback_fills_annexes(tmp_path):
     assert "Superficie calculée" in env
 
 
+def _duplex_result() -> AuditResult:
+    """Duplex : une zone « Logement Duplex A101 » traversant deux étages
+    (R+1 / R+2), avec un séjour au R+1 et une chambre au R+2."""
+    sejour = {
+        "uuid": "SP-SEJOUR",
+        "type": "IfcSpace",
+        "name": "SEJOUR",
+        "longname": "Séjour",
+        "storey": {"uuid": "ST1", "name": "R+1"},
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetFloorArea"}, "value": 24.0}],
+            }
+        ],
+    }
+    chambre = {
+        "uuid": "SP-CH",
+        "type": "IfcSpace",
+        "name": "CHAMBRE 01",
+        "longname": "",  # vide → libellé repris de Name
+        "storey": {"uuid": "ST2", "name": "R+2"},
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetFloorArea"}, "value": 12.0}],
+            }
+        ],
+    }
+    storeys = [{"uuid": "ST1", "name": "R+1"}, {"uuid": "ST2", "name": "R+2"}]
+    zone = {
+        "uuid": "Z-A101",
+        "type": "IfcZone",
+        "name": "Logement Duplex A101",
+        "spaces": ["SP-SEJOUR", "SP-CH"],  # zone traversant les 2 étages
+    }
+    snap = ModelSnapshot(
+        project={"name": "Programme"},
+        model={"name": "M.ifc"},
+        storeys=storeys,
+        spaces=[sejour, chambre],
+        zones=[zone],
+    ).index()
+    return AuditResult(phase=BIMPhase.AVP, catalog=_catalog(), snapshot=snap, findings=[])
+
+
+def test_shab_export_has_zone_and_storey_columns(tmp_path):
+    result = _duplex_result()
+    pack = write_avp_i3f_report_pack(
+        result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
+    )
+    wb = openpyxl.load_workbook(pack.shab_xlsx, data_only=True)
+    ws = wb.active
+    # Localise l'en-tête et vérifie la présence des colonnes Zone + Étage.
+    header = None
+    for row in ws.iter_rows(values_only=True):
+        if row and "Composant" in [c for c in row if c is not None]:
+            header = [c for c in row]
+            break
+    assert header is not None
+    assert "Zone" in header
+    assert "Étage" in header
+    zone_col = header.index("Zone")
+    storey_col = header.index("Étage")
+
+    # Collecte les lignes de données (espaces).
+    data = {}
+    for row in ws.iter_rows(values_only=True):
+        if row and row[1] in ("Séjour", "CHAMBRE 01"):
+            data[row[1]] = (row[zone_col], row[storey_col])
+    wb.close()
+
+    # Les deux pièces portent la même zone (duplex) et leur étage respectif.
+    assert data["Séjour"] == ("Logement Duplex A101", "R+1")
+    assert data["CHAMBRE 01"] == ("Logement Duplex A101", "R+2")
+
+
+def test_shab_space_multiple_storeys_joined(tmp_path):
+    """Un espace rattaché à deux étages (cas duplex au niveau pièce) →
+    les deux étages sont listés (séparés par « / »)."""
+    space = {
+        "uuid": "SP-DUP",
+        "type": "IfcSpace",
+        "name": "SEJOUR DUPLEX",
+        "storeys": [{"uuid": "ST1", "name": "R+1"}, {"uuid": "ST2", "name": "R+2"}],
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetFloorArea"}, "value": 40.0}],
+            }
+        ],
+    }
+    snap = ModelSnapshot(
+        project={"name": "P"},
+        model={"name": "M.ifc"},
+        storeys=[{"uuid": "ST1", "name": "R+1"}, {"uuid": "ST2", "name": "R+2"}],
+        spaces=[space],
+    ).index()
+    result = AuditResult(phase=BIMPhase.AVP, catalog=_catalog(), snapshot=snap, findings=[])
+    pack = write_avp_i3f_report_pack(
+        result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
+    )
+    txt = _all_text(pack.shab_xlsx)
+    assert "R+1 / R+2" in txt
+
+
 def test_envelope_excludes_curtain_wall(tmp_path):
     result = _synthetic_result()
     pack = write_avp_i3f_report_pack(

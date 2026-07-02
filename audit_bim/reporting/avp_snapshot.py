@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections import defaultdict
 from typing import Any
 
 from ..extraction.model_data import ModelSnapshot
@@ -189,13 +190,14 @@ def count_envelope_walls(snap: ModelSnapshot | None) -> int:
     return len(_envelope_walls(snap)) if snap is not None else 0
 
 
-# ── Relations zone → espaces ────────────────────────────────────────────────
+# ── Relations zone → espaces, étage → espaces ───────────────────────────────
 
 
-def _zone_member_uuids(zone: dict) -> list[str]:
+def _child_space_uuids(container: dict) -> list[str]:
+    """UUID des espaces listés par un conteneur (zone ou étage)."""
     out: list[str] = []
-    for key in ("spaces", "space_uuids", "elements", "related_spaces", "space_ids"):
-        v = zone.get(key)
+    for key in ("spaces", "space_uuids", "elements", "related_spaces", "space_ids", "children"):
+        v = container.get(key)
         if isinstance(v, list):
             for item in v:
                 if isinstance(item, str):
@@ -205,6 +207,10 @@ def _zone_member_uuids(zone: dict) -> list[str]:
                     if u:
                         out.append(str(u))
     return out
+
+
+def _zone_member_uuids(zone: dict) -> list[str]:
+    return _child_space_uuids(zone)
 
 
 def _space_zone_uuid(space: dict) -> str | None:
@@ -219,26 +225,117 @@ def _space_zone_uuid(space: dict) -> str | None:
     return None
 
 
+def _storey_label(storey: dict) -> str:
+    return _label(storey) or _attr(storey, "Name")
+
+
+def _build_space_zone_map(snap: ModelSnapshot) -> dict[str, list[str]]:
+    """``space_uuid → [noms de zones]`` (un espace peut être dans plusieurs
+    zones ; ex. duplex rattaché à des zones d'étage distinctes)."""
+    zmap: dict[str, list[str]] = defaultdict(list)
+    spaces = snap.spaces or []
+    for z in snap.zones or []:
+        zname = _label(_rich(snap, z)) or _attr(z, "Name")
+        if not zname:
+            continue
+        members = _zone_member_uuids(z)
+        if not members:
+            members = [sp.get("uuid") for sp in spaces if _space_zone_uuid(sp) == z.get("uuid")]
+        for u in members:
+            if u and zname not in zmap[u]:
+                zmap[u].append(zname)
+    return zmap
+
+
+def _build_space_storey_map(snap: ModelSnapshot) -> dict[str, list[str]]:
+    """``space_uuid → [noms d'étages]``.
+
+    Multi-valué : un même espace peut être rattaché à plusieurs étages
+    (ex. **duplex** dont la zone traverse deux niveaux), et un étage peut
+    lister ses espaces. On agrège toutes les sources sans jamais inventer.
+    """
+    smap: dict[str, list[str]] = defaultdict(list)
+    storeys = snap.storeys or []
+    by_uuid = {st.get("uuid"): st for st in storeys}
+
+    def _add(u: str | None, name: str | None) -> None:
+        if u and name and name not in smap[u]:
+            smap[u].append(name)
+
+    # 1. étage → ses espaces
+    for st in storeys:
+        sname = _storey_label(st)
+        for u in _child_space_uuids(st):
+            _add(u, sname)
+    # 2. espace → son/ses étage(s) (attribut nom direct + référence UUID)
+    for sp in snap.spaces or []:
+        u = sp.get("uuid")
+        _add(u, _storey(sp) or None)
+        for key in ("storey", "building_storey", "storey_uuid", "storey_id", "parent", "storeys"):
+            v = sp.get(key)
+            refs = v if isinstance(v, list) else [v]
+            for ref in refs:
+                ru = None
+                if isinstance(ref, str):
+                    ru = ref
+                elif isinstance(ref, dict):
+                    ru = ref.get("uuid") or ref.get("id")
+                if ru and ru in by_uuid:
+                    _add(u, _storey_label(by_uuid[ru]))
+    return smap
+
+
 # ── Builders (snapshot → dataclasses source AVP) ────────────────────────────
 
-_SPACE_HEADERS = ["Composant", "Libellé", "Type", "Étage", "Surface (m²)", "Source surface"]
+# « Zone » = zone(s) contenant l'espace ; « Étage » = étage(s) — les deux
+# multi-valués (séparés par « / ») pour couvrir les duplex (zone traversant
+# plusieurs niveaux) et un espace rattaché à plusieurs zones d'étage.
+_SPACE_HEADERS = [
+    "Composant",
+    "Libellé",
+    "Zone",
+    "Étage",
+    "Type",
+    "Surface (m²)",
+    "Source surface",
+]
+
+_MULTI_SEP = " / "
 
 
 def _spaces_grid(snap: ModelSnapshot, title: str) -> tuple[SheetGrid | None, float | None]:
     spaces = snap.spaces or []
     if not spaces:
         return None, None
+    zone_map = _build_space_zone_map(snap)
+    storey_map = _build_space_storey_map(snap)
     rows: list[list[Any]] = [list(_SPACE_HEADERS)]
     total = 0.0
     any_surface = False
     for sp in spaces:
         el = _rich(snap, sp)
+        uuid = sp.get("uuid")
         surf, src = _surface_with_source(el, _SPACE_BQ_ORDER)
         if surf is not None:
             total += surf
             any_surface = True
+        zone_val = _MULTI_SEP.join(zone_map.get(uuid, []))
+        storeys = storey_map.get(uuid, [])
+        if not storeys:
+            direct = _storey(el)
+            if direct:
+                storeys = [direct]
+        storey_val = _MULTI_SEP.join(storeys)
         rows.append(
-            ["IfcSpace", _label(el), _ifc_type(el), _storey(el), surf, src or NOT_AVAILABLE]
+            [
+                "IfcSpace",
+                _label(el),
+                zone_val,
+                storey_val,
+                _ifc_type(el),
+                surf,
+                src or NOT_AVAILABLE,
+            ]
         )
     return SheetGrid(title=title, rows=rows), (round(total, 4) if any_surface else None)
 

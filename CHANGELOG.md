@@ -57,7 +57,11 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 - **Espaces / zones** : libellé = `LongName`, sinon `Name` (repli si vide) ;
   surface `NetFloorArea` → `GrossFloorArea` → `NetArea` → `GrossArea` puis
   « Superficie calculée ». Zone sans surface propre → **somme des espaces
-  rattachés** si la relation zone/espace est disponible.
+  rattachés** si la relation zone/espace est disponible. L'export **SHAB
+  maquette** (et « Espaces ») ajoute les colonnes **Zone** et **Étage** de
+  chaque pièce, **multi-valuées** (séparateur « / ») pour couvrir les
+  **duplex** — zone traversant plusieurs niveaux ou espace rattaché à
+  plusieurs zones d'étage.
 - **QA gate post-génération** : chaque annexe est rouverte et ses lignes
   métier comptées. Si SHAB, Zones/Espaces ou Enveloppe sortent **sans ligne**
   alors que le snapshot contient des espaces/murs/zones exploitables, le tool
