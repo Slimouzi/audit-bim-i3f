@@ -302,6 +302,15 @@ def test_filenames_omit_missing_code(tmp_path, sources):
     assert pack.shab_xlsx.name == "260702 Tarare AVP - export SHAB maquette.xlsx"
 
 
+def test_writer_defaults_no_client_identity(tmp_path, sources):
+    # P3 : un appel direct sans identité ne doit PAS inventer « Tarare » /
+    # « 0546L » (défauts génériques neutres).
+    pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
+    for p in pack.paths():
+        assert "Tarare" not in p.name
+        assert "0546L" not in p.name
+
+
 def test_filename_sanitizes_path_separators(tmp_path, sources):
     pack = write_avp_i3f_report_pack(
         None,

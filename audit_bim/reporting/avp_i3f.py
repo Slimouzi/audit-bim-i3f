@@ -114,8 +114,10 @@ _CONTROLE_STATS_SHEETS = (
 
 @dataclass
 class AvpMeta:
-    project_name: str = "Tarare"
-    project_code: str = "0546L"
+    # Défauts **génériques** : aucune identité client codée en dur (le nom
+    # et le code réels viennent des données confirmées / des sources I3F).
+    project_name: str = "Projet"
+    project_code: str = ""
     phase: str = "AVP"
     auditor: str = "AMO BIM"
     # Métadonnées opérationnelles du contrôle (issues du rapport I3F de
@@ -875,8 +877,8 @@ def write_avp_i3f_report_pack(
     output_dir: str | Path,
     *,
     sources: AvpSourcePaths | AvpSources | None = None,
-    project_name: str = "Tarare",
-    project_code: str = "0546L",
+    project_name: str = "Projet",
+    project_code: str = "",
     phase: str = "AVP",
     auditor: str = "AMO BIM",
     date: str | None = None,

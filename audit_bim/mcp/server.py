@@ -94,17 +94,12 @@ def project_context_questions() -> dict:
     missing: list[str] = []
 
     if _State.phase is None:
-        missing.append("phase")
-        questions.append(
-            {
-                "key": "phase",
-                "question": (
-                    "À quelle phase projet correspond cette maquette ? "
-                    "APS, AVP, PRO, DCE, EXE, DOE ou GESTION ?"
-                ),
-                "suggestion": "PRO (cas le plus fréquent en cours de conception).",
-            }
-        )
+        # Question de phase **unique**, alignée sur le contrat (clé
+        # ``project_phase``, aide loi MOP, détection IFC + rapprochement).
+        # Pas de suggestion « PRO » codée en dur ni de clé divergente.
+        missing.append("project_phase")
+        det_raw, det_mapped = _detect_snapshot_phase()
+        questions.append(_phase_question_dict(det_raw, det_mapped))
     if _State.catalog is None and not (
         _State.cch_pdf or _State.data_spec_xlsx or _State.naming_spec_xlsx
     ):
@@ -716,25 +711,27 @@ def generate_avp_i3f_pack(
     sources = load_sources(source_paths)
     ctrl_header = (sources.controle.header if sources.controle else {}) or {}
 
+    def _hdr(key: str) -> str | None:
+        v = ctrl_header.get(key)
+        return str(v).strip() if v not in (None, "") and str(v).strip() else None
+
     # ── Résolution de l'identité projet (nom / code / phase) ────────────
-    # Nom : param > métadonnées maquette > entête « Projet » du contrôle I3F.
-    eff_name = (project_name or "").strip() or _snapshot_project_name()
-    if not eff_name:
-        hdr_name = ctrl_header.get("projet")
-        eff_name = str(hdr_name).strip() if isinstance(hdr_name, str) and hdr_name.strip() else None
+    # Nom : param explicite > **entête « Projet » du contrôle I3F** (source
+    # livrable, autoritaire pour l'identité I3F) > métadonnées maquette.
+    # ``project.name`` BIMData peut être générique (ex. « I3F ») : la source
+    # de contrôle prime pour ne pas nommer les livrables de travers.
+    eff_name = (project_name or "").strip() or _hdr("projet") or _snapshot_project_name()
     # Code (ESI) : param > entête « ESI » du contrôle maquettes I3F.
-    eff_code = (project_code or "").strip() or None
-    if not eff_code:
-        hdr_esi = ctrl_header.get("esi")
-        eff_code = str(hdr_esi).strip() if hdr_esi not in (None, "") else None
+    eff_code = (project_code or "").strip() or _hdr("esi")
     # Phase : param explicite > phase d'audit confirmée > entête contrôle I3F.
     eff_phase = (phase or "").strip() or None
     if not eff_phase and _State.phase is not None:
         eff_phase = _State.phase.value
     if not eff_phase:
-        eff_phase = _map_phase(ctrl_header.get("phase"))
+        eff_phase = _map_phase(_hdr("phase"))
 
-    # Nom / code obligatoires pour un nommage I3F fiable → sinon on demande.
+    # Nom / code / phase obligatoires pour un livrable I3F fiable → sinon on
+    # demande (jamais de valeur inventée ni de défaut silencieux).
     missing: list[str] = []
     questions: list[dict] = []
     if not eff_name:
@@ -756,13 +753,24 @@ def generate_avp_i3f_pack(
                 ),
             }
         )
+    if not eff_phase:
+        # Phase unique : proposée si détectée (IFC puis entête contrôle),
+        # sinon demandée — jamais défautée silencieusement sur « AVP ».
+        missing.append("project_phase")
+        det_raw, det_mapped = _detect_snapshot_phase()
+        if not det_raw:
+            hdr_phase = _hdr("phase")
+            if hdr_phase:
+                det_raw, det_mapped = hdr_phase, _map_phase(hdr_phase)
+        questions.append(_phase_question_dict(det_raw, det_mapped))
     if missing and not confirm_context:
         return {
             "status": "needs_context",
             "missing": missing,
             "questions": questions,
             "next_step": (
-                "Renseigner ``project_name`` / ``project_code`` puis re-appeler "
+                "Renseigner ``project_name`` / ``project_code`` / "
+                "``project_phase`` (=``phase``) puis re-appeler "
                 "``generate_avp_i3f_pack``. Pour générer malgré tout, passer "
                 "``confirm_context=True``."
             ),
@@ -899,6 +907,24 @@ def _phase_question(detected_raw: str | None, suggested: str | None) -> str:
     return base
 
 
+def _phase_question_dict(detected_raw: str | None, suggested: str | None) -> dict:
+    """Question de phase **unique** normalisée (clé ``project_phase``).
+
+    Embarque l'aide de lecture loi MOP / mission MOE dans la même question
+    (pas de second champ) et la proposition (``suggested_value``) issue de
+    la détection IFC. Partagée par ``_validate_audit_context`` et
+    ``project_context_questions`` pour éviter tout flux de phase divergent.
+    """
+    q: dict = {
+        "key": "project_phase",
+        "question": _phase_question(detected_raw, suggested),
+        "aide_lecture_loi_mop": dict(_PHASE_READING_AID),
+    }
+    if suggested:
+        q["suggested_value"] = suggested
+    return q
+
+
 def _snapshot_address_suggestion() -> str | None:
     """Adresse suggérée depuis le snapshot actif (``IfcBuilding.BuildingAddress``
     / ``IfcSite.SiteAddress``), ou ``None``. Best-effort, ne lève pas."""
@@ -1010,16 +1036,7 @@ def _validate_audit_context(
     phase_valid = bool(project_phase) and project_phase.upper() in _VALID_PHASES
     if not phase_valid or require_phase_confirmation:
         missing.append("project_phase")
-        qp: dict[str, object] = {
-            "key": "project_phase",
-            "question": _phase_question(detected_phase_raw, suggested_phase),
-            # Aide de lecture loi MOP / mission MOE — dans la MÊME question
-            # (pas de second champ à renseigner).
-            "aide_lecture_loi_mop": dict(_PHASE_READING_AID),
-        }
-        if suggested_phase:
-            qp["suggested_value"] = suggested_phase
-        questions.append(qp)
+        questions.append(_phase_question_dict(detected_phase_raw, suggested_phase))
     if not auditor_name or not auditor_name.strip():
         missing.append("auditor_name")
         questions.append(

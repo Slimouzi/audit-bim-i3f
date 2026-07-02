@@ -57,11 +57,17 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 - **Nommage documentaire I3F** des livrables du pack AVP, **généré à partir
   de données projet confirmées** :
   `YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>` où
-  `YYMMDD` est la **date de génération**. Le nom du projet est cherché dans
-  la maquette (`project.name` / `IfcSite.Name`), le code (ESI) dans le
-  contrôle maquettes I3F, la phase est la phase d'audit confirmée. Nom ou
-  code introuvable → `generate_avp_i3f_pack` renvoie `needs_context` avec la
-  question à poser. Les noms ne reprennent plus le basename des sources.
+  `YYMMDD` est la **date de génération**. Le nom du projet privilégie
+  l'**entête « Projet » du contrôle I3F** (source livrable autoritaire) sur
+  un `project.name` BIMData potentiellement générique (ex. « I3F »), le code
+  (ESI) vient du contrôle maquettes I3F, la phase est la phase d'audit
+  confirmée. Nom, code **ou phase** introuvable → `generate_avp_i3f_pack`
+  renvoie `needs_context` (la phase n'est **jamais** défautée silencieusement
+  sur « AVP »). Les noms ne reprennent plus le basename des sources ; le
+  writer bas niveau n'a plus de défauts d'identité client (`Tarare`/`0546L`).
+- `project_context_questions` : question de phase **unique** alignée sur le
+  contrat (clé `project_phase`, aide loi MOP, détection IFC + rapprochement),
+  sans suggestion « PRO » codée en dur ni clé divergente.
 
 #### Dialogue de contexte : adresse suggérée + description projet
 
