@@ -190,6 +190,29 @@ def count_envelope_walls(snap: ModelSnapshot | None) -> int:
     return len(_envelope_walls(snap)) if snap is not None else 0
 
 
+def count_menuiseries(snap: ModelSnapshot | None) -> int:
+    """Nombre de menuiseries exploitables (IfcWindow + IfcDoor)."""
+    if snap is None:
+        return 0
+    return len(snap.of_class("IfcWindow")) + len(snap.of_class("IfcDoor"))
+
+
+def snapshot_shab_total(snap: ModelSnapshot | None) -> float | None:
+    """SHAB totale de la maquette : somme des surfaces des espaces avec le
+    **même repli** que les annexes (BaseQuantities puis « Superficie
+    calculée »). ``None`` si aucune surface exploitable."""
+    if snap is None:
+        return None
+    total = 0.0
+    found = False
+    for sp in snap.spaces or []:
+        v, _ = _surface_with_source(_rich(snap, sp), _SPACE_BQ_ORDER)
+        if v is not None:
+            total += v
+            found = True
+    return round(total, 2) if found else None
+
+
 # ── Relations zone → espaces, étage → espaces ───────────────────────────────
 
 
@@ -229,6 +252,37 @@ def _storey_label(storey: dict) -> str:
     return _label(storey) or _attr(storey, "Name")
 
 
+def _walk_structure_tree(snap: ModelSnapshot) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Parcourt ``structure_tree`` (source hiérarchique BIMData) → mappings
+    ``space_uuid → [étages]`` et ``space_uuid → [zones]`` (par conteneur
+    ancêtre). Complète les relations plates quand les étages/zones ne sont
+    portés que par l'arborescence spatiale.
+    """
+    st_map: dict[str, list[str]] = defaultdict(list)
+    zn_map: dict[str, list[str]] = defaultdict(list)
+
+    def add(m: dict[str, list[str]], u: str | None, name: str | None) -> None:
+        if u and name and name not in m[u]:
+            m[u].append(name)
+
+    def visit(node: dict, storey: str | None, zone: str | None) -> None:
+        ntype = node.get("type")
+        nname = node.get("name") or node.get("long_name")
+        if ntype == "IfcBuildingStorey":
+            storey = nname or storey
+        elif ntype == "IfcZone":
+            zone = nname or zone
+        elif ntype == "IfcSpace" and node.get("uuid"):
+            add(st_map, node.get("uuid"), storey)
+            add(zn_map, node.get("uuid"), zone)
+        for child in node.get("children") or []:
+            visit(child, storey, zone)
+
+    for root in snap.structure_tree or []:
+        visit(root, None, None)
+    return st_map, zn_map
+
+
 def _build_space_zone_map(snap: ModelSnapshot) -> dict[str, list[str]]:
     """``space_uuid → [noms de zones]`` (un espace peut être dans plusieurs
     zones ; ex. duplex rattaché à des zones d'étage distinctes)."""
@@ -244,6 +298,12 @@ def _build_space_zone_map(snap: ModelSnapshot) -> dict[str, list[str]]:
         for u in members:
             if u and zname not in zmap[u]:
                 zmap[u].append(zname)
+    # Complément : zones portées par l'arborescence spatiale BIMData.
+    _, zn_tree = _walk_structure_tree(snap)
+    for u, names in zn_tree.items():
+        for name in names:
+            if name not in zmap[u]:
+                zmap[u].append(name)
     return zmap
 
 
@@ -282,6 +342,12 @@ def _build_space_storey_map(snap: ModelSnapshot) -> dict[str, list[str]]:
                     ru = ref.get("uuid") or ref.get("id")
                 if ru and ru in by_uuid:
                     _add(u, _storey_label(by_uuid[ru]))
+    # 3. arborescence spatiale BIMData (structure_tree) — source
+    # hiérarchique de référence quand l'étage n'est porté que par l'arbre.
+    st_tree, _ = _walk_structure_tree(snap)
+    for u, names in st_tree.items():
+        for name in names:
+            _add(u, name)
     return smap
 
 

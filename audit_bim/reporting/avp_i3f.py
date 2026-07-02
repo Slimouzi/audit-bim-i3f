@@ -42,7 +42,13 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from ..audit.engine import AuditResult
-from .avp_snapshot import build_sources_from_snapshot, count_envelope_walls
+from ..extraction.model_data import ModelSnapshot
+from .avp_snapshot import (
+    build_sources_from_snapshot,
+    count_envelope_walls,
+    count_menuiseries,
+    snapshot_shab_total,
+)
 from .avp_sources import AvpSourcePaths, AvpSources, MultiSheetSource, SheetTable, load_sources
 from .context import ReportProjectContext
 from .pdf_export import docx_to_pdf
@@ -555,7 +561,7 @@ def _pct(v) -> str:
     return f"{v * 100:.0f} %" if isinstance(v, (int, float)) else NOT_AVAILABLE
 
 
-def _build_analyse_bim_avp_docx(path, result, sources, meta) -> Path:
+def _build_analyse_bim_avp_docx(path, result, sources, meta, snap=None) -> Path:
     doc = _setup_docx()
 
     # Titre / bandeau.
@@ -645,7 +651,7 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta) -> Path:
 
     # 5. Écarts (source vs snapshot BIMData quand disponible)
     _add_heading(doc, "5. Écarts", level=1)
-    _write_ecarts(doc, result, sources)
+    _write_ecarts(doc, result, sources, snap)
 
     # 6. Grille de contrôle (paysage pour la lisibilité des 6 colonnes)
     _set_orientation(doc, WD_ORIENT.LANDSCAPE)
@@ -815,10 +821,15 @@ def _write_stats_annex(doc, ctrl) -> None:
         doc.add_paragraph(f"• {detail}", style="List Bullet")
 
 
-def _write_ecarts(doc, result, sources) -> None:
+def _write_ecarts(doc, result, sources, snap=None) -> None:
     env = sources.enveloppe if sources else None
     src_shab = env.shab if env else None
-    snap_shab = _snapshot_shab_total(result)
+    # SHAB snapshot avec le **même repli** que les annexes (BaseQuantities
+    # puis « Superficie calculée ») — sinon l'écart reste NOT_AVAILABLE alors
+    # que les annexes sont justes. Snapshot explicite prioritaire (audit non
+    # encore lancé), sinon celui de l'``AuditResult``.
+    eff_snap = snap if snap is not None else (result.snapshot if result is not None else None)
+    snap_shab = snapshot_shab_total(eff_snap)
     tbl = doc.add_table(rows=1, cols=4)
     tbl.style = "Light Grid Accent 1"
     for i, txt in enumerate(["Indicateur", "Source I3F", "Snapshot BIMData", "Écart"]):
@@ -842,28 +853,6 @@ def _write_ecarts(doc, result, sources) -> None:
         "snapshot BIMData sont disponibles.",
         style="Intense Quote",
     )
-
-
-def _snapshot_shab_total(result: AuditResult | None) -> float | None:
-    if result is None or result.snapshot is None:
-        return None
-    total = 0.0
-    found = False
-    for sp in result.snapshot.spaces or []:
-        for pset in sp.get("property_sets") or []:
-            pn = (pset.get("name") or "").lower()
-            if not (pn.startswith("basequantities") or pn.startswith("qto_")):
-                continue
-            for prop in pset.get("properties") or []:
-                if (prop.get("definition") or {}).get("name", "").lower() in (
-                    "netfloorarea",
-                    "grossfloorarea",
-                ):
-                    v = prop.get("value")
-                    if isinstance(v, (int, float)):
-                        total += float(v)
-                        found = True
-    return round(total, 2) if found else None
 
 
 def _points_bloquants(ctrl, env, ratio, seuil) -> list[str]:
@@ -942,6 +931,7 @@ def write_avp_i3f_report_pack(
     output_dir: str | Path,
     *,
     sources: AvpSourcePaths | AvpSources | None = None,
+    snapshot: ModelSnapshot | None = None,
     project_name: str = "Projet",
     project_code: str = "",
     phase: str = "AVP",
@@ -1034,9 +1024,11 @@ def write_avp_i3f_report_pack(
 
     # ── Source-first, snapshot en repli ─────────────────────────────────
     # Les fichiers I3F priment (extraction autoritaire des outils externes).
-    # Pour chaque export absent/vide, on génère depuis ``result.snapshot``
-    # afin de ne jamais livrer une annexe réduite au seul bandeau.
-    snap = result.snapshot if result is not None else None
+    # Pour chaque export absent/vide, on génère depuis la maquette afin de
+    # ne jamais livrer une annexe réduite au seul bandeau. Le snapshot est
+    # pris explicitement (``snapshot=``, ex. après ``verify_active_model``
+    # sans audit), sinon depuis ``result.snapshot`` — l'un ou l'autre suffit.
+    snap = snapshot if snapshot is not None else (result.snapshot if result is not None else None)
     if snap is not None:
         fallback = build_sources_from_snapshot(snap)
         if sources is None:
@@ -1076,7 +1068,7 @@ def write_avp_i3f_report_pack(
     )
     enveloppe = _build_enveloppe_xlsx(out / fn_env, sources, meta)
     menuiseries = _build_menuiseries_xlsx(out / fn_men, sources, meta)
-    analyse = _build_analyse_bim_avp_docx(out / fn_analyse, result, sources, meta)
+    analyse = _build_analyse_bim_avp_docx(out / fn_analyse, result, sources, meta, snap)
 
     pdf = docx_to_pdf(analyse) if export_pdf else None
 
@@ -1131,4 +1123,6 @@ def _qa_empty_deliverables(pack: AvpReportPack, snap) -> list[str]:
             problems.append("Zones/Espaces")
     if count_envelope_walls(snap) > 0 and _count_business_rows(pack.enveloppe_xlsx) == 0:
         problems.append("Enveloppe")
+    if count_menuiseries(snap) > 0 and _count_business_rows(pack.menuiseries_xlsx) == 0:
+        problems.append("Menuiseries")
     return problems

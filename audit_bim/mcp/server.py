@@ -785,6 +785,9 @@ def generate_avp_i3f_pack(
             _State.result,  # peut être None : le pack se limite alors aux sources
             out_dir,
             sources=sources,
+            # Snapshot explicite : le repli maquette s'active même sans audit
+            # (ex. après verify_active_model seul, _State.result est None).
+            snapshot=_State.snapshot,
             project_name=eff_name or "Projet",
             project_code=eff_code or "",
             phase=eff_phase or "AVP",

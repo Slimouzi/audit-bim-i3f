@@ -357,6 +357,121 @@ def test_pack_without_snapshot_no_gate(tmp_path):
     assert pack.shab_xlsx.exists()
 
 
+def test_snapshot_param_activates_fallback_without_result(tmp_path):
+    """P1 : snapshot fourni explicitement (audit non lancé, result=None) →
+    le repli maquette s'active, les annexes sont remplies (pas de bandeau
+    seul, pas d'AvpQaError)."""
+    result = _synthetic_result()
+    snap = result.snapshot
+    pack = write_avp_i3f_report_pack(
+        None,  # pas d'AuditResult (verify_active_model seul)
+        tmp_path / "out",
+        sources=None,
+        snapshot=snap,
+        project_name="X",
+        project_code="Y",
+        export_pdf=False,
+    )
+    assert "CHAMBRE" in _all_text(pack.shab_xlsx)
+    assert "Mur ext 1" in _all_text(pack.enveloppe_xlsx)
+
+
+def test_tool_passes_state_snapshot_without_audit(tmp_path, monkeypatch):
+    """P1 (bout en bout) : après verify_active_model seul (_State.snapshot
+    posé, _State.result None), generate_avp_i3f_pack remplit les annexes."""
+    from audit_bim.mcp import server as mcp_server
+    from audit_bim.mcp.session import _Session, current_session
+
+    monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
+    sess = _Session()
+    sess.snapshot = _synthetic_result().snapshot  # snapshot chargé, pas d'audit
+    token = current_session.set(sess)
+    try:
+        res = mcp_server.generate_avp_i3f_pack(
+            project_name="X", project_code="Y", phase="AVP", export_pdf=False
+        )
+    finally:
+        current_session.reset(token)
+    assert res.get("status") != "error"
+    shab = next(p for p in res["paths"] if "SHAB" in p)
+    assert "CHAMBRE" in _all_text(shab)
+
+
+def test_storey_from_structure_tree(tmp_path):
+    """P2 : l'étage n'est présent que dans structure_tree → l'export SHAB
+    doit tout de même remplir la colonne Étage."""
+    space = {
+        "uuid": "SP1",
+        "type": "IfcSpace",
+        "name": "CHAMBRE",
+        "longname": "",
+        # PAS de storey en attribut plat.
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetFloorArea"}, "value": 12.0}],
+            }
+        ],
+    }
+    tree = [
+        {
+            "type": "IfcBuildingStorey",
+            "uuid": "ST1",
+            "name": "R+3",
+            "children": [
+                {
+                    "type": "IfcZone",
+                    "uuid": "Z1",
+                    "name": "Logement Z",
+                    "children": [{"type": "IfcSpace", "uuid": "SP1", "name": "CHAMBRE"}],
+                }
+            ],
+        }
+    ]
+    snap = ModelSnapshot(
+        project={"name": "P"}, model={"name": "M.ifc"}, spaces=[space], structure_tree=tree
+    ).index()
+    result = AuditResult(phase=BIMPhase.AVP, catalog=_catalog(), snapshot=snap, findings=[])
+    pack = write_avp_i3f_report_pack(
+        result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
+    )
+    txt = _all_text(pack.shab_xlsx)
+    assert "R+3" in txt  # étage résolu via structure_tree
+    assert "Logement Z" in txt  # zone résolue via structure_tree
+
+
+def test_docx_ecarts_uses_superficie_calculee_fallback(tmp_path):
+    """P2 : la section Écarts du DOCX calcule la SHAB snapshot avec le repli
+    « Superficie calculée » (espaces sans BaseQuantities)."""
+    from docx import Document
+
+    result = _synthetic_result()  # espace surface uniquement en Superficie calculée
+    pack = write_avp_i3f_report_pack(
+        result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
+    )
+    doc = Document(str(pack.analyse_docx))
+    txt = "\n".join(p.text for p in doc.paragraphs)
+    txt += "\n" + "\n".join(c.text for t in doc.tables for r in t.rows for c in r.cells)
+    # SHAB snapshot = 12.98 (Superficie calculée) doit apparaître, pas NOT_AVAILABLE.
+    assert "12.98" in txt
+
+
+def test_qa_gate_blocks_empty_menuiseries(tmp_path, monkeypatch):
+    """P3 : IfcWindow présent mais export Menuiseries vide → AvpQaError."""
+    result = _synthetic_result()  # contient une IfcWindow
+    monkeypatch.setattr(avp_i3f, "build_sources_from_snapshot", lambda snap: AvpSources())
+    with pytest.raises(AvpQaError) as exc:
+        write_avp_i3f_report_pack(
+            result,
+            tmp_path / "out",
+            sources=None,
+            project_name="X",
+            project_code="Y",
+            export_pdf=False,
+        )
+    assert "Menuiseries" in exc.value.empty
+
+
 def test_tool_returns_error_status_on_empty(tmp_path, monkeypatch):
     """Le tool MCP renvoie un statut d'erreur explicite (pas un fichier vide)
     quand la QA gate échoue."""
