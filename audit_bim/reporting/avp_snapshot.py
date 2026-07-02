@@ -348,47 +348,83 @@ def build_shab_from_snapshot(snap: ModelSnapshot) -> tuple[MultiSheetSource | No
     return MultiSheetSource(grids=[grid]), total
 
 
+_ZONE_HEADERS = [
+    "Zone (IfcZone)",
+    "Libellé",
+    "Étage(s)",
+    "Nombre de pièces",
+    "Surface (m²)",
+    "Source surface",
+]
+
+
+def _zones_grid(snap: ModelSnapshot) -> SheetGrid:
+    """Onglet Zones : une ligne par IfcZone, avec le(s) étage(s) traversé(s)
+    (union des étages des pièces rattachées → duplex géré) et le nombre de
+    pièces. Surface propre, sinon somme des espaces rattachés."""
+    spaces = snap.spaces or []
+    zones = snap.zones or []
+    by_uuid = {sp.get("uuid"): _rich(snap, sp) for sp in spaces}
+    storey_map = _build_space_storey_map(snap)
+    rows: list[list[Any]] = [list(_ZONE_HEADERS)]
+    for z in zones:
+        zel = _rich(snap, z)
+        members = _zone_member_uuids(z)
+        if not members:
+            members = [sp.get("uuid") for sp in spaces if _space_zone_uuid(sp) == z.get("uuid")]
+        # Étage(s) couvert(s) par la zone = union des étages de ses pièces.
+        storeys: list[str] = []
+        for u in members:
+            for name in storey_map.get(u, []):
+                if name and name not in storeys:
+                    storeys.append(name)
+        surf, src = _surface_with_source(zel, _SPACE_BQ_ORDER)
+        if surf is None:
+            # Repli : somme des surfaces des espaces rattachés.
+            acc = 0.0
+            found = False
+            for u in members:
+                sp = by_uuid.get(u)
+                if sp is None:
+                    continue
+                v, _ = _surface_with_source(sp, _SPACE_BQ_ORDER)
+                if v is not None:
+                    acc += v
+                    found = True
+            if found:
+                surf, src = round(acc, 4), "Somme des espaces rattachés"
+        rows.append(
+            [
+                _attr(z, "Name"),
+                _label(zel),
+                _MULTI_SEP.join(storeys),
+                len(members) or None,
+                surf,
+                src or NOT_AVAILABLE,
+            ]
+        )
+    return SheetGrid(title="Zones (depuis maquette)", rows=rows)
+
+
 def build_zones_espaces_from_snapshot(snap: ModelSnapshot) -> MultiSheetSource | None:
-    """Export Zones et Espaces depuis la maquette (espaces + zones)."""
+    """Export Zones et Espaces depuis la maquette.
+
+    **1er onglet = Zones (IfcZone)** avec étage(s) et nombre de pièces, puis
+    l'onglet Espaces (pièces) avec leur zone et leur étage.
+    """
     spaces = snap.spaces or []
     zones = snap.zones or []
     if not spaces and not zones:
         return None
     grids: list[SheetGrid] = []
 
+    if zones:
+        grids.append(_zones_grid(snap))
+
     if spaces:
         esp_grid, _ = _spaces_grid(snap, "Espaces (depuis maquette)")
         if esp_grid is not None:
             grids.append(esp_grid)
-
-    if zones:
-        by_uuid = {sp.get("uuid"): _rich(snap, sp) for sp in spaces}
-        rows: list[list[Any]] = [["Zone", "Libellé", "Surface (m²)", "Source surface"]]
-        for z in zones:
-            zel = _rich(snap, z)
-            surf, src = _surface_with_source(zel, _SPACE_BQ_ORDER)
-            if surf is None:
-                # Repli : somme des surfaces des espaces rattachés (si la
-                # relation zone/espace est disponible).
-                members = _zone_member_uuids(z)
-                if not members:
-                    members = [
-                        sp.get("uuid") for sp in spaces if _space_zone_uuid(sp) == z.get("uuid")
-                    ]
-                acc = 0.0
-                found = False
-                for u in members:
-                    sp = by_uuid.get(u)
-                    if sp is None:
-                        continue
-                    v, _ = _surface_with_source(sp, _SPACE_BQ_ORDER)
-                    if v is not None:
-                        acc += v
-                        found = True
-                if found:
-                    surf, src = round(acc, 4), "Somme des espaces rattachés"
-            rows.append([_attr(z, "Name"), _label(zel), surf, src or NOT_AVAILABLE])
-        grids.append(SheetGrid(title="Zones (depuis maquette)", rows=rows))
 
     return MultiSheetSource(grids=grids) if grids else None
 

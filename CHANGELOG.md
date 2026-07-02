@@ -61,7 +61,13 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   maquette** (et « Espaces ») ajoute les colonnes **Zone** et **Étage** de
   chaque pièce, **multi-valuées** (séparateur « / ») pour couvrir les
   **duplex** — zone traversant plusieurs niveaux ou espace rattaché à
-  plusieurs zones d'étage.
+  plusieurs zones d'étage. L'export **Zones et Espaces** a désormais pour
+  **1er onglet la liste des IfcZone** (colonnes *Zone (IfcZone)*, *Libellé*,
+  *Étage(s)* — union des étages des pièces, duplex géré —, *Nombre de
+  pièces*, *Surface*), suivi de l'onglet Espaces. Cet enrichissement maquette
+  (IfcZone + étage) est **ajouté même quand des sources I3F sont fournies**
+  (après les onglets source fidèles), pour que les zones et étages du modèle
+  soient toujours visibles.
 - **QA gate post-génération** : chaque annexe est rouverte et ses lignes
   métier comptées. Si SHAB, Zones/Espaces ou Enveloppe sortent **sans ligne**
   alors que le snapshot contient des espaces/murs/zones exploitables, le tool

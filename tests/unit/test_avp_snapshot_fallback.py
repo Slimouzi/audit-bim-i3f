@@ -214,6 +214,65 @@ def test_shab_export_has_zone_and_storey_columns(tmp_path):
     assert data["CHAMBRE 01"] == ("Logement Duplex A101", "R+2")
 
 
+def test_zones_espaces_first_tab_has_ifczone_and_storey(tmp_path):
+    """Le 1er onglet de « EXPORT ZONES ET ESPACES » liste les IfcZone avec
+    leur(s) étage(s) (union des étages des pièces — duplex géré)."""
+    result = _duplex_result()
+    pack = write_avp_i3f_report_pack(
+        result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
+    )
+    wb = openpyxl.load_workbook(pack.zones_espaces_xlsx, data_only=True)
+    first = wb.worksheets[0]  # 1er onglet
+    rows = [tuple(r) for r in first.iter_rows(values_only=True)]
+    flat = "\n".join(str(c) for r in rows for c in r if c is not None)
+    wb.close()
+
+    # En-tête IfcZone + Étage(s) présent dans le 1er onglet.
+    assert "Zone (IfcZone)" in flat
+    assert "Étage(s)" in flat
+    # La zone duplex et ses deux étages apparaissent.
+    assert "Logement Duplex A101" in flat
+    assert "R+1 / R+2" in flat
+
+
+def test_zones_espaces_appends_snapshot_enrichment_with_sources(tmp_path):
+    """Sources I3F présentes : l'enrichissement maquette (IfcZone + étage)
+    est ajouté à l'export en plus des onglets source fidèles."""
+    from audit_bim.reporting.avp_sources import AvpSources, MultiSheetSource, SheetGrid
+
+    result = _duplex_result()
+    # Source I3F « fidèle » minimale (onglet pivot sans IfcZone/étage).
+    src_grid = SheetGrid(
+        title="TDB 2022 01.3 - Export Zones",
+        rows=[["Composant", "Nom Zone"], ["Zone", "0546L-1101"]],
+    )
+    sources = AvpSources(zones_espaces=MultiSheetSource(grids=[src_grid]))
+
+    pack = write_avp_i3f_report_pack(
+        result,
+        tmp_path / "out",
+        sources=sources,
+        project_name="X",
+        project_code="Y",
+        export_pdf=False,
+    )
+    wb = openpyxl.load_workbook(pack.zones_espaces_xlsx, data_only=True)
+    titles = wb.sheetnames
+    flat = "\n".join(
+        str(c)
+        for ws in wb.worksheets
+        for r in ws.iter_rows(values_only=True)
+        for c in r
+        if c is not None
+    )
+    wb.close()
+    # L'onglet source est préservé + l'enrichissement maquette est ajouté.
+    assert any("Export Zones" in t for t in titles)
+    assert any("depuis maquette" in t.lower() for t in titles)
+    assert "Zone (IfcZone)" in flat
+    assert "Logement Duplex A101" in flat
+
+
 def test_shab_space_multiple_storeys_joined(tmp_path):
     """Un espace rattaché à deux étages (cas duplex au niveau pièce) →
     les deux étages sont listés (séparés par « / »)."""

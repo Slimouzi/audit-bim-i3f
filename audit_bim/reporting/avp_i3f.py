@@ -43,7 +43,7 @@ from docx.shared import Cm, Pt, RGBColor
 
 from ..audit.engine import AuditResult
 from .avp_snapshot import build_sources_from_snapshot, count_envelope_walls
-from .avp_sources import AvpSourcePaths, AvpSources, SheetTable, load_sources
+from .avp_sources import AvpSourcePaths, AvpSources, MultiSheetSource, SheetTable, load_sources
 from .context import ReportProjectContext
 from .pdf_export import docx_to_pdf
 from .theming import (
@@ -1043,8 +1043,17 @@ def write_avp_i3f_report_pack(
             sources = AvpSources()
         if _multisheet_is_empty(sources.shab):
             sources.shab = fallback.shab
+        # Zones/Espaces : l'enrichissement maquette (IfcZone + étage(s)) est
+        # **toujours** exposé. Source absente → il constitue l'export ;
+        # source présente → il est ajouté (onglets « … (depuis maquette) »)
+        # après les onglets I3F fidèles, pour que les IfcZone et les étages
+        # de la maquette soient visibles même si la source ne les porte pas.
         if _multisheet_is_empty(sources.zones_espaces):
             sources.zones_espaces = fallback.zones_espaces
+        elif fallback.zones_espaces is not None and fallback.zones_espaces.grids:
+            sources.zones_espaces = MultiSheetSource(
+                grids=list(sources.zones_espaces.grids) + list(fallback.zones_espaces.grids)
+            )
         if _tabular_is_empty(sources.enveloppe):
             sources.enveloppe = fallback.enveloppe
         if _tabular_is_empty(sources.menuiseries):
