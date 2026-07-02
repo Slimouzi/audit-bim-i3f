@@ -60,11 +60,15 @@ class ControleMaquettesSource:
     grille: SheetTable | None = None
     legend: dict[int, str] = field(default_factory=dict)  # 0/1/2 -> libellé
     stats: dict[str, dict[str, Any]] = field(default_factory=dict)  # onglet -> stats conformité
+    # Grille détaillée complète de chaque onglet de contrôle (listes
+    # exploitables : noms de zones/pièces, éléments sans matériau…).
+    stat_grids: dict[str, SheetGrid] = field(default_factory=dict)
 
 
 @dataclass
 class EnveloppeSource:
     table: SheetTable | None = None
+    sheet_title: str | None = None  # nom d'onglet source (proximité I3F)
     superficie_facades: float | None = None
     superficie_menuiseries: float | None = None
     shab: float | None = None
@@ -75,6 +79,7 @@ class EnveloppeSource:
 @dataclass
 class MenuiseriesSource:
     table: SheetTable | None = None
+    sheet_title: str | None = None  # nom d'onglet source (proximité I3F)
     nombre_types: int | None = None
 
 
@@ -223,6 +228,10 @@ def read_controle(path: str | Path) -> ControleMaquettesSource:
             continue
         materiau = "mat" in sheet_name.lower()
         src.stats[sheet_name] = _read_stats(ws_s, materiau=materiau)
+        # Grille détaillée complète (listes de contrôle exploitables I3F).
+        grid = _grid(ws_s)
+        if grid:
+            src.stat_grids[sheet_name] = SheetGrid(title=ws_s.title, rows=grid)
     wb.close()
     return src
 
@@ -312,7 +321,7 @@ def read_zones_espaces(path: str | Path) -> MultiSheetSource:
 def read_enveloppe(path: str | Path) -> EnveloppeSource:
     wb = _open(path)
     ws = wb.worksheets[0]
-    src = EnveloppeSource(table=_read_table(ws, "Composant"))
+    src = EnveloppeSource(table=_read_table(ws, "Composant"), sheet_title=ws.title)
     src.superficie_facades = _scan_value(ws, "superficie des façades")
     src.superficie_menuiseries = _scan_value(ws, "superficie des menuiseries")
     src.shab = _scan_value(ws, "shab")
@@ -325,7 +334,7 @@ def read_enveloppe(path: str | Path) -> EnveloppeSource:
 def read_menuiseries(path: str | Path) -> MenuiseriesSource:
     wb = _open(path)
     ws = wb.worksheets[0]
-    src = MenuiseriesSource(table=_read_table(ws, "Composant"))
+    src = MenuiseriesSource(table=_read_table(ws, "Composant"), sheet_title=ws.title)
     nb = _scan_value(ws, "nombre de types")
     src.nombre_types = int(nb) if isinstance(nb, (int, float)) else None
     wb.close()

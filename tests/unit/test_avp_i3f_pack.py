@@ -304,6 +304,87 @@ def test_seuil_not_invented(tmp_path):
     assert seuil_value == NOT_AVAILABLE  # verdict indisponible faute de seuil source
 
 
+# ── Reproduction du détail + audit + mise en page (2e revue) ─────────────
+
+
+def test_controle_detail_grid_reproduced(tmp_path, sources):
+    # Les onglets de contrôle ne sont plus réduits à une ligne KPI :
+    # la grille détaillée source est reproduite (ligne « 316 » présente).
+    pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
+    wb = openpyxl.load_workbook(pack.controle_xlsx)
+    ws = wb["Pièces Nommage"]
+    vals = {c.value for row in ws.iter_rows() for c in row}
+    assert 316 in vals  # détail reproduit, pas seulement l'agrégat
+    assert ws.max_row > 3
+    wb.close()
+
+
+def test_export_sheet_names_preserved(tmp_path, sources):
+    # P3 : proximité I3F — les onglets Enveloppe/Menuiseries gardent le
+    # nom source (« TDB … »).
+    pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
+    wb = openpyxl.load_workbook(pack.enveloppe_xlsx)
+    assert wb.sheetnames == ["TDB 2022 04.2"]
+    wb.close()
+    wb = openpyxl.load_workbook(pack.menuiseries_xlsx)
+    assert wb.sheetnames == ["TDB 2022 05.1 - Fenêtres"]
+    wb.close()
+
+
+def _mini_audit_result():
+    from audit_bim.audit.engine import AuditResult
+    from audit_bim.audit.findings import ErrorType, Finding, Severity, Theme
+    from audit_bim.extraction.model_data import ModelSnapshot
+    from audit_bim.requirements.models import BIMPhase, RequirementsCatalog
+
+    cat = RequirementsCatalog(
+        cch_version="3.6",
+        properties=[],
+        naming_rules=[],
+        storey_names=[],
+        zone_specs=[],
+        room_specs=[],
+    )
+    snap = ModelSnapshot(project={"name": "Tarare"}, model={"name": "MN.ifc"}).index()
+    findings = [
+        Finding(
+            theme=Theme.QUANTITY,
+            severity=Severity.MEDIUM,
+            error_type=ErrorType.SPATIAL_MISSING_QUANTITY,
+            element_uuid=f"q{i}",
+            ifc_type="IfcSpace",
+        )
+        for i in range(3)
+    ]
+    return AuditResult(phase=BIMPhase.AVP, catalog=cat, snapshot=snap, findings=findings)
+
+
+def test_consolidated_uses_real_audit_result(tmp_path, sources):
+    # P2a : le consolidé restitue la synthèse d'audit (anomalies, quantités
+    # manquantes) et ne l'ignore plus.
+    pack = write_avp_i3f_report_pack(
+        _mini_audit_result(), tmp_path / "out", sources=sources, export_pdf=False
+    )
+    doc = Document(str(pack.analyse_docx))
+    txt = "\n".join(p.text for p in doc.paragraphs)
+    assert "Audit BIMData automatisé de la maquette active" in txt
+    found = any(
+        c.text.startswith("Quantités manquantes") and r.cells[1].text == "3"
+        for tbl in doc.tables
+        for r in tbl.rows
+        for c in r.cells[:1]
+    )
+    assert found
+
+
+def test_consolidated_grille_is_landscape(tmp_path, sources):
+    from docx.enum.section import WD_ORIENT
+
+    pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
+    doc = Document(str(pack.analyse_docx))
+    assert any(s.orientation == WD_ORIENT.LANDSCAPE for s in doc.sections)
+
+
 # ── PDF best-effort ──────────────────────────────────────────────────────
 
 

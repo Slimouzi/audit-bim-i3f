@@ -35,9 +35,10 @@ from pathlib import Path
 
 import xlsxwriter
 from docx import Document
+from docx.enum.section import WD_ORIENT, WD_SECTION
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt, RGBColor
+from docx.shared import Cm, Pt, RGBColor
 
 from ..audit.engine import AuditResult
 from .avp_sources import AvpSourcePaths, AvpSources, SheetTable, load_sources
@@ -198,14 +199,30 @@ def _build_controle_maquettes_xlsx(path, result, sources, meta) -> Path:
     row += 1
     _write_flat_table(ws, fmts, src.grille if src else None, start_row=row)
 
-    # Onglets de stats conformité.
+    # Onglets de stats conformité : synthèse KPI + **grille détaillée
+    # complète** (listes de contrôle exploitables I3F : noms, éléments…).
     for name in _CONTROLE_STATS_SHEETS:
         ws_s = wb.add_worksheet(name[:31])
-        _write_banner(ws_s, fmts, "CONTRÔLE MAQUETTES AVP", name)
+        r = _write_banner(ws_s, fmts, "CONTRÔLE MAQUETTES AVP", name)
         stats = _controle_stats(name, result, src)
-        _write_stats_block(ws_s, fmts, stats, start_row=4)
+        write_safe(ws_s, r, 0, "Synthèse", fmts["h2"])
+        _write_stats_block(ws_s, fmts, stats, start_row=r + 1)
+        grid = _controle_grid(name, src)
+        if grid:
+            write_safe(ws_s, r + 4, 0, "Détail", fmts["h2"])
+            _write_grid(ws_s, fmts, grid.rows, start_row=r + 5)
     wb.close()
     return path
+
+
+def _controle_grid(name: str, src):
+    """Grille détaillée d'un onglet de contrôle (matching nom normalisé)."""
+    if not src or not src.stat_grids:
+        return None
+    for key, grid in src.stat_grids.items():
+        if _norm(key).replace("bsence", "absence") == _norm(name):
+            return grid
+    return None
 
 
 def _controle_stats(name: str, result: AuditResult | None, src) -> dict | None:
@@ -345,7 +362,10 @@ def _build_multisheet_export_xlsx(path, banner: str, title: str, multi, meta) ->
 def _build_enveloppe_xlsx(path, sources, meta) -> Path:
     src = sources.enveloppe if sources else None
     wb, fmts = _new_workbook(path)
-    ws = wb.add_worksheet("Extraction surface enveloppe")
+    # Proximité I3F : conserver le nom d'onglet source (« TDB 2022 04.2… »).
+    ws = wb.add_worksheet(
+        _safe_sheet((src.sheet_title if src else None) or "Extraction surface enveloppe")
+    )
     row = _write_banner(
         ws,
         fmts,
@@ -375,7 +395,8 @@ def _build_enveloppe_xlsx(path, sources, meta) -> Path:
 def _build_menuiseries_xlsx(path, sources, meta) -> Path:
     src = sources.menuiseries if sources else None
     wb, fmts = _new_workbook(path)
-    ws = wb.add_worksheet("Menuiseries")
+    # Proximité I3F : conserver le nom d'onglet source (« TDB 2022 05.1… »).
+    ws = wb.add_worksheet(_safe_sheet((src.sheet_title if src else None) or "Menuiseries"))
     row = _write_banner(
         ws,
         fmts,
@@ -466,6 +487,7 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta) -> Path:
         "proviennent des livrables d'extraction ; toute donnée absente est "
         "signalée « Information non disponible dans les documents fournis. »."
     )
+    _write_audit_synthese(doc, result)
 
     # 4. Indicateurs de conformité
     _add_heading(doc, "4. Indicateurs de conformité", level=1)
@@ -505,9 +527,11 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta) -> Path:
     _add_heading(doc, "5. Écarts", level=1)
     _write_ecarts(doc, result, sources)
 
-    # 6. Grille de contrôle
+    # 6. Grille de contrôle (paysage pour la lisibilité des 6 colonnes)
+    _set_orientation(doc, WD_ORIENT.LANDSCAPE)
     _add_heading(doc, "6. Grille de contrôle", level=1)
     _write_grille_table(doc, ctrl)
+    _set_orientation(doc, WD_ORIENT.PORTRAIT)
 
     # 7. Points bloquants
     _add_heading(doc, "7. Points bloquants", level=1)
@@ -540,18 +564,69 @@ def _fmt_meta(v) -> str:
     return str(v)
 
 
-def _docx_header_table(doc, headers):
+def _set_orientation(doc, orient) -> None:
+    """Nouvelle section avec orientation portrait/paysage (lisibilité des
+    tableaux larges en livrable client)."""
+    sec = doc.add_section(WD_SECTION.NEW_PAGE)
+    sec.orientation = orient
+    w, h = sec.page_width, sec.page_height
+    if orient == WD_ORIENT.LANDSCAPE and w < h:
+        sec.page_width, sec.page_height = h, w
+    elif orient == WD_ORIENT.PORTRAIT and w > h:
+        sec.page_width, sec.page_height = h, w
+    sec.left_margin = Cm(1.5)
+    sec.right_margin = Cm(1.5)
+
+
+# Largeurs (cm) des 6 colonnes de la grille de contrôle en paysage.
+_GRILLE_COL_WIDTHS = (2.0, 6.5, 5.0, 3.0, 3.0, 7.0)
+
+
+def _docx_header_table(doc, headers, *, col_widths=None):
     tbl = doc.add_table(rows=1, cols=len(headers))
     tbl.style = "Light Grid Accent 1"
+    tbl.autofit = False
+    tbl.allow_autofit = False
     for i, h in enumerate(headers):
         cell = tbl.rows[0].cells[i]
         cell.text = str(h)
+        if col_widths and i < len(col_widths):
+            cell.width = Cm(col_widths[i])
         _shade_cell(cell, BIMDATA_PRIMARY)
         for p in cell.paragraphs:
             for r in p.runs:
                 r.font.color.rgb = RGBColor(255, 255, 255)
                 r.bold = True
     return tbl
+
+
+def _write_audit_synthese(doc, result) -> None:
+    """Synthèse de l'audit BIMData réel (sévérité, thèmes, quantités
+    manquantes) — le consolidé ne doit pas ignorer l'``AuditResult``."""
+    if result is None:
+        doc.add_paragraph("Audit BIMData automatisé : " + NOT_AVAILABLE + " (aucun audit chargé).")
+        return
+    by_sev = result.count_by_severity()
+    by_theme = result.count_by_theme()
+    by_type = result.count_by_error_type()
+    p = doc.add_paragraph()
+    p.add_run("Audit BIMData automatisé de la maquette active").bold = True
+    _kpi_table(
+        doc,
+        [
+            ("Anomalies détectées", str(len(result.findings))),
+            ("Taux de conformité (pondéré)", f"{result.conformity_rate() * 100:.0f} %"),
+            ("CRITICAL", str(by_sev.get("CRITICAL", 0))),
+            ("HIGH", str(by_sev.get("HIGH", 0))),
+            ("MEDIUM", str(by_sev.get("MEDIUM", 0))),
+            ("Quantités manquantes", str(by_type.get("spatial_missing_quantity", 0))),
+        ],
+    )
+    top = sorted(by_theme.items(), key=lambda kv: -kv[1])[:5]
+    if top:
+        doc.add_paragraph("Principaux thèmes en écart :")
+        for theme, count in top:
+            doc.add_paragraph(f"• {theme} : {count}", style="List Bullet")
 
 
 def _write_donnees_entree(doc, ctrl) -> None:
@@ -571,12 +646,16 @@ def _write_grille_table(doc, ctrl, *, cap: int = 40) -> None:
     if not g or not g.headers:
         doc.add_paragraph(NOT_AVAILABLE)
         return
-    tbl = _docx_header_table(doc, g.headers)
+    # Largeurs adaptées uniquement pour la grille standard 6 colonnes.
+    widths = _GRILLE_COL_WIDTHS if len(g.headers) == len(_GRILLE_COL_WIDTHS) else None
+    tbl = _docx_header_table(doc, g.headers, col_widths=widths)
     for rowvals in g.rows[:cap]:
         cells = tbl.add_row().cells
-        for i, v in enumerate(rowvals):
-            if i < len(cells):
-                cells[i].text = "" if v in (None, "") else str(_cell(v))
+        for i in range(len(cells)):
+            v = rowvals[i] if i < len(rowvals) else None
+            cells[i].text = "" if v in (None, "") else str(_cell(v))
+            if widths and i < len(widths):
+                cells[i].width = Cm(widths[i])
     if len(g.rows) > cap:
         doc.add_paragraph(
             f"… {len(g.rows) - cap} lignes supplémentaires dans le fichier "
