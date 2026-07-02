@@ -644,7 +644,7 @@ def generate_avp_i3f_pack(
     project_name: str | None = None,
     project_code: str | None = None,
     phase: str | None = None,
-    auditor: str = "AMO BIM",
+    auditor: str | None = None,
     usages_bim: list[str] | None = None,
     nombre_logements: str | None = None,
     temoin_virtuel: str | None = None,
@@ -681,14 +681,17 @@ def generate_avp_i3f_pack(
         project_name, project_code, phase: identité projet pour le nommage.
             ``None`` → résolus depuis la maquette / les sources / la phase
             d'audit confirmée ; nom ou code introuvable → ``needs_context``.
-        usages_bim, nombre_logements, temoin_virtuel, date_controle,
-            auteur_controle: métadonnées opérationnelles du contrôle (issues
-            du rapport I3F de référence) pour « Données d'entrée » / « Usages
-            BIM 3F ». Absentes → « Information non disponible… ». Exception :
-            ``auteur_controle`` non fourni reprend ``auditor`` (rédacteur AMO
-            = auteur du contrôle par défaut).
+        auditor, auteur_controle: nom de l'auteur du contrôle affiché sur le
+            pack. **Demandé explicitement** (``needs_context``) si aucun des
+            deux n'est fourni — pas de « AMO BIM » générique par défaut, sauf
+            ``confirm_context=True``. ``auteur_controle`` prime sur ``auditor``.
+        usages_bim, nombre_logements, temoin_virtuel, date_controle:
+            métadonnées opérationnelles du contrôle (issues du rapport I3F de
+            référence) pour « Données d'entrée » / « Usages BIM 3F ». Absentes
+            → « Information non disponible… ».
         export_pdf: tente la conversion .docx → .pdf (LibreOffice si présent).
-        confirm_context: ``True`` pour générer malgré un nom/code manquant.
+        confirm_context: ``True`` pour générer malgré un nom/code/phase/auteur
+            manquant.
 
     Returns:
         ``{output_dir, paths, analyse_docx, analyse_pdf, pdf_available}`` ou
@@ -730,6 +733,13 @@ def generate_avp_i3f_pack(
     if not eff_phase:
         eff_phase = _map_phase(_hdr("phase"))
 
+    # Auteur du contrôle : I3F attend un auteur nommé (CdP BIM / auditeur
+    # AMO). On **demande** explicitement plutôt que de retomber sur un
+    # « AMO BIM » générique — sauf si ``auteur_controle`` ou ``auditor``
+    # sont fournis, ou ``confirm_context``.
+    eff_auditor = (auditor or "").strip() or None
+    eff_auteur = (auteur_controle or "").strip() or None
+
     # Nom / code / phase obligatoires pour un livrable I3F fiable → sinon on
     # demande (jamais de valeur inventée ni de défaut silencieux).
     missing: list[str] = []
@@ -763,6 +773,18 @@ def generate_avp_i3f_pack(
             if hdr_phase:
                 det_raw, det_mapped = hdr_phase, _map_phase(hdr_phase)
         questions.append(_phase_question_dict(det_raw, det_mapped))
+    if not eff_auteur and not eff_auditor:
+        missing.append("auteur_controle")
+        questions.append(
+            {
+                "key": "auteur_controle",
+                "question": (
+                    "Quel nom afficher comme « Auteur du contrôle » sur le pack "
+                    "AVP I3F ? (ex. le CdP BIM 3F, ou l'auditeur AMO — passer "
+                    "``auteur_controle`` ou ``auditor``)"
+                ),
+            }
+        )
     if missing and not confirm_context:
         return {
             "status": "needs_context",
@@ -770,9 +792,9 @@ def generate_avp_i3f_pack(
             "questions": questions,
             "next_step": (
                 "Renseigner ``project_name`` / ``project_code`` / "
-                "``project_phase`` (=``phase``) puis re-appeler "
-                "``generate_avp_i3f_pack``. Pour générer malgré tout, passer "
-                "``confirm_context=True``."
+                "``project_phase`` (=``phase``) / ``auteur_controle`` (ou "
+                "``auditor``) puis re-appeler ``generate_avp_i3f_pack``. Pour "
+                "générer malgré tout, passer ``confirm_context=True``."
             ),
         }
 
@@ -791,7 +813,9 @@ def generate_avp_i3f_pack(
             project_name=eff_name or "Projet",
             project_code=eff_code or "",
             phase=eff_phase or "AVP",
-            auditor=auditor,
+            # Auteur validé/fourni (ou repli « AMO BIM » uniquement sous
+            # confirm_context — voluntary confirmation).
+            auditor=eff_auditor or "AMO BIM",
             usages_bim=usages_bim,
             nombre_logements=nombre_logements,
             temoin_virtuel=temoin_virtuel,
@@ -1173,9 +1197,6 @@ def generate_word_report(
     # présent (``ensure_result`` implique un audit sur snapshot).
     sugg_address = _snapshot_address_suggestion()
     sugg_description = _snapshot_description()
-    # Description « effective » : fournie par l'utilisateur, sinon
-    # suggestion snapshot — sert à décider s'il faut poser la question.
-    eff_description = project_description or sugg_description
 
     # Phase — unique source de vérité. L'audit a déjà tourné : ``_State.phase``
     # est la phase confirmée. On ne re-demande une confirmation que si aucune
@@ -1200,7 +1221,10 @@ def generate_word_report(
         project_address=project_address,
         project_phase=eff_phase,
         auditor_name=auditor_name,
-        project_description=eff_description,
+        # On passe la valeur **utilisateur brute** (pas la description du
+        # snapshot) : la description est demandée puis validée/corrigée par
+        # l'utilisateur, avec la description maquette proposée en suggestion.
+        project_description=project_description,
         require_description=True,
         suggested_address=sugg_address,
         suggested_description=sugg_description,
@@ -1432,19 +1456,20 @@ def full_audit(
     # description non requise.
     sugg_address = _snapshot_address_suggestion()
     sugg_description = _snapshot_description()
-    eff_description = project_description or sugg_description
 
     # Validation contexte projet AVANT toute exécution coûteuse :
     # adresse + phase + nom auditeur (+ description si un snapshot est
     # disponible) sont obligatoires pour un livrable AMO BIM exploitable.
     # Si une info manque et ``confirm_context`` n'est pas True, on refuse
     # en posant des questions structurées, avec ``suggested_value`` quand
-    # la maquette permet de proposer une valeur.
+    # la maquette permet de proposer une valeur. La description projet est
+    # **demandée** (valeur utilisateur brute) puis validée/corrigée, la
+    # description maquette n'étant qu'une suggestion.
     context_refusal = _validate_audit_context(
         project_address=project_address,
         project_phase=effective_phase,
         auditor_name=auditor_name,
-        project_description=eff_description,
+        project_description=project_description,
         require_description=_State.snapshot is not None,
         suggested_address=sugg_address,
         suggested_description=sugg_description,

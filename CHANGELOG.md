@@ -115,14 +115,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 - Nouveau paramètre **`project_description`** sur `full_audit` et
   `generate_word_report`, propagé au contexte (`merge_user_context`) et
   **rendu dans le rapport Word** (section « Maquette auditée » →
-  *Description du projet*). La description est **validée** :
-  `_validate_audit_context` la réclame quand un snapshot est disponible ;
-  la description du snapshot (`project.description`) suffit (marquée
-  *déduit — à confirmer*), sinon la question est posée (P1b — plus de
-  rapport à description silencieusement manquante).
-- Pack AVP : `auteur_controle` non fourni **reprend `auditor`** (rédacteur
-  AMO = auteur du contrôle par défaut) plutôt que « Information non
-  disponible » (P2). L'appelant peut toujours distinguer les deux.
+  *Description du projet*). La description est **toujours demandée** quand un
+  snapshot est disponible (jamais reprise en silence) : la question propose
+  la description maquette (`project.description`) en `suggested_value`, à
+  **valider ou corriger** par l'utilisateur. `confirm_context=True` court-
+  circuite.
+- Pack AVP : l'**auteur du contrôle est demandé explicitement**
+  (`needs_context`) si ni `auteur_controle` ni `auditor` ne sont fournis —
+  plus de « AMO BIM » générique par défaut, sauf `confirm_context=True`.
+  `auteur_controle` prime sur `auditor`.
 
 #### Sélection d'objets BIM enrichie (`filter_bim_objects`)
 

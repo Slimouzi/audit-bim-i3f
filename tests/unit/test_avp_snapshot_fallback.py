@@ -388,7 +388,7 @@ def test_tool_passes_state_snapshot_without_audit(tmp_path, monkeypatch):
     token = current_session.set(sess)
     try:
         res = mcp_server.generate_avp_i3f_pack(
-            project_name="X", project_code="Y", phase="AVP", export_pdf=False
+            project_name="X", project_code="Y", phase="AVP", auditor="AMO BIM", export_pdf=False
         )
     finally:
         current_session.reset(token)
@@ -598,7 +598,7 @@ def test_tool_returns_error_status_on_empty(tmp_path, monkeypatch):
     token = current_session.set(sess)
     try:
         res = mcp_server.generate_avp_i3f_pack(
-            project_name="X", project_code="Y", phase="AVP", export_pdf=False
+            project_name="X", project_code="Y", phase="AVP", auditor="AMO BIM", export_pdf=False
         )
     finally:
         current_session.reset(token)

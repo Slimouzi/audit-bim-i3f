@@ -60,7 +60,7 @@ def test_control_header_name_wins_over_generic_snapshot(_isolated):
     sess.snapshot = ModelSnapshot(project={"name": "I3F"}, model={"name": "M.ifc"}).index()
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx")
 
-    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, export_pdf=False)
+    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, auditor="AMO BIM", export_pdf=False)
 
     assert res.get("status") != "needs_context"
     assert res["project_name"] == "Tarare"
@@ -75,7 +75,7 @@ def test_missing_phase_asks_instead_of_defaulting_avp(_isolated):
     sess, tmp_path = _isolated
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx", phase=None)
 
-    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, export_pdf=False)
+    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, auditor="AMO BIM", export_pdf=False)
 
     assert res.get("status") == "needs_context"
     assert "project_phase" in res["missing"]
@@ -86,7 +86,9 @@ def test_missing_phase_asks_instead_of_defaulting_avp(_isolated):
 def test_explicit_phase_param_used(_isolated):
     sess, tmp_path = _isolated
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx", phase=None)
-    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, phase="PRO", export_pdf=False)
+    res = mcp_server.generate_avp_i3f_pack(
+        controle_xlsx=ctrl, phase="PRO", auditor="AMO BIM", export_pdf=False
+    )
     assert res.get("status") != "needs_context"
     assert res["phase"] == "PRO"
 
@@ -95,7 +97,7 @@ def test_audit_phase_used_when_header_silent(_isolated):
     sess, tmp_path = _isolated
     sess.phase = BIMPhase.DCE
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx", phase=None)
-    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, export_pdf=False)
+    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, auditor="AMO BIM", export_pdf=False)
     assert res.get("status") != "needs_context"
     assert res["phase"] == "DCE"
 
@@ -103,9 +105,39 @@ def test_audit_phase_used_when_header_silent(_isolated):
 def test_missing_code_asks(_isolated):
     sess, tmp_path = _isolated
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx", esi="")
-    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, export_pdf=False)
+    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, auditor="AMO BIM", export_pdf=False)
     assert res.get("status") == "needs_context"
     assert "project_code" in res["missing"]
+
+
+def test_auteur_controle_asked_when_missing(_isolated):
+    """P2 : ni auteur_controle ni auditor fournis → demandé explicitement
+    (pas de « AMO BIM » générique par défaut)."""
+    sess, tmp_path = _isolated
+    ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx")  # nom/code/phase OK
+    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, export_pdf=False)
+    assert res.get("status") == "needs_context"
+    assert "auteur_controle" in res["missing"]
+
+
+def test_auteur_controle_from_auditor(_isolated):
+    """auditor fourni → pas de question auteur (auteur = auditor)."""
+    sess, tmp_path = _isolated
+    ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx")
+    res = mcp_server.generate_avp_i3f_pack(
+        controle_xlsx=ctrl, auditor="CdP BIM 3F", export_pdf=False
+    )
+    assert res.get("status") != "needs_context"
+
+
+def test_auteur_controle_bypass_with_confirm(_isolated):
+    """confirm_context=True → génère malgré l'auteur manquant (repli AMO BIM)."""
+    sess, tmp_path = _isolated
+    ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx")
+    res = mcp_server.generate_avp_i3f_pack(
+        controle_xlsx=ctrl, confirm_context=True, export_pdf=False
+    )
+    assert res.get("status") != "needs_context"
 
 
 # ── project_context_questions : phase unique alignée sur le contrat ─────

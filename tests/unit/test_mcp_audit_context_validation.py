@@ -159,7 +159,7 @@ class TestGenerateWordReportValidation:
         assert res.get("status") == "needs_context"
         assert "project_phase" in res["missing"]
 
-    def test_accepts_when_all_three_fields_provided(self, _isolated, tmp_path):
+    def test_accepts_when_all_fields_provided(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire_audit(sess)
         res = mcp_server.generate_word_report(
@@ -167,6 +167,7 @@ class TestGenerateWordReportValidation:
             project_address="12 rue de la Paix, 35340 LIFFRÉ",
             project_phase="PRO",
             auditor_name="Stanislas Limouzi",
+            project_description="Programme de 24 logements collectifs.",
         )
         # Pas de needs_context — on a un path et size_bytes.
         assert "path" in res
@@ -245,6 +246,7 @@ class TestWordReportSourceMarking:
             project_address="42 boulevard Saint-Germain, 75005 PARIS",
             project_phase="DCE",
             auditor_name="Stanislas Limouzi",
+            project_description="Réhabilitation.",
         )
         text = _doc_text(tmp_path / "rapport.docx")
         # Adresse user-fournie présente, SANS suffixe "à confirmer"
@@ -294,6 +296,7 @@ class TestWordReportSourceMarking:
             project_address="X",
             project_phase="PRO",
             auditor_name="Jean DUPONT (BET Acme)",
+            project_description="Projet.",
         )
         text = _doc_text(tmp_path / "rapport.docx")
         # Page de garde : ligne « Auteur : ... »
@@ -307,6 +310,7 @@ class TestWordReportSourceMarking:
             project_address="X",
             project_phase="DCE",  # user fournit DCE
             auditor_name="Stan",
+            project_description="Projet.",
         )
         text = _doc_text(tmp_path / "rapport.docx")
         # Phase DCE doit apparaître (user-fournie)
@@ -325,6 +329,7 @@ class TestEnrichedSectionsStillPresent:
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",
+            project_description="Projet.",
         )
         text = _doc_text(tmp_path / "rapport.docx")
         # Sections du modèle de rapport de conformité (structure 0.3)
@@ -564,20 +569,22 @@ class TestWordReportSuggestionsAndDescription:
         q = next(q for q in res["questions"] if q["key"] == "project_address")
         assert q.get("suggested_value") == "12 rue de la Paix 35340 LIFFRÉ"
 
-    def test_snapshot_description_satisfies_validation(self, _isolated, tmp_path):
-        """La description du snapshot suffit : pas de needs_context même
-        si l'utilisateur ne passe pas project_description."""
+    def test_snapshot_description_is_proposed_not_auto_accepted(self, _isolated):
+        """La description du snapshot n'est PAS acceptée en silence : la
+        question est posée avec la description maquette en suggestion, à
+        valider/corriger par l'utilisateur (attendu CTO)."""
         sess, _ = _isolated
-        _wire_audit(sess)
+        _wire_audit(sess)  # snapshot avec project.description
         res = mcp_server.generate_word_report(
-            output_path="rapport_desc.docx",
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",
-            # project_description omis → repris du snapshot
+            # project_description omis → doit être DEMANDÉE (pas reprise en silence)
         )
-        assert "path" in res
-        assert res.get("status") != "needs_context"
+        assert res.get("status") == "needs_context"
+        assert "project_description" in res["missing"]
+        q = next(q for q in res["questions"] if q["key"] == "project_description")
+        assert q.get("suggested_value") == "Programme de 24 logements collectifs — phase test."
 
     def test_user_description_flows_to_report(self, _isolated, tmp_path):
         sess, _ = _isolated
