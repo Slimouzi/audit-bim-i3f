@@ -3,6 +3,7 @@
 from .classifications import audit_classifications
 from .lists import audit_lists
 from .naming import audit_naming
+from .preliminary import load_preliminary_findings
 from .properties import audit_properties
 from .spatial import audit_spatial
 from .uniqueness import audit_uniqueness
@@ -14,4 +15,5 @@ __all__ = [
     "audit_properties",
     "audit_spatial",
     "audit_uniqueness",
+    "load_preliminary_findings",
 ]
