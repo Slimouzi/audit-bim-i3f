@@ -59,9 +59,23 @@ from .server import mcp
 from .session import _State
 
 
+def _coerce_json_dict(value: dict | str | None) -> dict | None:
+    """Tolère un dict passé en chaîne JSON par le client MCP.
+
+    Certains clients sérialisent les paramètres objets en JSON string quand
+    le schéma de l'outil ne déclare pas de type — sans cette coercition, la
+    validation pydantic rejette l'appel avant même d'entrer dans l'outil.
+    """
+    if value is None or isinstance(value, dict):
+        return value
+    import json
+
+    return json.loads(value)
+
+
 @mcp.tool()
 def prepare_bcf_topics(
-    finding_filter: dict | None = None,
+    finding_filter: dict | str | None = None,
     prefix: str = "I3F Audit — ",
     include_overview: bool = True,
 ) -> dict:
@@ -80,6 +94,7 @@ def prepare_bcf_topics(
     """
     _State.ensure_result()
     _State.ensure_client()
+    finding_filter = _coerce_json_dict(finding_filter)
     ff = FindingFilter.model_validate(finding_filter) if finding_filter else None
     plan = prepare_bcf(
         _State.result,
@@ -122,7 +137,7 @@ def apply_bcf_topics(plan_path: str, confirm: bool = False) -> dict:
 
 @mcp.tool()
 def prepare_smart_views_plan(
-    finding_filter: dict | None = None,
+    finding_filter: dict | str | None = None,
     prefix: str = "I3F Audit — ",
     include_overview: bool = True,
 ) -> dict:
@@ -133,6 +148,7 @@ def prepare_smart_views_plan(
     """
     _State.ensure_result()
     _State.ensure_client()
+    finding_filter = _coerce_json_dict(finding_filter)
     ff = FindingFilter.model_validate(finding_filter) if finding_filter else None
     plan = prepare_smart_views(
         _State.result,
@@ -219,7 +235,7 @@ def prepare_smart_view_from_filter_plan(
 
 @mcp.tool()
 def prepare_classification_update_plan(
-    suggestion_filter: dict | None = None,
+    suggestion_filter: dict | str | None = None,
     default_to_accepted_only: bool = True,
 ) -> dict:
     """Construit et scelle un :class:`WritePlan` d'application de classifications.
@@ -240,6 +256,7 @@ def prepare_classification_update_plan(
     """
     _State.ensure_client()
     store = ensure_suggestion_store(populate_if_empty=True)
+    suggestion_filter = _coerce_json_dict(suggestion_filter)
     sf = SuggestionFilter.model_validate(suggestion_filter) if suggestion_filter else None
     scope = SuggestionStatus.ACCEPTED if default_to_accepted_only else None
     plan = prepare_classification_update(
