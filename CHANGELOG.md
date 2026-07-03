@@ -9,6 +9,122 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Added
 
+#### Pack de livrables AVP I3F (`generate_avp_i3f_pack` / `write_avp_i3f_report_pack`)
+
+- Nouveau livrable dédié reproduisant, sous **charte BIMData**, le jeu I3F
+  d'une opération AVP (Tarare 0546L) : 5 Excel (Contrôle Maquettes, SHAB,
+  Zones/Espaces, Enveloppe + ratio FAC/SHAB & Seuil 3F 2026, Menuiseries)
+  + rapport consolidé **Analyse BIM AVP** (.docx, + .pdf best-effort).
+- **Hybride** : données natives de l'audit BIMData (`_State.result`) +
+  lecture des .xlsx sources I3F pour les colonnes d'outils externes
+  (Solibri/ArchiCAD/écarts). **Ne jamais inventer** : donnée absente →
+  « Information non disponible dans les documents fournis. ».
+- Réutilise l'infra existante (`xlsx_annex._build_formats`/`write_safe`,
+  helpers `word_report`, `theming`/`bimdata_brand`) — pas de stack
+  parallèle. Nouveaux modules `reporting/avp_sources.py` (lecteurs),
+  `reporting/avp_i3f.py` (builders/orchestration), `reporting/pdf_export.py`
+  (conversion .docx→.pdf best-effort via LibreOffice, `AUDIT_BIM_SOFFICE`).
+- Fidélité « tables à plat » (mêmes onglets/colonnes/ordre/unités/vocabulaire) :
+  parsing structure-aware des stats de contrôle (nommage « Noms (nbre) » vs
+  matériau), **préservation des onglets** pivot/synthèse des exports
+  (`Feuil1`/`Feuil2` + `TDB…`), noms de fichiers **repris des sources**
+  (traçabilité), seuil 3F **jamais inventé** (NOT_AVAILABLE si absent),
+  consolidé enrichi (données d'entrée, usages 3F, grille, annexes stats).
+  Reproduction des **grilles détaillées** des onglets de contrôle,
+  **synthèse d'audit BIMData réelle** (répartition CRITICAL→INFO, top
+  thèmes, quantités manquantes), grille de contrôle Word en **paysage**,
+  préservation de **tous** les onglets source (y compris vides), et
+  **métadonnées opérationnelles** du contrôle (`usages_bim`,
+  `nombre_logements`, `temoin_virtuel`, `date_controle`, `auteur_controle`).
+- Tests : structure d'onglets, ordre des en-têtes, branding BIMData
+  (`#2F374A`/`#F9C72C`/Roboto/bannière), **absence de l'ancienne charte**,
+  never-invent, sections du consolidé, PDF best-effort.
+
+#### Extraction AVP source-first, snapshot en repli + QA gate anti-livrable vide
+
+- Nouveau module `reporting/avp_snapshot.py` : si les fichiers sources I3F
+  sont **absents**, les exports SHAB, Zones/Espaces, Enveloppe et Menuiseries
+  sont générés depuis `AuditResult.snapshot` (les sources I3F priment quand
+  elles existent). Fini les annexes réduites au seul bandeau.
+- **Enveloppe** : sélection des murs par **layer** normalisé
+  (« MURS - Extérieurs périphériques.Exnd », tolérance casse/accents/espaces),
+  classes `IfcWall` + `IfcWallStandardCase`. **`IfcCurtainWall` exclu**
+  (façade vitrée comptée en menuiseries — décision documentée). Surface par
+  ordre `NetSideArea` → `GrossSideArea` → `NetArea` → `GrossArea` puis repli
+  propriété **« Superficie calculée »** (accent-insensible, tous Psets). La
+  **source de la valeur** (BaseQuantities vs Superficie calculée) est tracée
+  dans une colonne dédiée.
+- **Espaces / zones** : libellé = `LongName`, sinon `Name` (repli si vide) ;
+  surface `NetFloorArea` → `GrossFloorArea` → `NetArea` → `GrossArea` puis
+  « Superficie calculée ». Zone sans surface propre → **somme des espaces
+  rattachés** si la relation zone/espace est disponible. L'export **SHAB
+  maquette** (et « Espaces ») ajoute les colonnes **Zone** et **Étage** de
+  chaque pièce, **multi-valuées** (séparateur « / ») pour couvrir les
+  **duplex** — zone traversant plusieurs niveaux ou espace rattaché à
+  plusieurs zones d'étage. L'export **Zones et Espaces** a désormais pour
+  **1er onglet la liste des IfcZone** (colonnes *Zone (IfcZone)*, *Libellé*,
+  *Étage(s)* — union des étages des pièces, duplex géré —, *Nombre de
+  pièces*, *Surface*), suivi de l'onglet Espaces. Cet enrichissement maquette
+  (IfcZone + étage) est **ajouté même quand des sources I3F sont fournies**
+  (après les onglets source fidèles), pour que les zones et étages du modèle
+  soient toujours visibles.
+- **QA gate post-génération** : chaque annexe est rouverte et ses lignes
+  métier comptées. Si SHAB, Zones/Espaces ou Enveloppe sortent **sans ligne**
+  alors que le snapshot contient des espaces/murs/zones exploitables, le tool
+  `generate_avp_i3f_pack` renvoie `{status: "error", error:
+  "empty_deliverable", empty_deliverables: [...]}` (exception `AvpQaError`) —
+  jamais un fichier client vide.
+
+#### Phase : question unique (loi MOP / phase BIM) + nommage I3F des livrables
+
+- **Une seule question de phase** — plus de doublon « phase loi MOP » /
+  « phase BIM ». La phase confirmée est l'**unique source de vérité** et
+  alimente à la fois l'audit, le rapport Word et le pack AVP. La question
+  affiche une **aide de lecture loi MOP / mission MOE** dans le même champ
+  (APS…GESTION) — pas de second champ.
+- **Proposition automatique + validation explicite** : si une phase est
+  déclarée dans l'IFC / les métadonnées BIMData, elle est proposée comme
+  valeur par défaut (`suggested_value`) et confirmée explicitement. Une
+  phase non reconnue (APD, ACT, VISA, DET…) est **rapprochée** de la phase
+  d'audit (APD→AVP, ACT/VISA/DET→EXE, ESQ→APS, AOR→DOE) à confirmer ou
+  corriger. `full_audit` ne défaute plus silencieusement sur `PRO` : sans
+  phase explicite, il demande confirmation (sauf `confirm_context=True`).
+- **Nommage documentaire I3F** des livrables du pack AVP, **généré à partir
+  de données projet confirmées** :
+  `YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>` où
+  `YYMMDD` est la **date de génération**. Le nom du projet privilégie
+  l'**entête « Projet » du contrôle I3F** (source livrable autoritaire) sur
+  un `project.name` BIMData potentiellement générique (ex. « I3F »), le code
+  (ESI) vient du contrôle maquettes I3F, la phase est la phase d'audit
+  confirmée. Nom, code **ou phase** introuvable → `generate_avp_i3f_pack`
+  renvoie `needs_context` (la phase n'est **jamais** défautée silencieusement
+  sur « AVP »). Les noms ne reprennent plus le basename des sources ; le
+  writer bas niveau n'a plus de défauts d'identité client (`Tarare`/`0546L`).
+- `project_context_questions` : question de phase **unique** alignée sur le
+  contrat (clé `project_phase`, aide loi MOP, détection IFC + rapprochement),
+  sans suggestion « PRO » codée en dur ni clé divergente.
+
+#### Dialogue de contexte : adresse suggérée + description projet
+
+- `full_audit` et `generate_word_report` **proposent l'adresse** extraite
+  de la maquette (`IfcBuilding.BuildingAddress` / `IfcSite.SiteAddress`,
+  via `resolve_project_address`) dans la question `project_address`
+  (`suggested_value`) — l'utilisateur valide ou corrige au lieu de la
+  saisir à froid. Best-effort : sans adresse exploitable, question posée
+  sans suggestion.
+- Nouveau paramètre **`project_description`** sur `full_audit` et
+  `generate_word_report`, propagé au contexte (`merge_user_context`) et
+  **rendu dans le rapport Word** (section « Maquette auditée » →
+  *Description du projet*). La description est **toujours demandée** quand un
+  snapshot est disponible (jamais reprise en silence) : la question propose
+  la description maquette (`project.description`) en `suggested_value`, à
+  **valider ou corriger** par l'utilisateur. `confirm_context=True` court-
+  circuite.
+- Pack AVP : l'**auteur du contrôle est demandé explicitement**
+  (`needs_context`) si ni `auteur_controle` ni `auditor` ne sont fournis —
+  plus de « AMO BIM » générique par défaut, sauf `confirm_context=True`.
+  `auteur_controle` prime sur `auditor`.
+
 #### Sélection d'objets BIM enrichie (`filter_bim_objects`)
 
 - Nouveaux filtres **structurels** sur `ObjectFilter` : quantités

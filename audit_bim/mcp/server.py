@@ -94,17 +94,12 @@ def project_context_questions() -> dict:
     missing: list[str] = []
 
     if _State.phase is None:
-        missing.append("phase")
-        questions.append(
-            {
-                "key": "phase",
-                "question": (
-                    "À quelle phase projet correspond cette maquette ? "
-                    "APS, AVP, PRO, DCE, EXE, DOE ou GESTION ?"
-                ),
-                "suggestion": "PRO (cas le plus fréquent en cours de conception).",
-            }
-        )
+        # Question de phase **unique**, alignée sur le contrat (clé
+        # ``project_phase``, aide loi MOP, détection IFC + rapprochement).
+        # Pas de suggestion « PRO » codée en dur ni de clé divergente.
+        missing.append("project_phase")
+        det_raw, det_mapped = _detect_snapshot_phase()
+        questions.append(_phase_question_dict(det_raw, det_mapped))
     if _State.catalog is None and not (
         _State.cch_pdf or _State.data_spec_xlsx or _State.naming_spec_xlsx
     ):
@@ -638,7 +633,385 @@ def generate_xlsx_annex(output_path: str | None = None, overwrite: bool = False)
     return {"path": str(written), "size_bytes": written.stat().st_size}
 
 
+@mcp.tool()
+def generate_avp_i3f_pack(
+    output_dir: str | None = None,
+    controle_xlsx: str | None = None,
+    shab_xlsx: str | None = None,
+    zones_espaces_xlsx: str | None = None,
+    enveloppe_xlsx: str | None = None,
+    menuiseries_xlsx: str | None = None,
+    project_name: str | None = None,
+    project_code: str | None = None,
+    phase: str | None = None,
+    auditor: str | None = None,
+    usages_bim: list[str] | None = None,
+    nombre_logements: str | None = None,
+    temoin_virtuel: str | None = None,
+    date_controle: str | None = None,
+    auteur_controle: str | None = None,
+    export_pdf: bool = True,
+    confirm_context: bool = False,
+) -> dict:
+    """Génère le pack de livrables AVP I3F (charte BIMData).
+
+    Produit les 5 Excel (Contrôle Maquettes, SHAB, Zones/Espaces, Enveloppe,
+    Menuiseries) + le rapport consolidé « Analyse BIM AVP » (.docx, + .pdf
+    best-effort). **Hybride** : données natives de l'audit courant
+    (``_State.result``, si disponible) + lecture des .xlsx sources I3F
+    fournis pour les colonnes d'outils externes. Toute donnée absente →
+    « Information non disponible dans les documents fournis. » (jamais
+    inventée).
+
+    Nommage des livrables — convention documentaire I3F **générée à partir
+    de données projet confirmées** :
+    ``YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>``
+    (``YYMMDD`` = date de génération). Le **nom du projet** est cherché dans
+    les métadonnées BIMData/IFC (``project.name`` / ``IfcSite.Name``), le
+    **code (ESI)** dans le contrôle maquettes I3F, la **phase** est la phase
+    confirmée de l'audit (``_State.phase``). Si le nom ou le code restent
+    introuvables et ne sont pas fournis, le tool renvoie
+    ``{status: needs_context}`` avec les questions à poser (sauf
+    ``confirm_context=True``).
+
+    Args:
+        output_dir: sous-dossier d'export (sandbox ``AUDIT_OUTPUT_DIR``).
+        controle_xlsx … menuiseries_xlsx: chemins des .xlsx sources I3F
+            (optionnels, sandbox lecture ``safe_input_path``).
+        project_name, project_code, phase: identité projet pour le nommage.
+            ``None`` → résolus depuis la maquette / les sources / la phase
+            d'audit confirmée ; nom ou code introuvable → ``needs_context``.
+        auditor, auteur_controle: nom de l'auteur du contrôle affiché sur le
+            pack. **Demandé explicitement** (``needs_context``) si aucun des
+            deux n'est fourni — pas de « AMO BIM » générique par défaut, sauf
+            ``confirm_context=True``. ``auteur_controle`` prime sur ``auditor``.
+        usages_bim, nombre_logements, temoin_virtuel, date_controle:
+            métadonnées opérationnelles du contrôle (issues du rapport I3F de
+            référence) pour « Données d'entrée » / « Usages BIM 3F ». Absentes
+            → « Information non disponible… ».
+        export_pdf: tente la conversion .docx → .pdf (LibreOffice si présent).
+        confirm_context: ``True`` pour générer malgré un nom/code/phase/auteur
+            manquant.
+
+    Returns:
+        ``{output_dir, paths, analyse_docx, analyse_pdf, pdf_available}`` ou
+        ``{status: needs_context, missing, questions}``.
+    """
+    from ..reporting.avp_i3f import write_avp_i3f_report_pack
+    from ..reporting.avp_sources import AvpSourcePaths, load_sources
+
+    def _src(p: str | None) -> str | None:
+        return str(safe_input_path(p, allowed_extensions={".xlsx", ".xlsm"})) if p else None
+
+    source_paths = AvpSourcePaths(
+        controle=_src(controle_xlsx),
+        shab=_src(shab_xlsx),
+        zones_espaces=_src(zones_espaces_xlsx),
+        enveloppe=_src(enveloppe_xlsx),
+        menuiseries=_src(menuiseries_xlsx),
+    )
+    # Chargement unique des sources (lues aussi pour résoudre le code ESI).
+    sources = load_sources(source_paths)
+    ctrl_header = (sources.controle.header if sources.controle else {}) or {}
+
+    def _hdr(key: str) -> str | None:
+        v = ctrl_header.get(key)
+        return str(v).strip() if v not in (None, "") and str(v).strip() else None
+
+    # ── Résolution de l'identité projet (nom / code / phase) ────────────
+    # Nom : param explicite > **entête « Projet » du contrôle I3F** (source
+    # livrable, autoritaire pour l'identité I3F) > métadonnées maquette.
+    # ``project.name`` BIMData peut être générique (ex. « I3F ») : la source
+    # de contrôle prime pour ne pas nommer les livrables de travers.
+    eff_name = (project_name or "").strip() or _hdr("projet") or _snapshot_project_name()
+    # Code (ESI) : param > entête « ESI » du contrôle maquettes I3F.
+    eff_code = (project_code or "").strip() or _hdr("esi")
+    # Phase : param explicite > phase d'audit confirmée > entête contrôle I3F.
+    eff_phase = (phase or "").strip() or None
+    if not eff_phase and _State.phase is not None:
+        eff_phase = _State.phase.value
+    if not eff_phase:
+        eff_phase = _map_phase(_hdr("phase"))
+
+    # Auteur du contrôle : I3F attend un auteur nommé (CdP BIM / auditeur
+    # AMO). On **demande** explicitement plutôt que de retomber sur un
+    # « AMO BIM » générique — sauf si ``auteur_controle`` ou ``auditor``
+    # sont fournis, ou ``confirm_context``.
+    eff_auditor = (auditor or "").strip() or None
+    eff_auteur = (auteur_controle or "").strip() or None
+
+    # Nom / code / phase obligatoires pour un livrable I3F fiable → sinon on
+    # demande (jamais de valeur inventée ni de défaut silencieux).
+    missing: list[str] = []
+    questions: list[dict] = []
+    if not eff_name:
+        missing.append("project_name")
+        questions.append(
+            {
+                "key": "project_name",
+                "question": "Quel nom de projet doit apparaître dans les livrables ?",
+            }
+        )
+    if not eff_code:
+        missing.append("project_code")
+        questions.append(
+            {
+                "key": "project_code",
+                "question": (
+                    "Quel code projet / ESI doit apparaître dans les livrables ? "
+                    "(ex. « 0546L », visible sur le contrôle maquettes I3F)"
+                ),
+            }
+        )
+    if not eff_phase:
+        # Phase unique : proposée si détectée (IFC puis entête contrôle),
+        # sinon demandée — jamais défautée silencieusement sur « AVP ».
+        missing.append("project_phase")
+        det_raw, det_mapped = _detect_snapshot_phase()
+        if not det_raw:
+            hdr_phase = _hdr("phase")
+            if hdr_phase:
+                det_raw, det_mapped = hdr_phase, _map_phase(hdr_phase)
+        questions.append(_phase_question_dict(det_raw, det_mapped))
+    if not eff_auteur and not eff_auditor:
+        missing.append("auteur_controle")
+        questions.append(
+            {
+                "key": "auteur_controle",
+                "question": (
+                    "Quel nom afficher comme « Auteur du contrôle » sur le pack "
+                    "AVP I3F ? (ex. le CdP BIM 3F, ou l'auditeur AMO — passer "
+                    "``auteur_controle`` ou ``auditor``)"
+                ),
+            }
+        )
+    if missing and not confirm_context:
+        return {
+            "status": "needs_context",
+            "missing": missing,
+            "questions": questions,
+            "next_step": (
+                "Renseigner ``project_name`` / ``project_code`` / "
+                "``project_phase`` (=``phase``) / ``auteur_controle`` (ou "
+                "``auditor``) puis re-appeler ``generate_avp_i3f_pack``. Pour "
+                "générer malgré tout, passer ``confirm_context=True``."
+            ),
+        }
+
+    from ..reporting.avp_i3f import AvpQaError
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = safe_export_dir(output_dir or f"avp_pack_{ts}")
+    try:
+        pack = write_avp_i3f_report_pack(
+            _State.result,  # peut être None : le pack se limite alors aux sources
+            out_dir,
+            sources=sources,
+            # Snapshot explicite : le repli maquette s'active même sans audit
+            # (ex. après verify_active_model seul, _State.result est None).
+            snapshot=_State.snapshot,
+            project_name=eff_name or "Projet",
+            project_code=eff_code or "",
+            phase=eff_phase or "AVP",
+            # Auteur validé/fourni (ou repli « AMO BIM » uniquement sous
+            # confirm_context — voluntary confirmation).
+            auditor=eff_auditor or "AMO BIM",
+            usages_bim=usages_bim,
+            nombre_logements=nombre_logements,
+            temoin_virtuel=temoin_virtuel,
+            date_controle=date_controle,
+            auteur_controle=auteur_controle,
+            export_pdf=export_pdf,
+        )
+    except AvpQaError as exc:
+        # QA gate : au moins une annexe est sortie vide alors que la
+        # maquette contient des données exploitables. Statut d'erreur
+        # explicite — surtout pas un livrable client vide.
+        return {
+            "status": "error",
+            "error": "empty_deliverable",
+            "empty_deliverables": exc.empty,
+            "message": str(exc),
+        }
+    return {
+        "output_dir": str(out_dir),
+        "paths": [str(p) for p in pack.paths()],
+        "analyse_docx": str(pack.analyse_docx),
+        "analyse_pdf": str(pack.analyse_pdf) if pack.analyse_pdf else None,
+        "pdf_available": pack.analyse_pdf is not None,
+        "project_name": eff_name,
+        "project_code": eff_code,
+        "phase": eff_phase,
+    }
+
+
 _VALID_PHASES = {p.value for p in BIMPhase}
+
+# Aide de lecture « loi MOP / mission MOE » affichée avec la question de
+# phase (une seule question, pas de second champ). Éclaire l'équivalence
+# entre le vocabulaire loi MOP et la phase d'audit BIM.
+_PHASE_READING_AID = {
+    "APS": "avant-projet sommaire",
+    "AVP": "avant-projet, ou APD si le projet est en avant-projet définitif",
+    "PRO": "études de projet",
+    "DCE": "consultation des entreprises / dossier marché",
+    "EXE": "études d'exécution, VISA, DET, ACT ou suivi chantier",
+    "DOE": "dossier des ouvrages exécutés / réception",
+    "GESTION": "exploitation patrimoniale",
+}
+
+# Rapprochement des jalons loi MOP / mission MOE non reconnus comme phase
+# d'audit BIM vers la phase BIM la plus proche. La phase d'audit reste
+# l'unique source de vérité : ce mapping ne fait que **proposer** une
+# correspondance à confirmer par l'utilisateur.
+_PHASE_ALIASES = {
+    "ESQ": "APS",  # esquisse
+    "DIA": "APS",  # diagnostic
+    "APD": "AVP",  # avant-projet définitif
+    "ACT": "EXE",  # assistance passation des contrats de travaux
+    "VISA": "EXE",
+    "DET": "EXE",  # direction de l'exécution des travaux
+    "AOR": "DOE",  # assistance aux opérations de réception
+}
+
+
+def _map_phase(raw: str | None) -> str | None:
+    """Mappe une valeur de phase brute vers une phase d'audit BIM valide.
+
+    Renvoie la phase BIM (``APS``…``GESTION``) si ``raw`` est déjà une
+    phase valide ou possède un alias loi MOP connu ; ``None`` sinon.
+    """
+    if not raw or not str(raw).strip():
+        return None
+    up = str(raw).strip().upper()
+    if up in _VALID_PHASES:
+        return up
+    return _PHASE_ALIASES.get(up)
+
+
+def _detect_snapshot_phase() -> tuple[str | None, str | None]:
+    """Détecte la phase déclarée dans l'IFC / les métadonnées BIMData.
+
+    Cherche une valeur de phase (``IfcProject.Phase`` et équivalents) dans
+    les dicts ``project`` puis ``model`` du snapshot actif.
+
+    Returns:
+        ``(raw, mapped)`` où ``raw`` est la valeur brute trouvée (ex.
+        ``"APD"``) et ``mapped`` la phase d'audit BIM correspondante (ex.
+        ``"AVP"``) ou ``None`` si non rapprochable. ``(None, None)`` si
+        aucune phase n'est déclarée.
+    """
+    snap = _State.snapshot
+    if snap is None:
+        return (None, None)
+    _keys = {"phase", "bim_phase", "projectphase", "project_phase", "phase_bim"}
+    for container in ((snap.project or {}), (snap.model or {})):
+        for key, val in container.items():
+            if str(key).strip().lower() in _keys and isinstance(val, str) and val.strip():
+                raw = val.strip()
+                return (raw, _map_phase(raw))
+    return (None, None)
+
+
+def _phase_question(detected_raw: str | None, suggested: str | None) -> str:
+    """Compose l'unique question de phase (avec proposition/mapping).
+
+    Trois cas :
+
+    - phase détectée **reconnue** → demander confirmation explicite ;
+    - phase détectée **non reconnue** mais rapprochable → proposer le
+      rapprochement à confirmer/corriger ;
+    - rien de détecté (ou non rapprochable) → question ouverte.
+    """
+    base = (
+        "Quelle est la phase du projet à auditer ? "
+        "Phases proposées : APS, AVP, PRO, DCE, EXE, DOE, GESTION."
+    )
+    if detected_raw and suggested and detected_raw.strip().upper() in _VALID_PHASES:
+        return (
+            f"Phase détectée dans l'IFC : « {detected_raw} ». Confirmez-vous que "
+            f"l'audit doit être lancé en phase {suggested} ? (sinon, indiquez la "
+            f"phase correcte parmi : APS, AVP, PRO, DCE, EXE, DOE, GESTION)"
+        )
+    if detected_raw and suggested:
+        return (
+            f"Phase détectée : « {detected_raw} ». Proposition d'audit : "
+            f"{suggested}. Confirmer ou corriger (APS, AVP, PRO, DCE, EXE, "
+            f"DOE, GESTION)."
+        )
+    if detected_raw:
+        return (
+            f"Phase détectée : « {detected_raw} » (non reconnue). Choisir la "
+            f"phase d'audit correspondante. " + base
+        )
+    return base
+
+
+def _phase_question_dict(detected_raw: str | None, suggested: str | None) -> dict:
+    """Question de phase **unique** normalisée (clé ``project_phase``).
+
+    Embarque l'aide de lecture loi MOP / mission MOE dans la même question
+    (pas de second champ) et la proposition (``suggested_value``) issue de
+    la détection IFC. Partagée par ``_validate_audit_context`` et
+    ``project_context_questions`` pour éviter tout flux de phase divergent.
+    """
+    q: dict = {
+        "key": "project_phase",
+        "question": _phase_question(detected_raw, suggested),
+        "aide_lecture_loi_mop": dict(_PHASE_READING_AID),
+    }
+    if suggested:
+        q["suggested_value"] = suggested
+    return q
+
+
+def _snapshot_address_suggestion() -> str | None:
+    """Adresse suggérée depuis le snapshot actif (``IfcBuilding.BuildingAddress``
+    / ``IfcSite.SiteAddress``), ou ``None``. Best-effort, ne lève pas."""
+    snap = _State.snapshot
+    if snap is None:
+        return None
+    try:
+        from ..enrichment.address import resolve_project_address
+
+        return resolve_project_address(snap).to_query() or None
+    except Exception:
+        return None
+
+
+def _snapshot_description() -> str | None:
+    """Description projet suggérée depuis le snapshot (``project.description``
+    / ``longname``), ou ``None``."""
+    snap = _State.snapshot
+    if snap is None:
+        return None
+    proj = snap.project or {}
+    for key in ("description", "longname", "long_name"):
+        v = proj.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _snapshot_project_name() -> str | None:
+    """Nom de projet exploitable pour le nommage des livrables.
+
+    Cascade : ``IfcProject.Name`` (``project.name``) → ``project.long_name``
+    → ``IfcSite.Name`` du premier site. ``None`` si rien d'exploitable.
+    """
+    snap = _State.snapshot
+    if snap is None:
+        return None
+    proj = snap.project or {}
+    for key in ("name", "Name", "long_name", "LongName", "longname"):
+        v = proj.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    for site in getattr(snap, "sites", None) or []:
+        v = (site or {}).get("name") or (site or {}).get("Name")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
 
 
 def _validate_audit_context(
@@ -647,43 +1020,63 @@ def _validate_audit_context(
     project_phase: str | None,
     auditor_name: str | None,
     confirm_context: bool,
+    project_description: str | None = None,
+    require_description: bool = False,
+    suggested_address: str | None = None,
+    suggested_description: str | None = None,
+    suggested_phase: str | None = None,
+    detected_phase_raw: str | None = None,
+    require_phase_confirmation: bool = False,
 ) -> dict | None:
-    """Valide les 3 informations obligatoires de contexte avant audit.
+    """Valide les informations de contexte obligatoires avant audit.
 
     Renvoie ``None`` si tout est OK ; renvoie un dict de refus
     structuré (avec ``status='needs_context'``, ``missing`` et
     ``questions``) si une info manque et que ``confirm_context``
     n'est pas mis à ``True``.
 
-    Ne **jamais** inventer une valeur — l'utilisateur DOIT fournir.
+    Ne **jamais** inventer une valeur — l'utilisateur DOIT fournir (ou
+    valider explicitement une **suggestion** issue de la maquette,
+    fournie via ``suggested_value`` dans la question).
+
+    ``require_description`` n'active la validation de la description que
+    lorsqu'un snapshot est disponible (donc qu'on peut proposer une
+    suggestion) — un ``full_audit`` « à froid » n'est pas impacté.
+
+    Phase — question **unique** (pas de doublon loi MOP / phase BIM) :
+    ``require_phase_confirmation`` force la demande de validation quand
+    l'utilisateur n'a pas passé de phase explicite (on propose alors la
+    phase détectée dans l'IFC via ``suggested_phase`` / ``detected_phase_raw``
+    et l'aide de lecture loi MOP). La phase confirmée est l'unique source
+    de vérité (audit + rapport Word + pack AVP).
     """
     missing: list[str] = []
-    questions: list[dict[str, str]] = []
+    questions: list[dict] = []
     if not project_address or not project_address.strip():
         missing.append("project_address")
-        questions.append(
-            {
-                "key": "project_address",
-                "question": (
-                    "Quelle est l'adresse du projet ? "
-                    "(ex: « 12 rue de la Paix, 35340 LIFFRÉ »). "
-                    "Le rapport Word affichera cette adresse comme "
-                    "donnée fiable, fournie par l'utilisateur."
-                ),
-            }
-        )
-    if not project_phase or project_phase.upper() not in _VALID_PHASES:
+        q: dict[str, str] = {
+            "key": "project_address",
+            "question": (
+                "Quelle est l'adresse du projet ? "
+                "(ex: « 12 rue de la Paix, 35340 LIFFRÉ »). "
+                "Le rapport Word affichera cette adresse comme "
+                "donnée fiable, fournie par l'utilisateur."
+            ),
+        }
+        if suggested_address:
+            q["suggested_value"] = suggested_address
+            q["question"] += (
+                f" Suggestion extraite de la maquette (IfcPostalAddress) : "
+                f"« {suggested_address} » — merci de la valider ou de la corriger."
+            )
+        questions.append(q)
+    # Phase — question unique. On la pose si la phase est absente/invalide,
+    # OU si une confirmation explicite est requise (l'utilisateur n'a pas
+    # passé de phase explicite : on propose la phase détectée à valider).
+    phase_valid = bool(project_phase) and project_phase.upper() in _VALID_PHASES
+    if not phase_valid or require_phase_confirmation:
         missing.append("project_phase")
-        questions.append(
-            {
-                "key": "project_phase",
-                "question": (
-                    "Quelle est la phase BIM du projet ? Valeurs admises : "
-                    + ", ".join(sorted(_VALID_PHASES))
-                    + "."
-                ),
-            }
-        )
+        questions.append(_phase_question_dict(detected_phase_raw, suggested_phase))
     if not auditor_name or not auditor_name.strip():
         missing.append("auditor_name")
         questions.append(
@@ -696,6 +1089,26 @@ def _validate_audit_context(
                 ),
             }
         )
+
+    # Description : validée uniquement quand un snapshot est disponible
+    # (on peut alors proposer une suggestion). Un snapshot muet → question
+    # sans suggestion ; pas de snapshot → on ne bloque pas.
+    if require_description and (not project_description or not project_description.strip()):
+        missing.append("project_description")
+        q_desc: dict[str, str] = {
+            "key": "project_description",
+            "question": (
+                "Quelle description du projet afficher dans la section "
+                "« Description du projet » du rapport Word ?"
+            ),
+        }
+        if suggested_description:
+            q_desc["suggested_value"] = suggested_description
+            q_desc["question"] += (
+                f" Suggestion extraite de la maquette : « {suggested_description} » "
+                "— à valider ou corriger."
+            )
+        questions.append(q_desc)
 
     if not missing:
         return None  # tout est OK
@@ -713,8 +1126,11 @@ def _validate_audit_context(
         "next_step": (
             "Renseigner les informations manquantes puis re-appeler le tool "
             "avec les paramètres ``project_address``, ``project_phase``, "
-            "``auditor_name``. Pour lancer malgré tout sans toutes les "
-            "infos (déconseillé), passer ``confirm_context=True``."
+            "``auditor_name`` (et ``project_description`` si demandée). Les "
+            "questions comportant ``suggested_value`` proposent une valeur "
+            "extraite de la maquette : la faire valider ou corriger par "
+            "l'utilisateur. Pour lancer malgré tout sans toutes les infos "
+            "(déconseillé), passer ``confirm_context=True``."
         ),
     }
 
@@ -728,6 +1144,7 @@ def generate_word_report(
     project_address: str | None = None,
     project_phase: str | None = None,
     auditor_name: str | None = None,
+    project_description: str | None = None,
     confirm_context: bool = False,
 ) -> dict:
     """Génère le rapport Word d'audit (enrichi avec contexte projet).
@@ -775,11 +1192,45 @@ def generate_word_report(
     """
     _State.ensure_result()
 
+    # Suggestions issues de la maquette pour le dialogue de contexte
+    # (adresse IfcPostalAddress, description projet). Le snapshot est
+    # présent (``ensure_result`` implique un audit sur snapshot).
+    sugg_address = _snapshot_address_suggestion()
+    sugg_description = _snapshot_description()
+
+    # Phase — unique source de vérité. L'audit a déjà tourné : ``_State.phase``
+    # est la phase confirmée. On ne re-demande une confirmation que si aucune
+    # phase n'est établie (ni fournie, ni posée en session).
+    explicit_phase = (
+        project_phase.strip() if isinstance(project_phase, str) and project_phase.strip() else None
+    )
+    detected_raw, detected_mapped = _detect_snapshot_phase()
+    if explicit_phase:
+        eff_phase = explicit_phase
+    elif _State.phase is not None:
+        eff_phase = _State.phase.value
+    else:
+        eff_phase = detected_mapped
+    require_phase_confirmation = explicit_phase is None and _State.phase is None
+    suggested_phase = (
+        eff_phase if eff_phase and eff_phase.upper() in _VALID_PHASES else detected_mapped
+    )
+
     # Validation contexte
     refusal = _validate_audit_context(
         project_address=project_address,
-        project_phase=project_phase,
+        project_phase=eff_phase,
         auditor_name=auditor_name,
+        # On passe la valeur **utilisateur brute** (pas la description du
+        # snapshot) : la description est demandée puis validée/corrigée par
+        # l'utilisateur, avec la description maquette proposée en suggestion.
+        project_description=project_description,
+        require_description=True,
+        suggested_address=sugg_address,
+        suggested_description=sugg_description,
+        suggested_phase=suggested_phase,
+        detected_phase_raw=detected_raw,
+        require_phase_confirmation=require_phase_confirmation,
         confirm_context=confirm_context,
     )
     if refusal is not None:
@@ -788,13 +1239,16 @@ def generate_word_report(
     raw = Path(output_path) if output_path else _default_output_paths()[0]
     target = safe_export_path(raw, overwrite=overwrite)
 
-    # Construire le contexte enrichi avec les inputs utilisateur.
+    # Construire le contexte enrichi avec les inputs utilisateur. La
+    # description utilisateur (si fournie) écrase la description déduite ;
+    # sinon ``base_ctx`` conserve la description extraite du snapshot.
     base_ctx = build_report_context(_State.result)
     ctx = merge_user_context(
         base_ctx,
         project_address=project_address,
-        project_phase=project_phase,
+        project_phase=eff_phase,
         auditor_name=auditor_name,
+        project_description=project_description,
     )
 
     # Si auditor_name fourni, on l'utilise comme display ; sinon legacy
@@ -893,12 +1347,13 @@ def full_audit(
     cloud_id: str | None = None,
     project_id: str | None = None,
     model_id: str | None = None,
-    phase: str = "PRO",
+    phase: str | None = None,
     output_dir: str | None = None,
     push_mode: str = "ask",
     access_token: str | None = None,
     project_address: str | None = None,
     auditor_name: str | None = None,
+    project_description: str | None = None,
     confirm_context: bool = False,
     expected_model_name: str | None = None,
     force_refresh_snapshot: bool = True,
@@ -936,6 +1391,11 @@ def full_audit(
             ``{status: needs_context, ...}`` sans lancer l'audit.
         auditor_name: **obligatoire** — nom de l'auditeur (page de garde
             + section *Contexte de la mission*). Idem validation.
+        project_description: description du projet affichée dans la
+            section *Description du projet* du rapport Word. Si absente,
+            le tool propose la description extraite de la maquette
+            (``project.description``) et demande validation ; passer
+            ``confirm_context=True`` pour accepter la valeur suggérée.
         confirm_context: ``True`` pour passer outre la validation et
             lancer malgré les champs manquants (déconseillé — le
             rapport affichera ``Information non disponible``).
@@ -957,42 +1417,73 @@ def full_audit(
     if access_token:
         ensure_access_token_param_allowed()
 
-    # Phase effective : l'argument ``phase`` peut être un défaut hérité
-    # de la signature ("PRO") qui ne reflète pas la phase active posée
-    # par un ``set_active_model`` précédent. Quand aucun ID n'est
-    # fourni et qu'une cible est déjà configurée, on veut que la
-    # validation contexte ET le contexte Word reflètent la **phase
-    # réelle de l'audit**, pas le défaut ``"PRO"``. Règle :
+    # Phase — question **unique**, phase confirmée = unique source de
+    # vérité (audit + rapport Word + pack AVP). Règle :
     #
-    #   - si l'appelant a passé ``phase`` explicitement non-vide
-    #     **et** différent du défaut "PRO" → cet argument gagne ;
-    #   - sinon, si ``_State.phase`` est posée → on l'utilise ;
-    #   - sinon, fallback "PRO".
-    #
-    # Note : on ne peut pas distinguer "PRO" explicite vs "PRO" par
-    # défaut au niveau Python (signature ``phase: str = "PRO"``). On
-    # privilégie donc ``_State.phase`` quand l'argument vaut "PRO" et
-    # qu'une phase active existe — c'est ce que l'auditeur attend dans
-    # le scénario de préservation de cible.
-    if phase and phase.upper() != "PRO":
-        effective_phase = phase
+    #   - ``phase`` passé explicitement (non vide) → choix de l'appelant,
+    #     source de vérité, pas de re-confirmation ;
+    #   - sinon, candidat = ``_State.phase`` (posée par un
+    #     ``set_active_model`` précédent) ou, à défaut, la phase détectée
+    #     dans l'IFC (mappée depuis un jalon loi MOP si besoin) ;
+    #   - la confirmation explicite est **exigée** dès que l'appelant n'a
+    #     pas passé de phase (``require_phase_confirmation``) : on propose
+    #     le candidat et on demande validation (``confirm_context=True``
+    #     court-circuite).
+    explicit_phase = phase.strip() if isinstance(phase, str) and phase.strip() else None
+    detected_raw, detected_mapped = _detect_snapshot_phase()
+    if explicit_phase:
+        effective_phase = explicit_phase
     elif _State.phase is not None:
         effective_phase = _State.phase.value
     else:
-        effective_phase = phase or "PRO"
+        effective_phase = detected_mapped  # peut être None (démarrage à froid)
+    require_phase_confirmation = explicit_phase is None
+    # Proposition affichée dans la question : candidat effectif, sinon la
+    # phase détectée mappée.
+    suggested_phase = (
+        effective_phase
+        if effective_phase and effective_phase.upper() in _VALID_PHASES
+        else detected_mapped
+    )
+
+    # Suggestions pour le dialogue de contexte, best-effort depuis un
+    # snapshot **déjà chargé** en session (workflow standard
+    # ``set_active_model`` → ``verify_active_model`` → ``full_audit``).
+    # On ne force pas d'extraction ici : la validation reste bon marché
+    # et sans accès modèle en démarrage à froid. Snapshot présent → on
+    # propose l'adresse (IfcPostalAddress) + la description et on exige
+    # la description ; snapshot absent → question sans suggestion et
+    # description non requise.
+    sugg_address = _snapshot_address_suggestion()
+    sugg_description = _snapshot_description()
 
     # Validation contexte projet AVANT toute exécution coûteuse :
-    # adresse + phase + nom auditeur sont obligatoires pour un livrable
-    # AMO BIM exploitable. Si une info manque et ``confirm_context``
-    # n'est pas True, on refuse en posant des questions structurées.
+    # adresse + phase + nom auditeur (+ description si un snapshot est
+    # disponible) sont obligatoires pour un livrable AMO BIM exploitable.
+    # Si une info manque et ``confirm_context`` n'est pas True, on refuse
+    # en posant des questions structurées, avec ``suggested_value`` quand
+    # la maquette permet de proposer une valeur. La description projet est
+    # **demandée** (valeur utilisateur brute) puis validée/corrigée, la
+    # description maquette n'étant qu'une suggestion.
     context_refusal = _validate_audit_context(
         project_address=project_address,
         project_phase=effective_phase,
         auditor_name=auditor_name,
+        project_description=project_description,
+        require_description=_State.snapshot is not None,
+        suggested_address=sugg_address,
+        suggested_description=sugg_description,
+        suggested_phase=suggested_phase,
+        detected_phase_raw=detected_raw,
+        require_phase_confirmation=require_phase_confirmation,
         confirm_context=confirm_context,
     )
     if context_refusal is not None:
         return context_refusal
+
+    # Après validation/confirmation : filet de sécurité pour l'énumération
+    # (``confirm_context=True`` peut passer sans phase déterminée à froid).
+    effective_phase = effective_phase or "PRO"
 
     mode = (push_mode or "ask").lower()
     if mode == "ask":
@@ -1113,6 +1604,7 @@ def full_audit(
         project_address=project_address,
         project_phase=effective_phase,
         auditor_name=auditor_name,
+        project_description=project_description,
     )
 
     word_written = write_word_report(

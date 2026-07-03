@@ -61,8 +61,8 @@ class BIMDataClient:
     (cloud/project/model) et la session HTTP authentifiée.
 
     Exemple:
-        >>> client = BIMDataClient(cloud_id=33617, project_id=2698917,
-        ...                        model_id=1674450)
+        >>> client = BIMDataClient(cloud_id=..., project_id=...,
+        ...                        model_id=...)  # renseigner votre cible BIMData
         >>> client.get_buildings()      # GET /cloud/.../building
         [...]
         >>> client.create_bcf_full_topic({"title": "..."})

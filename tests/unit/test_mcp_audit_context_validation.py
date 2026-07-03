@@ -59,7 +59,10 @@ def _minimal_catalog() -> RequirementsCatalog:
 def _wire_audit(sess) -> None:
     """Pose un AuditResult minimal pour permettre generate_word_report."""
     snap = ModelSnapshot(
-        project={"name": "Programme Test"},
+        project={
+            "name": "Programme Test",
+            "description": "Programme de 24 logements collectifs — phase test.",
+        },
         model={"name": "TEST.ifc"},
         sites=[
             {
@@ -67,6 +70,11 @@ def _wire_audit(sess) -> None:
                 "name": "Site Liffré",
                 "long_name": "12 rue de la Paix, 35340 LIFFRÉ",
                 "type": "IfcSite",
+                "SiteAddress": {
+                    "AddressLines": ["12 rue de la Paix"],
+                    "PostalCode": "35340",
+                    "Town": "LIFFRÉ",
+                },
             }
         ],
         buildings=[{"uuid": "B1", "name": "Bât A", "type": "IfcBuilding"}],
@@ -151,7 +159,7 @@ class TestGenerateWordReportValidation:
         assert res.get("status") == "needs_context"
         assert "project_phase" in res["missing"]
 
-    def test_accepts_when_all_three_fields_provided(self, _isolated, tmp_path):
+    def test_accepts_when_all_fields_provided(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire_audit(sess)
         res = mcp_server.generate_word_report(
@@ -159,6 +167,7 @@ class TestGenerateWordReportValidation:
             project_address="12 rue de la Paix, 35340 LIFFRÉ",
             project_phase="PRO",
             auditor_name="Stanislas Limouzi",
+            project_description="Programme de 24 logements collectifs.",
         )
         # Pas de needs_context — on a un path et size_bytes.
         assert "path" in res
@@ -237,6 +246,7 @@ class TestWordReportSourceMarking:
             project_address="42 boulevard Saint-Germain, 75005 PARIS",
             project_phase="DCE",
             auditor_name="Stanislas Limouzi",
+            project_description="Réhabilitation.",
         )
         text = _doc_text(tmp_path / "rapport.docx")
         # Adresse user-fournie présente, SANS suffixe "à confirmer"
@@ -286,6 +296,7 @@ class TestWordReportSourceMarking:
             project_address="X",
             project_phase="PRO",
             auditor_name="Jean DUPONT (BET Acme)",
+            project_description="Projet.",
         )
         text = _doc_text(tmp_path / "rapport.docx")
         # Page de garde : ligne « Auteur : ... »
@@ -299,6 +310,7 @@ class TestWordReportSourceMarking:
             project_address="X",
             project_phase="DCE",  # user fournit DCE
             auditor_name="Stan",
+            project_description="Projet.",
         )
         text = _doc_text(tmp_path / "rapport.docx")
         # Phase DCE doit apparaître (user-fournie)
@@ -317,6 +329,7 @@ class TestEnrichedSectionsStillPresent:
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",
+            project_description="Projet.",
         )
         text = _doc_text(tmp_path / "rapport.docx")
         # Sections du modèle de rapport de conformité (structure 0.3)
@@ -333,6 +346,274 @@ class TestEnrichedSectionsStillPresent:
             "10. Annexes",
         ):
             assert section in text, f"section manquante dans le rapport : {section!r}"
+
+
+# ── Phase : question unique, aide loi MOP, détection + mapping ──────────
+
+
+class TestPhaseHelpers:
+    def test_map_phase_valid_passthrough(self):
+        assert mcp_server._map_phase("AVP") == "AVP"
+        assert mcp_server._map_phase("avp") == "AVP"
+
+    def test_map_phase_loi_mop_aliases(self):
+        assert mcp_server._map_phase("APD") == "AVP"
+        assert mcp_server._map_phase("ACT") == "EXE"
+        assert mcp_server._map_phase("VISA") == "EXE"
+        assert mcp_server._map_phase("DET") == "EXE"
+
+    def test_map_phase_unknown_returns_none(self):
+        assert mcp_server._map_phase("ZZZ") is None
+        assert mcp_server._map_phase("") is None
+        assert mcp_server._map_phase(None) is None
+
+
+class TestPhaseValidationDialogue:
+    def test_single_phase_question_with_reading_aid(self):
+        """Une seule question de phase, avec l'aide loi MOP embarquée
+        (pas de second champ)."""
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase=None,
+            auditor_name="Stan",
+            confirm_context=False,
+        )
+        phase_qs = [q for q in res["questions"] if q["key"] == "project_phase"]
+        assert len(phase_qs) == 1
+        q = phase_qs[0]
+        assert "phase du projet à auditer" in q["question"]
+        # Aide de lecture loi MOP présente dans la même question.
+        aid = q["aide_lecture_loi_mop"]
+        assert aid["APS"] == "avant-projet sommaire"
+        assert "APD" in aid["AVP"]
+        assert "GESTION" in aid
+
+    def test_recognized_detected_phase_asks_confirmation(self):
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="AVP",
+            auditor_name="Stan",
+            confirm_context=False,
+            suggested_phase="AVP",
+            detected_phase_raw="AVP",
+            require_phase_confirmation=True,
+        )
+        q = next(q for q in res["questions"] if q["key"] == "project_phase")
+        assert q.get("suggested_value") == "AVP"
+        assert "Phase détectée dans l'IFC" in q["question"]
+        assert "Confirmez-vous" in q["question"]
+
+    def test_unrecognized_phase_proposes_mapping(self):
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="AVP",
+            auditor_name="Stan",
+            confirm_context=False,
+            suggested_phase="AVP",
+            detected_phase_raw="APD",
+            require_phase_confirmation=True,
+        )
+        q = next(q for q in res["questions"] if q["key"] == "project_phase")
+        assert "Phase détectée : « APD »" in q["question"]
+        assert "Proposition d'audit : AVP" in q["question"]
+
+    def test_explicit_valid_phase_no_confirmation(self):
+        """Phase valide + pas de demande de confirmation → pas de question."""
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="PRO",
+            auditor_name="Stan",
+            confirm_context=False,
+            require_phase_confirmation=False,
+        )
+        assert res is None
+
+    def test_no_duplicate_phase_field(self):
+        """Une seule clé de phase dans les questions (pas de doublon
+        loi MOP / phase BIM)."""
+        res = mcp_server._validate_audit_context(
+            project_address=None,
+            project_phase=None,
+            auditor_name=None,
+            confirm_context=False,
+            require_phase_confirmation=True,
+        )
+        keys = [q["key"] for q in res["questions"]]
+        assert keys.count("project_phase") == 1
+        assert "mop_phase" not in keys
+
+
+class TestFullAuditPhaseConfirmation:
+    def test_no_explicit_phase_asks_confirmation(self, _isolated):
+        """full_audit sans phase explicite → needs_context sur la phase
+        (confirmation exigée), avant toute extraction."""
+        sess, _ = _isolated
+        res = mcp_server.full_audit(
+            project_address="12 rue X",
+            auditor_name="Stan",
+            push_mode="none",
+            # phase omise → confirmation exigée
+        )
+        assert res.get("status") == "needs_context"
+        assert "project_phase" in res["missing"]
+
+    def test_detected_phase_proposed_as_suggestion(self, _isolated):
+        sess, _ = _isolated
+        _wire_audit(sess)
+        # Injecte une phase brute loi MOP dans le snapshot.
+        sess.snapshot.project = {"name": "Programme Test", "phase": "APD"}
+        res = mcp_server.full_audit(
+            project_address="12 rue X",
+            auditor_name="Stan",
+            push_mode="none",
+        )
+        assert res.get("status") == "needs_context"
+        q = next(q for q in res["questions"] if q["key"] == "project_phase")
+        # APD (loi MOP) → proposition AVP.
+        assert q.get("suggested_value") == "AVP"
+        assert "APD" in q["question"]
+
+
+# ── R4 : suggestions maquette + validation description ──────────────────
+
+
+class TestValidateAuditContextSuggestions:
+    """Tests unitaires directs de ``_validate_audit_context`` (R4)."""
+
+    def test_address_question_carries_suggested_value(self):
+        res = mcp_server._validate_audit_context(
+            project_address=None,
+            project_phase="PRO",
+            auditor_name="Stan",
+            confirm_context=False,
+            suggested_address="12 rue de la Paix 35340 LIFFRÉ",
+        )
+        assert res is not None
+        q = next(q for q in res["questions"] if q["key"] == "project_address")
+        assert q.get("suggested_value") == "12 rue de la Paix 35340 LIFFRÉ"
+        assert "12 rue de la Paix" in q["question"]
+
+    def test_address_question_without_suggestion_has_no_suggested_value(self):
+        res = mcp_server._validate_audit_context(
+            project_address=None,
+            project_phase="PRO",
+            auditor_name="Stan",
+            confirm_context=False,
+        )
+        q = next(q for q in res["questions"] if q["key"] == "project_address")
+        assert "suggested_value" not in q
+
+    def test_description_not_required_by_default(self):
+        """Sans ``require_description`` (cold start / pas de snapshot),
+        la description absente ne bloque pas."""
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="PRO",
+            auditor_name="Stan",
+            confirm_context=False,
+            project_description=None,
+        )
+        assert res is None
+
+    def test_description_required_and_missing_is_asked(self):
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="PRO",
+            auditor_name="Stan",
+            confirm_context=False,
+            project_description=None,
+            require_description=True,
+        )
+        assert res is not None
+        assert "project_description" in res["missing"]
+        q = next(q for q in res["questions"] if q["key"] == "project_description")
+        assert "suggested_value" not in q
+
+    def test_description_question_carries_suggestion(self):
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="PRO",
+            auditor_name="Stan",
+            confirm_context=False,
+            project_description=None,
+            require_description=True,
+            suggested_description="Résidence 24 logements",
+        )
+        q = next(q for q in res["questions"] if q["key"] == "project_description")
+        assert q.get("suggested_value") == "Résidence 24 logements"
+
+    def test_description_satisfied_when_provided(self):
+        res = mcp_server._validate_audit_context(
+            project_address="X",
+            project_phase="PRO",
+            auditor_name="Stan",
+            confirm_context=False,
+            project_description="Une description fournie",
+            require_description=True,
+        )
+        assert res is None
+
+
+class TestWordReportSuggestionsAndDescription:
+    def test_address_question_uses_snapshot_suggestion(self, _isolated):
+        """generate_word_report sans adresse → la question propose
+        l'adresse extraite de l'IfcSite.SiteAddress."""
+        sess, _ = _isolated
+        _wire_audit(sess)
+        res = mcp_server.generate_word_report(
+            project_phase="PRO",
+            auditor_name="Stan",
+            # project_address omis
+        )
+        assert res.get("status") == "needs_context"
+        q = next(q for q in res["questions"] if q["key"] == "project_address")
+        assert q.get("suggested_value") == "12 rue de la Paix 35340 LIFFRÉ"
+
+    def test_snapshot_description_is_proposed_not_auto_accepted(self, _isolated):
+        """La description du snapshot n'est PAS acceptée en silence : la
+        question est posée avec la description maquette en suggestion, à
+        valider/corriger par l'utilisateur (attendu CTO)."""
+        sess, _ = _isolated
+        _wire_audit(sess)  # snapshot avec project.description
+        res = mcp_server.generate_word_report(
+            project_address="X",
+            project_phase="PRO",
+            auditor_name="Stan",
+            # project_description omis → doit être DEMANDÉE (pas reprise en silence)
+        )
+        assert res.get("status") == "needs_context"
+        assert "project_description" in res["missing"]
+        q = next(q for q in res["questions"] if q["key"] == "project_description")
+        assert q.get("suggested_value") == "Programme de 24 logements collectifs — phase test."
+
+    def test_user_description_flows_to_report(self, _isolated, tmp_path):
+        sess, _ = _isolated
+        _wire_audit(sess)
+        mcp_server.generate_word_report(
+            output_path="rapport_userdesc.docx",
+            project_address="X",
+            project_phase="PRO",
+            auditor_name="Stan",
+            project_description="Réhabilitation d'un immeuble de 12 logements sociaux.",
+        )
+        text = _doc_text(tmp_path / "rapport_userdesc.docx")
+        assert "Réhabilitation d'un immeuble de 12 logements sociaux." in text
+
+    def test_missing_description_is_asked_when_snapshot_silent(self, _isolated):
+        """Snapshot sans description ET utilisateur silencieux →
+        needs_context sur project_description (P1b)."""
+        sess, _ = _isolated
+        _wire_audit(sess)
+        # Retire la description du snapshot pour simuler une maquette muette.
+        sess.snapshot.project = {"name": "Programme Test"}
+        res = mcp_server.generate_word_report(
+            project_address="X",
+            project_phase="PRO",
+            auditor_name="Stan",
+            # project_description omis, snapshot muet
+        )
+        assert res.get("status") == "needs_context"
+        assert "project_description" in res["missing"]
 
 
 # ── merge_user_context : tests unitaires de la primitive ────────────────

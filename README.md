@@ -140,10 +140,15 @@ et aux espaces multiples — ex: `"LIFFRE"` matche
        project_address="12 rue du Stade, 35340 Liffré",
        project_phase="DOE",
        auditor_name="AMO BIM",
+       project_description="Résidence de 24 logements collectifs.",
    )
    # depuis v0.3.0 : project_address + project_phase + auditor_name
    # sont obligatoires (ou passer confirm_context=True pour accepter
    # "Information non disponible" dans le rapport)
+   # project_description : réclamée quand un snapshot est disponible ;
+   # la question propose l'adresse (IfcPostalAddress) et la description
+   # (project.description) extraites de la maquette via suggested_value —
+   # à valider ou corriger.
 ```
 
 Tant que `verify_active_model` ne renvoie pas `ok: true`, **ne lancez
@@ -160,6 +165,18 @@ Si vous l'oubliez, vous recevez en réponse :
 et le rapport n'est pas généré — re-appeler avec les champs renseignés
 ou ajouter `confirm_context=True`.
 
+#### Phase : une seule question (loi MOP / phase BIM)
+
+La phase est demandée **une seule fois** — « Quelle est la phase du projet
+à auditer ? » (APS, AVP, PRO, DCE, EXE, DOE, GESTION) — avec une aide de
+lecture loi MOP / mission MOE dans la même question (pas de second champ).
+La phase confirmée est l'**unique source de vérité** (audit + rapport Word +
+pack AVP). Si l'IFC déclare une phase, elle est proposée par défaut et
+confirmée ; une phase non reconnue (APD, ACT, VISA, DET…) est rapprochée
+(APD→AVP, ACT/VISA/DET→EXE) à valider ou corriger. Sans phase explicite,
+`full_audit` demande confirmation au lieu de défauter sur `PRO` (sauf
+`confirm_context=True`).
+
 ### Et `full_audit` ?
 
 Si vous avez le moindre doute sur la maquette active (changement de
@@ -173,8 +190,15 @@ full_audit(
     expected_model_name="LIFFRE",
     force_refresh_snapshot=True,    # défaut
     push_mode="none",
+    project_address="12 rue du Stade, 35340 Liffré",
+    auditor_name="AMO BIM",
+    project_description="Résidence de 24 logements collectifs.",
 )
 ```
+
+Comme `generate_word_report`, `full_audit` propose l'adresse et la
+description extraites de la maquette (`suggested_value`) quand un snapshot
+est déjà chargé, et réclame `project_description` dans ce cas.
 
 - `expected_model_name` (optionnel) : si fourni, l'orchestrateur lève
   `ValueError` avant toute génération de livrable en cas de mismatch.
@@ -420,7 +444,7 @@ from audit_bim.reporting.word_report import write_word_report
 from audit_bim.reporting.xlsx_annex import write_xlsx_annex
 
 cat  = build_catalog(cch_pdf="...", data_spec_xlsx="...", naming_spec_xlsx="...")
-snap = extract_snapshot(BIMDataClient(cloud_id=33617, project_id=2698917, model_id=1674450))
+snap = extract_snapshot(BIMDataClient(cloud_id=..., project_id=..., model_id=...))  # cible BIMData
 res  = run_audit(snap, cat, BIMPhase.AVP)
 write_word_report(res, "/tmp/audit.docx")
 write_xlsx_annex(res, "/tmp/audit.xlsx")
@@ -473,6 +497,90 @@ Si aucun brand kit n'est trouvé (CI sans assets, autre poste), le
 rapport reste générable : la couverture dégrade en wordmark texte
 « BIMDATA ». La charte de couleurs et la typographie restent
 appliquées dans tous les cas (pas de dépendance au brand kit).
+
+## Pack de livrables AVP I3F (`generate_avp_i3f_pack`)
+
+Livrable dédié reproduisant, sous **charte BIMData**, le jeu de fichiers
+I3F pour une opération en phase AVP (ex. Tarare 0546L) :
+
+1. `… Contrôle Maquettes AVP.xlsx` — grille de contrôle (CODE 3F / points
+   de contrôle / exigence CCH / évaluation 0-1-2 / commentaires) + onglets
+   de stats conformité (Zones/Pièces Nommage, ARC absence matériau, Zones
+   ObjectType) ;
+2. `… AVP - export SHAB maquette.xlsx` ;
+3. `… Export Zones et Espaces.xlsx` ;
+4. `… Extraction surface enveloppe.xlsx` (+ ratio FAC/SHAB, Seuil 3F 2026) ;
+5. `… export Menuiseries.xlsx` ;
+6. `… Analyse BIM AVP.docx` (+ `.pdf` best-effort) — rapport consolidé
+   (données d'entrée, usages BIM 3F, synthèse, indicateurs de conformité,
+   écarts, grille de contrôle, points bloquants, recommandations AMO BIM,
+   annexes statistiques).
+
+Les exports **préservent tous les onglets I3F** (pivots `Feuil1`/`Feuil2` +
+détail `TDB…`, y compris onglets vides). Les fichiers produits suivent la
+**convention documentaire I3F, générée à partir de données projet
+confirmées** :
+
+```
+YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>
+```
+
+où `YYMMDD` est la **date de génération**. Le **nom du projet** est cherché
+dans la maquette (`project.name` / `IfcSite.Name`), le **code (ESI)** dans
+le contrôle maquettes I3F, la **phase** est la phase d'audit confirmée. Si
+le nom ou le code restent introuvables, `generate_avp_i3f_pack` renvoie
+`{status: needs_context}` avec la question à poser (ex. « Quel code projet /
+ESI doit apparaître dans les livrables ? »). Exemple : `260702 Tarare 0546L
+AVP - export SHAB maquette.xlsx`. Le consolidé restitue la **synthèse
+d'audit BIMData réelle** (répartition CRITICAL→INFO, top thèmes, quantités
+manquantes).
+
+Les **métadonnées opérationnelles du contrôle** (issues du rapport I3F de
+référence) alimentent « Données d'entrée » et « Usages BIM 3F » — passées à
+`generate_avp_i3f_pack` / `write_avp_i3f_report_pack` : `usages_bim`,
+`nombre_logements`, `temoin_virtuel`, `date_controle`, `auteur_controle`.
+Absentes → « Information non disponible… » (jamais inventées).
+
+**Hybride, source-first** : les colonnes issues d'outils externes
+(Solibri / ArchiCAD / écarts) sont lues dans les **.xlsx sources I3F**
+fournis ; **si ces fichiers sont absents**, les exports SHAB, Zones/Espaces,
+Enveloppe et Menuiseries sont **générés depuis `AuditResult.snapshot`**
+(module `reporting/avp_snapshot.py`) — on ne livre jamais une annexe réduite
+au bandeau. L'enveloppe sélectionne les murs par **layer** normalisé
+(« MURS - Extérieurs périphériques.Exnd », tolérance casse/accents/espaces ;
+`IfcWall`/`IfcWallStandardCase`, `IfcCurtainWall` exclu) et résout la surface
+`NetSideArea` → `GrossSideArea` → `NetArea` → `GrossArea` puis
+« Superficie calculée », **source tracée**. Espaces/zones : libellé
+`LongName` sinon `Name`, surfaces BaseQuantities puis « Superficie
+calculée », zone sans surface propre = somme des espaces rattachés. Toute
+donnée absente (snapshot ET source) → « Information non disponible dans les
+documents fournis. » (**jamais inventée**).
+
+**QA gate** : après génération, chaque annexe est rouverte et ses lignes
+métier comptées. Si SHAB, Zones/Espaces ou Enveloppe sortent sans ligne alors
+que le snapshot contient des entités exploitables, le tool renvoie
+`{status: "error", error: "empty_deliverable", empty_deliverables: [...]}` —
+pas un fichier client vide.
+
+```python
+generate_avp_i3f_pack(
+    output_dir="avp_tarare",
+    controle_xlsx="…/260211 … Contrôle Maquettes AVP.xlsx",
+    shab_xlsx="…/260201 … export SHAB maquette.xlsx",
+    zones_espaces_xlsx="…/260130 … Export Zones et Espaces.xlsx",
+    enveloppe_xlsx="…/260130 … Extraction surface enveloppe.xlsx",
+    menuiseries_xlsx="…/260130 … export Menuiseries.xlsx",
+    project_name="Tarare", project_code="0546L", phase="AVP",
+)
+```
+
+Fidélité « tables à plat » : mêmes onglets, colonnes, ordre, unités et
+vocabulaire que les sources ; les tableaux croisés et blocs de synthèse
+sont rendus en tables structurées équivalentes.
+
+**Export PDF** (consolidé) : best-effort via LibreOffice
+(`soffice`/`libreoffice`, binaire overridable par `AUDIT_BIM_SOFFICE`).
+Absent → le `.docx` reste le livrable (`pdf_available: false`), aucun échec.
 
 ## Couverture des règles d'audit
 

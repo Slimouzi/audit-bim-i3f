@@ -874,6 +874,12 @@ def _write_section_scope(doc: Document, context: ReportProjectContext, result: A
         context.source_of("client_name") if context.client_name else context.source_of("owner_name")
     )
     _kv_or_na(doc, "Maîtrise d'ouvrage", moa_value, source=moa_source)
+    _kv_or_na(
+        doc,
+        "Description du projet",
+        context.project_description,
+        source=context.source_of("project_description"),
+    )
 
 
 def _write_section_methodology(doc: Document, context: ReportProjectContext) -> None:
