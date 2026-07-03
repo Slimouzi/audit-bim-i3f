@@ -39,6 +39,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      - name: Install bim-core (tagged contract lib)
+        run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
       - run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
@@ -54,6 +56,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Install bim-core (tagged contract lib)
+        run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
       - run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
@@ -73,7 +77,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install uv pip-audit
       - run: uv lock --check
-      - run: uv export --format requirements-txt --no-hashes --no-emit-project --output-file requirements-from-lock.txt
+      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --output-file requirements-from-lock.txt
       - run: pip-audit -r requirements-from-lock.txt --format columns
 
   security-audit-ocr:
@@ -90,7 +94,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install uv pip-audit
       - run: uv lock --check
-      - run: uv export --format requirements-txt --no-hashes --no-emit-project --extra ocr --output-file requirements-from-lock-ocr.txt
+      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --extra ocr --output-file requirements-from-lock-ocr.txt
       - run: pip-audit -r requirements-from-lock-ocr.txt --format columns
 
   build:
@@ -122,9 +126,10 @@ jobs:
     runs-on: ubuntu-latest
     # Distribution via GitHub Releases uniquement (le projet n'est pas
     # publié sur PyPI). Les artefacts sdist + wheel produits par
-    # ``build`` sont attachés à la release GitHub pour permettre
-    # l'installation via ``pip install <url-asset>`` ou téléchargement
-    # direct.
+    # ``build`` sont attachés à la release GitHub. L'installation
+    # nécessite de préinstaller ``bim-core`` (contrat commun, non publié
+    # sur PyPI) — voir la note ``body`` ci-dessous, injectée dans la
+    # release pour que la promesse d'installation reste vraie.
     permissions:
       contents: write
     steps:
@@ -137,4 +142,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          body: |
+            ## Installation
+
+            `bim-core` (contrats communs) n'est pas publié sur PyPI. Préinstallez-le
+            depuis son tag Git **avant** le wheel/sdist ci-joint :
+
+            ```bash
+            pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
+            pip install <url-de-l-asset-wheel-ci-dessous>
+            ```
           files: dist/*

@@ -38,6 +38,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      - name: Install bim-core (tagged contract lib)
+        # bim-core n'est pas sur PyPI : on l'installe explicitement depuis le
+        # tag Git AVANT audit-bim-i3f. La dépendance `bim-core>=0.1.0,<0.2` est
+        # alors déjà satisfaite lors de l'install du package.
+        run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
       - name: Install package + test deps
         run: |
           python -m pip install --upgrade pip
@@ -76,7 +81,9 @@ jobs:
         # ``--no-emit-project`` exclut audit-bim-i3f lui-même (pas
         # publié sur PyPI). ``--no-hashes`` car pip-audit n'utilise
         # pas les hashes — seuls les ``name==version`` comptent ici.
-        run: uv export --format requirements-txt --no-hashes --no-emit-project --output-file requirements-from-lock.txt
+        # ``--no-emit-package bim-core`` : contrat first-party résolu via Git
+        # (pas de version PyPI à scanner ; ses propres deps sont déjà couvertes).
+        run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --output-file requirements-from-lock.txt
       - name: Scan locked dependencies for CVEs
         # Audit **reproductible** : exactement les versions du lockfile,
         # pas ce que pip aurait résolu fraîchement. Permet aux résultats
@@ -103,7 +110,7 @@ jobs:
         # ``--extra ocr`` ajoute pytesseract / pdf2image / Pillow au
         # lockfile résolu — ces deps ne sont pas dans le ``test`` extra
         # mais sont exécutées en runtime sur DOE PDF scanné.
-        run: uv export --format requirements-txt --no-hashes --no-emit-project --extra ocr --output-file requirements-from-lock-ocr.txt
+        run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --extra ocr --output-file requirements-from-lock-ocr.txt
       - name: Scan OCR extras for CVEs
         run: pip-audit -r requirements-from-lock-ocr.txt --format columns
 
@@ -117,6 +124,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Install bim-core (tagged contract lib)
+        run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
       - name: Install package + test deps
         run: |
           python -m pip install --upgrade pip
