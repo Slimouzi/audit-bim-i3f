@@ -46,7 +46,7 @@ from .tools_actions import (
 
 @mcp.tool()
 def prepare_bcf_from_findings(
-    finding_filter: dict | None = None,
+    finding_filter: dict | str | None = None,
     prefix: str = "I3F Audit — ",
     include_overview: bool = True,
 ) -> dict:
@@ -73,7 +73,7 @@ def apply_bcf_plan(plan_path: str, confirm: bool = False) -> dict:
 
 @mcp.tool()
 def prepare_smartviews_from_findings(
-    finding_filter: dict | None = None,
+    finding_filter: dict | str | None = None,
     prefix: str = "I3F Audit — ",
     include_overview: bool = True,
 ) -> dict:
@@ -97,7 +97,7 @@ def apply_smartviews_plan(plan_path: str, confirm: bool = False) -> dict:
 
 @mcp.tool()
 def prepare_classification_corrections(
-    suggestion_filter: dict | None = None,
+    suggestion_filter: dict | str | None = None,
     default_to_accepted_only: bool = True,
 ) -> dict:
     """Alias métier de :func:`prepare_classification_update_plan` —

@@ -604,6 +604,96 @@ def query_findings(
     return [f.model_dump(mode="json") for f in items[:limit]]
 
 
+@mcp.tool()
+def import_preliminary_findings(
+    inventory_json: str | None = None,
+    space_clash_json: str | None = None,
+    surface_loss_json: str | None = None,
+    boundaries_json: str | None = None,
+    openings_json: str | None = None,
+) -> dict:
+    """Importe les findings de l'audit préliminaire géométrique produits par
+    le serveur MCP ``ifc-openshell`` et les fusionne dans l'audit courant.
+
+    Les findings importés alimentent ensuite automatiquement le rapport Word,
+    l'annexe XLSX, les topics BCF et les Smart Views (thème « Cohérence
+    géométrique » + thèmes Quantités / Hiérarchie / Nommage Pièce).
+
+    Args:
+        inventory_json: Fichier ``*_space_inventory.json``
+            (outil ``extract_space_inventory``) — pièces trop petites,
+            écarts de surface, pièces sans zone, typologies de zones,
+            nommage, fraîcheur du modèle.
+        space_clash_json: Fichier ``*_space_clash_findings.json``
+            (outil ``run_space_clash_audit``) — doublons de pièces,
+            chevauchements, placards double-modélisés.
+        surface_loss_json: Fichier ``*_surface_loss.json``
+            (outil ``compute_surface_loss``) — m² perdus par pièce.
+        boundaries_json: Fichier ``*_boundaries.json``
+            (outil ``check_space_boundaries``) — limites manquantes entre
+            pièces adjacentes.
+        openings_json: Fichier ``*_openings_check.json``
+            (outil ``check_opening_correspondence``) — ouvertures structure
+            sans correspondance archi.
+
+    Returns:
+        Nombre de findings importés par source + nouveau résumé de l'audit.
+    """
+    from ..audit.findings import Severity
+    from ..audit.rules import load_preliminary_findings
+
+    _State.ensure_result()
+    if not any(
+        (inventory_json, space_clash_json, surface_loss_json, boundaries_json, openings_json)
+    ):
+        raise ValueError("Fournir au moins un fichier JSON à importer.")
+
+    def _load(path: str | None) -> dict | None:
+        if not path:
+            return None
+        safe = safe_input_path(path, allowed_extensions={".json"})
+        return json.loads(Path(safe).read_text(encoding="utf-8"))
+
+    sources = {
+        "inventory": _load(inventory_json),
+        "space_clash": _load(space_clash_json),
+        "surface_loss": _load(surface_loss_json),
+        "boundaries": _load(boundaries_json),
+        "openings": _load(openings_json),
+    }
+    by_source = {
+        k: len(load_preliminary_findings(**{k: v})) if v else 0 for k, v in sources.items()
+    }
+    # Nom des fichiers JSON par source → tracé dans ref_cch (provenance opposable).
+    source_files = {
+        "inventory": Path(inventory_json).name if inventory_json else None,
+        "space_clash": Path(space_clash_json).name if space_clash_json else None,
+        "surface_loss": Path(surface_loss_json).name if surface_loss_json else None,
+        "boundaries": Path(boundaries_json).name if boundaries_json else None,
+        "openings": Path(openings_json).name if openings_json else None,
+    }
+    imported = load_preliminary_findings(**sources, source_files=source_files)
+
+    _State.result.findings.extend(imported)
+    # Même tri stable que run_audit (sévérité décroissante, thème, type)
+    sev_order = {s: i for i, s in enumerate(Severity.ordered())}
+    _State.result.findings.sort(
+        key=lambda f: (
+            sev_order.get(f.severity, 99),
+            f.theme.value,
+            f.error_type.value,
+            f.ifc_type or "",
+            f.name or "",
+        )
+    )
+
+    return {
+        "imported": len(imported),
+        "by_source": by_source,
+        "audit_summary": _State.result.summary(),
+    }
+
+
 def _default_output_paths() -> tuple[Path, Path]:
     """Renvoie deux chemins relatifs (docx, xlsx) — passés ensuite à
     :func:`safe_export_path` qui les résoudra sous ``AUDIT_OUTPUT_DIR``.

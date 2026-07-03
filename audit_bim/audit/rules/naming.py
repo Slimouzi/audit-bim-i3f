@@ -258,10 +258,18 @@ def audit_naming(snap: ModelSnapshot, catalog: RequirementsCatalog) -> list[Find
             )
 
     # ── IfcSpace (LongName vs liste pièces) ─────────────────────────────────
+    # Repli LongName → Name : certains outils auteurs (ArchiCAD) remplissent
+    # Name là où le CCH attend LongName. La donnée trouvée dans Name satisfait
+    # le contrôle de contenu, mais le mauvais emplacement est signalé en LOW
+    # (au lieu du HIGH « manquant »).
     rule_space = catalog.naming_rule_for("IfcSpace", "LongName")
     allowed_rooms = {r.name.upper().strip() for r in catalog.room_specs}
     for sp in snap.of_class("IfcSpace"):
         ln = get_attribute(sp, "LongName") or sp.get("longname")
+        from_name_fallback = False
+        if not ln:
+            ln = get_attribute(sp, "Name") or sp.get("name")
+            from_name_fallback = bool(ln)
         if not ln:
             findings.append(
                 Finding(
@@ -277,6 +285,24 @@ def audit_naming(snap: ModelSnapshot, catalog: RequirementsCatalog) -> list[Find
                 )
             )
             continue
+        if from_name_fallback:
+            findings.append(
+                Finding(
+                    theme=Theme.NAMING_SPACE,
+                    severity=Severity.LOW,
+                    error_type=ErrorType.NAMING_INVALID_FORMAT,
+                    element_uuid=sp.get("uuid"),
+                    ifc_type="IfcSpace",
+                    name=str(ln).strip(),
+                    expected="Nom de pièce porté par IfcSpace/LongName",
+                    actual=f"trouvé dans IfcSpace/Name : '{str(ln).strip()}' (LongName vide)",
+                    ref_cch=rule_space.ref_cch if rule_space else "Chap 6.3.2",
+                    recommended_action=(
+                        "Remapper l'export (Name → LongName) — la donnée existe "
+                        "mais n'est pas à l'emplacement attendu par le CCH."
+                    ),
+                )
+            )
         ln_str = str(ln).strip()
         if rule_space and rule_space.case_sensitive and ln_str != ln_str.upper():
             findings.append(

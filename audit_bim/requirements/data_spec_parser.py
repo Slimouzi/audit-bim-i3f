@@ -110,7 +110,11 @@ def _required_phases(row: tuple, phase_cols: dict[BIMPhase, int]) -> list[BIMPha
 
 
 def parse_data_spec(xlsx_path: str | Path) -> list[PropertySpec]:
-    """Parse l'annexe Spécification des données.
+    """Parse l'annexe Spécification des données (V3.7 ou CCH 2026 Vbéta2).
+
+    Le format est détecté automatiquement : l'annexe 2026 réorganise les
+    colonnes (Objet en B, Classe IFC en C, propriété en M) — voir
+    ``data_spec_parser_2026``.
 
     Args:
         xlsx_path: Chemin vers le fichier xlsx.
@@ -118,7 +122,12 @@ def parse_data_spec(xlsx_path: str | Path) -> list[PropertySpec]:
     Returns:
         Liste de PropertySpec, une par ligne exploitable.
     """
+    from .data_spec_parser_2026 import is_2026_format, parse_data_spec_2026
+
     xlsx_path = Path(xlsx_path)
+    if is_2026_format(xlsx_path):
+        return parse_data_spec_2026(xlsx_path)
+
     specs: list[PropertySpec] = []
 
     current_theme: str = ""
