@@ -313,6 +313,85 @@ def test_envelope_excludes_curtain_wall(tmp_path):
     assert "Façade vitrée" not in env
 
 
+def _real_layer_wall_result() -> AuditResult:
+    """Snapshot avec un mur d'enveloppe portant le nom de calque **réel** d'un
+    export ArchiCAD I3F (maquette 250613_MN_BAT) : préfixe de code chantier
+    « 221 - » et suffixe de vue « .Exndo »."""
+    wall = {
+        "uuid": "W1",
+        "type": "IfcWall",
+        "name": "Mur péri 221",
+        "layers": [{"name": "221 - MURS - Extérieurs périphériques.Exndo"}],
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetSideArea"}, "value": 30.0}],
+            }
+        ],
+    }
+    window = {
+        "uuid": "WIN1",
+        "type": "IfcWindow",
+        "name": "F01",
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [
+                    {"definition": {"name": "Width"}, "value": 1.0},
+                    {"definition": {"name": "Height"}, "value": 1.2},
+                ],
+            }
+        ],
+    }
+    space = {
+        "uuid": "S1",
+        "type": "IfcSpace",
+        "name": "SEJOUR",
+        "longname": "SEJOUR",
+        "property_sets": [
+            {
+                "name": "Pset_SpaceCommon",
+                "properties": [{"definition": {"name": "Superficie calculée"}, "value": 20.0}],
+            }
+        ],
+    }
+    snap = ModelSnapshot(
+        project={"name": "0546L"},
+        model={"name": "250613_MN_BAT.ifc"},
+        spaces=[space],
+        elements=[wall, window],
+    ).index()
+    return AuditResult(phase=BIMPhase.AVP, catalog=_catalog(), snapshot=snap, findings=[])
+
+
+def test_envelope_recognizes_real_archicad_layer_name(tmp_path):
+    """Régression maquette réelle 250613_MN_BAT : un calque
+    « 221 - MURS - Extérieurs périphériques.Exndo » (préfixe de code + suffixe
+    « .Exndo ») doit être reconnu comme enveloppe — un match exact le ratait et
+    l'annexe Enveloppe sortait vide malgré des murs présents."""
+    from audit_bim.reporting.avp_snapshot import _envelope_layer_name, count_envelope_walls
+
+    result = _real_layer_wall_result()
+    snap = result.snapshot
+    wall = snap.of_class("IfcWall")[0]
+    # Le vrai nom de calque est reconnu (et remonté tel quel pour l'affichage).
+    assert _envelope_layer_name(wall) == "221 - MURS - Extérieurs périphériques.Exndo"
+    assert count_envelope_walls(snap) == 1
+
+    pack = write_avp_i3f_report_pack(
+        result,
+        tmp_path / "out",
+        sources=None,
+        project_name="0546L",
+        project_code="0546L",
+        export_pdf=False,
+    )
+    env = _all_text(pack.enveloppe_xlsx)
+    assert "Mur péri 221" in env  # annexe Enveloppe NON vide
+    assert "221 - MURS - Extérieurs périphériques.Exndo" in env  # vrai calque affiché
+    assert "30" in env  # NetSideArea remontée
+
+
 def test_menuiseries_from_snapshot(tmp_path):
     result = _synthetic_result()
     pack = write_avp_i3f_report_pack(

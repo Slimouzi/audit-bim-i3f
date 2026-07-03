@@ -45,7 +45,13 @@ from .word_report import NOT_AVAILABLE
 # « MURS - Extérieurs périphériques.Exnd » ne les porte pas. Pour l'inclure
 # un jour, ajouter la classe ici et adapter la synthèse façades/menuiseries.
 _ENVELOPE_WALL_CLASSES = ("IfcWall", "IfcWallStandardCase")
-_ENVELOPE_LAYER = "MURS - Extérieurs périphériques.Exnd"
+# Un mur d'enveloppe est reconnu par le MOTIF distinctif « extérieurs
+# périphériques » (normalisé), et non par un libellé exact : le nom de calque
+# réel varie selon l'export ArchiCAD — préfixe de code chantier (« 221 - »),
+# suffixe de vue (« .Exnd » / « .Exndo »). Un match exact ratait des murs réels
+# comme « 221 - MURS - Extérieurs périphériques.Exndo » → annexe Enveloppe vide.
+# ``_ENVELOPE_LAYER`` n'est plus qu'un libellé canonique de repli d'affichage.
+_ENVELOPE_LAYER = "MURS - Extérieurs périphériques"
 
 # Ordre de résolution des surfaces (BaseQuantities), puis repli propriété.
 _WALL_BQ_ORDER = ("NetSideArea", "GrossSideArea", "NetArea", "GrossArea")
@@ -68,7 +74,8 @@ def _norm(s: Any) -> str:
     return " ".join(txt.lower().split())
 
 
-_ENVELOPE_LAYER_NORM = _norm(_ENVELOPE_LAYER)
+# Motif distinctif cherché dans le nom de calque (tolérant accents/casse/espaces).
+_ENVELOPE_LAYER_TOKEN = _norm("Extérieurs périphériques")
 
 
 # ── Accesseurs bas niveau (tolérants) ───────────────────────────────────────
@@ -176,11 +183,17 @@ def _rich(snap: ModelSnapshot, item: dict) -> dict:
     return item
 
 
-def _has_envelope_layer(el: dict) -> bool:
+def _envelope_layer_name(el: dict) -> str | None:
+    """Nom réel du calque d'enveloppe de l'élément (motif « extérieurs
+    périphériques »), ou ``None`` si aucun calque ne correspond."""
     for layer in el.get("layers") or []:
-        if isinstance(layer, dict) and _norm(layer.get("name")) == _ENVELOPE_LAYER_NORM:
-            return True
-    return False
+        if isinstance(layer, dict) and _ENVELOPE_LAYER_TOKEN in _norm(layer.get("name")):
+            return layer.get("name")
+    return None
+
+
+def _has_envelope_layer(el: dict) -> bool:
+    return _envelope_layer_name(el) is not None
 
 
 def _envelope_walls(snap: ModelSnapshot) -> list[dict]:
@@ -591,7 +604,7 @@ def build_enveloppe_from_snapshot(snap: ModelSnapshot) -> EnveloppeSource | None
                 _attr(w, "Name"),
                 _ifc_type(w),
                 _storey(w),
-                _ENVELOPE_LAYER,
+                _envelope_layer_name(w) or _ENVELOPE_LAYER,
                 surf,
                 src or NOT_AVAILABLE,
             ]
