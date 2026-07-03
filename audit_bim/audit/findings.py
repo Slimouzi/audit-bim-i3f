@@ -71,6 +71,7 @@ class Theme(str, Enum):
     CLASSIFICATION = "Classification IFC"
     QUANTITY = "Quantités (surfaces, volumes)"
     DOCUMENT = "Document attendu"
+    GEOMETRY = "Cohérence géométrique"
 
 
 class ErrorType(str, Enum):
@@ -88,6 +89,23 @@ class ErrorType(str, Enum):
     SPATIAL_ORPHAN = "spatial_orphan"
     SPATIAL_MISSING_QUANTITY = "spatial_missing_quantity"
     DOCUMENT_MISSING = "document_missing"
+    # ── Audit préliminaire géométrique (MCP ifc-openshell) ────────────────
+    SPACE_DUPLICATE = "space_duplicate"
+    SPACE_OVERLAP = "space_overlap"
+    SPACE_VERTICAL_OVERLAP = "space_vertical_overlap"
+    MISSING_SPACE_BOUNDARY = "missing_space_boundary"
+    SPACE_WITHOUT_BOUNDARIES = "space_without_boundaries"
+    OPENING_MISMATCH = "opening_mismatch"
+    RESERVATIONS_NOT_MODELED = "reservations_not_modeled"
+    SURFACE_LOSS = "surface_loss"
+    SPACE_TOO_SMALL = "space_too_small"
+    QUANTITY_MISMATCH = "quantity_mismatch"
+    SPACE_NO_ZONE = "space_no_zone"
+    ZONE_TYPOLOGY_MISMATCH = "zone_typology_mismatch"
+    ZONE_DISCONTINUITY = "zone_discontinuity"
+    ZONE_NAME_DUPLICATE = "zone_name_duplicate"
+    NAMING_INCONSISTENT = "naming_inconsistent"
+    MODEL_STALE = "model_stale"
 
 
 class Finding(BaseModel):

@@ -100,4 +100,5 @@ THEME_COLORS = {
     "Classification IFC": "2F374A",  # primary
     "Quantités (surfaces, volumes)": "2E9BD6",  # bleu clair
     "Document attendu": "7A7A7A",  # granite light
+    "Cohérence géométrique": "C2185B",  # magenta (audit préliminaire clash)
 }
