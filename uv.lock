@@ -74,6 +74,7 @@ version = "0.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "bim-core" },
+    { name = "bimdata-read" },
     { name = "fastmcp" },
     { name = "matplotlib" },
     { name = "openpyxl" },
@@ -110,6 +111,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.1.0" },
+    { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.0" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
     { name = "fastmcp", specifier = ">=3.0,<4" },
     { name = "matplotlib", specifier = ">=3.8,<4" },
@@ -173,6 +175,16 @@ version = "0.1.0"
 source = { git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.1.0#bbfe373dca6d6e72b0910e95d615cb1a88539c2e" }
 dependencies = [
     { name = "pydantic" },
+]
+
+[[package]]
+name = "bimdata-read"
+version = "0.1.0"
+source = { git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.0#eac4cd29a26d489bd670433e029e8e3884ed298e" }
+dependencies = [
+    { name = "bim-core" },
+    { name = "requests" },
+    { name = "urllib3" },
 ]
 
 [[package]]
