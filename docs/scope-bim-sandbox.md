@@ -2,7 +2,7 @@
 
 Document d'architecture **figé avant tout code**. Il cartographie la sandbox de
 chemins (validation inputs/outputs) **dupliquée** entre `audit-bim-i3f` et
-`ifc-openshell`, fixe la frontière du package commun `bim-sandbox`, l'ordre des
+`ifc-geometry`, fixe la frontière du package commun `bim-sandbox`, l'ordre des
 PR et les critères de parité.
 
 **Cette PR ne modifie aucun code applicatif** — inventaire et décision seulement.
@@ -27,7 +27,7 @@ Toute harmonisation ira en **v0.2** avec migration explicite.
 
 ## 1. Constat — duplication réelle
 
-| | `audit-bim-i3f/audit_bim/safe_paths.py` | `ifc-openshell/ifc_openshell_mcp/safe_paths.py` |
+| | `audit-bim-i3f/audit_bim/safe_paths.py` | `ifc-geometry/ifc_openshell_mcp/safe_paths.py` |
 |---|---|---|
 | Taille | 273 lignes (riche) | 76 lignes (minimale) |
 | Confinement `..` + racine | ✅ | ✅ |
@@ -40,7 +40,7 @@ Seul un **socle minimal est commun** (ban `..`, confinement sous une racine, mê
 noms d'env). Le comportement diverge sur **cinq axes** — inventaire complet, tous
 à préserver à l'identique :
 
-| Axe de divergence | audit-bim | ifc-openshell |
+| Axe de divergence | audit-bim | ifc-geometry |
 |---|---|---|
 | **Type d'erreur** | `UnsafePathError(ValueError)` | `ValueError` / `FileExistsError` / `FileNotFoundError` |
 | **Surface d'API** | `safe_input_path`, `safe_export_path`, `safe_export_read_path`, `safe_export_dir`, `get_export_root` | `safe_input_path`, `safe_output_path` |
@@ -57,7 +57,7 @@ commune **configurable**, et chaque shim active son **profil historique** (cf. �
 
 - Le **contrat d'env** de sandbox : `AUDIT_INPUT_DIR`, `AUDIT_OUTPUT_DIR`,
   `AUDIT_MAX_INPUT_MB` (déjà partagé entre les deux serveurs — cf. README
-  ifc-openshell « aligner `AUDIT_OUTPUT_DIR` »). Le package **possède** ces
+  ifc-geometry « aligner `AUDIT_OUTPUT_DIR` »). Le package **possède** ces
   variables ; en option, les racines peuvent aussi être passées en paramètre
   (testabilité). Aucune dépendance à un `config` applicatif.
 - La **validation d'inputs** : ban `..`, confinement sous `AUDIT_INPUT_DIR`,
@@ -75,7 +75,7 @@ commune **configurable**, et chaque shim active son **profil historique** (cf. �
 ## 3. Réconciliations & points de parité (P2)
 
 1. **Type d'erreur → `UnsafePathError(ValueError)`.** Comme il **sous-classe déjà
-   `ValueError`**, migrer ifc-openshell (qui lève aujourd'hui un `ValueError` nu)
+   `ValueError`**, migrer ifc-geometry (qui lève aujourd'hui un `ValueError` nu)
    vers `UnsafePathError` est **non-cassant** : tout `except ValueError` existant
    continue de matcher (vérifié : les catchers des deux repos attrapent
    `ValueError`).
@@ -92,14 +92,14 @@ Comportement actuel, à **préserver à l'identique** (aucun changement silencie
 | MCP | `safe_input_path("x.pdf")` (relatif, `AUDIT_INPUT_DIR` défini) |
 |---|---|
 | **audit-bim** | `Path("x.pdf").resolve()` = **`<cwd>/x.pdf`**, puis doit être sous la racine (échoue si `cwd` hors racine) |
-| **ifc-openshell** | `(root / "x.pdf").resolve()` = **`<AUDIT_INPUT_DIR>/x.pdf`** |
+| **ifc-geometry** | `(root / "x.pdf").resolve()` = **`<AUDIT_INPUT_DIR>/x.pdf`** |
 
 Le même relatif résout donc à des chemins **différents**. `bim-sandbox` v0.1 doit
 **supporter les deux** — via un paramètre de stratégie de base (ex.
 `base="cwd"` vs `base="input_root"`) ou deux fonctions — chaque shim sélectionnant
 sa sémantique historique. **Pas d'harmonisation en v0.1.0.**
 
-### P2.2 — `safe_output_path(name)` (ifc-openshell) **aplatit** le nom
+### P2.2 — `safe_output_path(name)` (ifc-geometry) **aplatit** le nom
 
 Comportement actuel : `target = (root / Path(name).name).resolve()` →
 `Path(name).name` **strip** sous-dossiers et traversals vers le seul nom de
@@ -117,10 +117,10 @@ profil historique de son MCP** — aucune convergence de comportement en v0.1.0 
 | Profil | Base relatifs | Contrôles input | Output | Erreurs |
 |---|---|---|---|---|
 | **audit-bim** | `base="cwd"` | extension + **fichier régulier** + **taille max** | `safe_export_path` (confinement, `..` interdits) | `UnsafePathError` |
-| **ifc-openshell** | `base="input_root"` | existence + extension | `safe_output_path` (**aplati**) | `ValueError`→`UnsafePathError` (non-cassant), `FileExistsError` conservé |
+| **ifc-geometry** | `base="input_root"` | existence + extension | `safe_output_path` (**aplati**) | `ValueError`→`UnsafePathError` (non-cassant), `FileExistsError` conservé |
 
 La taille max et le contrôle « fichier régulier » sont **optionnels** (activés par
-le profil audit-bim, désactivés par défaut / pour ifc-openshell).
+le profil audit-bim, désactivés par défaut / pour ifc-geometry).
 
 ## 4. Symboles à EXTRAIRE / GARDER
 
@@ -129,7 +129,7 @@ le profil audit-bim, désactivés par défaut / pour ifc-openshell).
 | `UnsafePathError` | audit-bim | **bim-sandbox** |
 | `safe_input_path` (contrôles **paramétrables** : extension toujours ; fichier régulier + taille max = profil audit-bim uniquement) | les deux (contrôles divergents) | **bim-sandbox** (API commune + profils) |
 | `safe_export_path`, `safe_export_read_path`, `safe_export_dir`, `get_export_root` | audit-bim | **bim-sandbox** |
-| `safe_output_path(name)` | ifc-openshell | **bim-sandbox** |
+| `safe_output_path(name)` | ifc-geometry | **bim-sandbox** |
 | `ALLOWED_INPUT_EXTENSIONS` (défaut métier) | audit-bim | **reste** (défaut passé par l'appelant) |
 
 ## 5. Ordre PR
@@ -148,9 +148,9 @@ deux repos**.
    + CI/release.
 5. **PR shim `audit_bim/safe_paths.py`** → ré-export (mode de résolution
    `base="cwd"`).
-6. **Versionner/publier proprement `ifc-openshell`** si nécessaire (adoption d'un
+6. **Versionner/publier proprement `ifc-geometry`** si nécessaire (adoption d'un
    package Git taggé + CI, comme audit-bim).
-7. **PR adoption + shim `ifc-openshell`** → ré-export (mode `base="input_root"`,
+7. **PR adoption + shim `ifc-geometry`** → ré-export (mode `base="input_root"`,
    `safe_output_path` aplatissant ; `ValueError` → `UnsafePathError` non-cassant).
 
 ## 6. Critères de parité (gate)
@@ -159,12 +159,12 @@ deux repos**.
 MCP.** En particulier :
 
 - **P2.1 préservé** : même chemin résolu qu'avant pour un input relatif, dans
-  chaque repo (cwd-based côté audit-bim, input-root-based côté ifc-openshell).
+  chaque repo (cwd-based côté audit-bim, input-root-based côté ifc-geometry).
 - **P2.2 préservé** : `safe_output_path` continue d'aplatir vers `Path(name).name`.
 - **Décision 2 préservée** : `overwrite=False` sur fichier existant lève
   `UnsafePathError` (`safe_export_path`) ou `FileExistsError` (`safe_output_path`)
   selon la fonction, comme aujourd'hui.
-- **Les deux suites** vertes : audit-bim (1007 unit + 9 integ) **et** ifc-openshell.
+- **Les deux suites** vertes : audit-bim (1007 unit + 9 integ) **et** ifc-geometry.
 - **Plus aucune duplication** : les deux `safe_paths.py` deviennent des shims ;
   une seule implémentation.
 - **Compatibilité des exceptions** : les `except ValueError` existants continuent
