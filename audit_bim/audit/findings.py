@@ -1,169 +1,17 @@
-"""Modèles de l'audit BIM : anomalies, sévérités, thèmes, types d'erreur.
+"""Ré-export des contrats d'audit (``Finding``, ``Severity``, ``Theme``,
+``ErrorType``) désormais hébergés dans ``bim-core``.
 
-Ce module est la **single source of truth** pour les types Pydantic et Enum
-utilisés par :
-
-- le moteur d'audit (``audit_bim.audit.engine`` et règles dans ``rules/``)
-- les reporters (Word, XLSX, Smart Views, BCF)
-- la persistance JSON (``audit_*_findings.json``)
-- le serveur MCP (sérialisation côté outils)
-
-Conception
-----------
-Une *anomalie* (``Finding``) est unitaire — un seul élément concerné
-identifié par son ``element_uuid``. Pour les anomalies projet (« 0
-instance d'IfcSite »), ``element_uuid`` est ``None`` et ``ifc_type`` porte
-la classe concernée.
-
-Trois axes de classification :
-
-- ``Severity`` — gravité (CRITICAL → INFO)
-- ``Theme``    — domaine fonctionnel (1 onglet xlsx + 1 vue par thème)
-- ``ErrorType`` — type fin pour le reporting (1 onglet xlsx par type)
+Ce module reste le point d'import historique
+(``from audit_bim.audit.findings import Finding``) et conserve
+``severity_color()`` qui, lui, dépend du thème de reporting local et ne
+relève donc pas des contrats communs.
 """
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any
+from bim_core.findings import ErrorType, Finding, Severity, Theme
 
-from pydantic import BaseModel, Field
-
-
-class Severity(str, Enum):
-    """Sévérité d'une anomalie.
-
-    - ``CRITICAL`` : empêche un livrable BIM d'être conforme à la phase.
-    - ``HIGH``     : anomalie majeure (donnée structurante manquante).
-    - ``MEDIUM``   : donnée requise par le CCH manquante / non conforme.
-    - ``LOW``      : qualité de donnée (format, casse, valeurs hors liste).
-    - ``INFO``     : signalement contextuel sans gravité.
-    """
-
-    CRITICAL = "CRITICAL"
-    HIGH = "HIGH"
-    MEDIUM = "MEDIUM"
-    LOW = "LOW"
-    INFO = "INFO"
-
-    @classmethod
-    def ordered(cls) -> list[Severity]:
-        """Renvoie les sévérités triées de la plus grave à la moins grave.
-
-        Utilisé pour le tri stable des findings (CRITICAL d'abord) et pour
-        déterminer la sévérité « max » d'un thème (= la plus grave).
-
-        Returns:
-            Liste ordonnée : ``[CRITICAL, HIGH, MEDIUM, LOW, INFO]``.
-        """
-        return [cls.CRITICAL, cls.HIGH, cls.MEDIUM, cls.LOW, cls.INFO]
-
-
-class Theme(str, Enum):
-    """Thème d'audit (1 onglet xlsx + 1 smart view par thème)."""
-
-    SPATIAL_HIERARCHY = "Hiérarchie spatiale"
-    NAMING_SITE_BAT_ETAGE = "Nommage Site / Bâtiment / Étage"
-    NAMING_ZONE = "Nommage Zone"
-    NAMING_SPACE = "Nommage Pièce"
-    PROPERTY_MISSING = "Propriété manquante"
-    PROPERTY_INVALID = "Propriété invalide"
-    CLASSIFICATION = "Classification IFC"
-    QUANTITY = "Quantités (surfaces, volumes)"
-    DOCUMENT = "Document attendu"
-    GEOMETRY = "Cohérence géométrique"
-
-
-class ErrorType(str, Enum):
-    """Type fin d'erreur (regroupement plus granulaire pour le reporting)."""
-
-    NAMING_MISSING = "naming_missing"
-    NAMING_INVALID_FORMAT = "naming_invalid_format"
-    NAMING_NOT_IN_LIST = "naming_not_in_list"
-    NAMING_TOO_LONG = "naming_too_long"
-    PROPERTY_MISSING = "property_missing"
-    PROPERTY_EMPTY = "property_empty"
-    PROPERTY_TYPE_INVALID = "property_type_invalid"
-    CLASSIFICATION_MISSING = "classification_missing"
-    CLASSIFICATION_INVALID = "classification_invalid"
-    SPATIAL_ORPHAN = "spatial_orphan"
-    SPATIAL_MISSING_QUANTITY = "spatial_missing_quantity"
-    DOCUMENT_MISSING = "document_missing"
-    # ── Audit préliminaire géométrique (MCP ifc-openshell) ────────────────
-    SPACE_DUPLICATE = "space_duplicate"
-    SPACE_OVERLAP = "space_overlap"
-    SPACE_VERTICAL_OVERLAP = "space_vertical_overlap"
-    MISSING_SPACE_BOUNDARY = "missing_space_boundary"
-    SPACE_WITHOUT_BOUNDARIES = "space_without_boundaries"
-    OPENING_MISMATCH = "opening_mismatch"
-    RESERVATIONS_NOT_MODELED = "reservations_not_modeled"
-    SURFACE_LOSS = "surface_loss"
-    SPACE_TOO_SMALL = "space_too_small"
-    QUANTITY_MISMATCH = "quantity_mismatch"
-    SPACE_NO_ZONE = "space_no_zone"
-    ZONE_TYPOLOGY_MISMATCH = "zone_typology_mismatch"
-    ZONE_DISCONTINUITY = "zone_discontinuity"
-    ZONE_NAME_DUPLICATE = "zone_name_duplicate"
-    NAMING_INCONSISTENT = "naming_inconsistent"
-    MODEL_STALE = "model_stale"
-
-
-class Finding(BaseModel):
-    """Une anomalie unitaire détectée par l'audit.
-
-    Sérialisable directement en JSON (``model_dump(mode="json")``) pour
-    persistance et transport MCP. Chaque champ est typé et documenté pour
-    la traçabilité (un finding sans ``ref_cch`` n'est pas opposable au MOA).
-
-    Attributes:
-        theme: Domaine d'audit (Hiérarchie spatiale, Nommage Zone, …).
-        severity: Gravité (CRITICAL → INFO).
-        error_type: Type fin pour groupement en onglet xlsx.
-        element_uuid: GlobalId IFC de l'élément en erreur. ``None`` pour
-            les anomalies projet (ex: « ≥ 1 IfcSite attendu »).
-        ifc_type: Classe IFC réelle de l'élément (peut différer de la
-            classe-mère définie au CCH : ``IfcWallStandardCase`` matche
-            les exigences de ``IfcWall``).
-        name: Nom IFC (``Name`` ou ``LongName``).
-        storey: Étage de rattachement si connu.
-        zone: Zone (logement) de rattachement si connue.
-        expected: Valeur ou règle attendue par le CCH.
-        actual: Valeur réellement trouvée. ``None`` = manquant.
-        ref_cch: Référence du chapitre du CCH (ex: ``"Chap 6.2"``).
-        recommended_action: Action corrective concrète (phrase impérative).
-    """
-
-    theme: Theme
-    severity: Severity
-    error_type: ErrorType
-
-    element_uuid: str | None = Field(
-        None, description="UUID/GlobalId IFC de l'objet en erreur (None si erreur projet)."
-    )
-    ifc_type: str | None = Field(None, description="Classe IFC (IfcSpace, IfcBuilding, …).")
-    name: str | None = None
-    storey: str | None = Field(None, description="Étage de rattachement si connu.")
-    zone: str | None = Field(None, description="Zone (logement) de rattachement si connue.")
-
-    expected: Any | None = Field(None, description="Valeur ou règle attendue.")
-    actual: Any | None = Field(None, description="Valeur réellement trouvée (None si manquant).")
-
-    ref_cch: str | None = Field(None, description="Référence du chapitre du CCH.")
-    recommended_action: str | None = Field(
-        None, description="Action concrète à effectuer pour corriger."
-    )
-
-    def short_label(self) -> str:
-        """Libellé court de l'élément pour les listes et le verbeux.
-
-        Format : ``"<IfcClass> — <Name or UUID>"``. Utilisé dans les
-        en-têtes de tableau Word et les sorties JSON synthétiques.
-
-        Returns:
-            Libellé condensé, par exemple ``"IfcSpace — CHAMBRE 01"``.
-        """
-        parts = [self.ifc_type or "?", self.name or self.element_uuid or "?"]
-        return " — ".join(p for p in parts if p)
+__all__ = ["Severity", "Theme", "ErrorType", "Finding", "severity_color"]
 
 
 def severity_color(sev: Severity) -> str:
