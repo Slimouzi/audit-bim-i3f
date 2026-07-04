@@ -24,6 +24,16 @@ jobs:
         run: ruff check audit_bim tests
       - name: Ruff format check
         run: ruff format --check audit_bim tests
+      - name: Guard — no raw BIMData _post in audit_bim
+        # Les écritures BIMData doivent passer par les méthodes nommées de
+        # bimdata-write (create_classification, assign_classification_elements,
+        # write_element_propertyset, create_bcf_full_topic) — jamais ._post brut.
+        run: |
+          if grep -rnE "\._post\(|def _post" audit_bim --include='*.py'; then
+            echo "::error::raw BIMData _post found in audit_bim — use a bimdata-write named method"
+            exit 1
+          fi
+          echo "OK: no raw _post in audit_bim"
 
   test:
     name: Test (Python ${{ matrix.python-version }})

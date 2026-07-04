@@ -256,8 +256,6 @@ def apply_doe_enrichment(
         }
     validate_target(plan, actual_target=actual_target)
 
-    base = f"/cloud/{client.cloud_id}/project/{client.project_id}/model/{client.model_id}/element"
-
     succeeded = 0
     failed = 0
     impacted_uuids: list[str] = []
@@ -271,7 +269,7 @@ def apply_doe_enrichment(
         if not element_uuid or not payload:
             continue
         try:
-            client._post(f"{base}/{element_uuid}/propertyset", payload)
+            client.write_element_propertyset(element_uuid, payload)
             succeeded += 1
             if element_uuid not in seen_uuids:
                 seen_uuids.add(element_uuid)

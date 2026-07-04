@@ -137,10 +137,7 @@ def apply_classifications(
         status = "reused" if cid else ("would_create" if dry_run else "to_create")
         if cid is None and not dry_run:
             try:
-                resp = client._post(
-                    f"/cloud/{client.cloud_id}/project/{client.project_id}/classification",
-                    {"name": system, "notation": code, "title": label},
-                )
+                resp = client.create_classification(name=system, notation=code, title=label)
                 cid = int(resp["id"])
                 cache[key] = cid
                 n_created += 1
@@ -189,11 +186,7 @@ def apply_classifications(
     link_failed = False
     if relations:
         try:
-            client._post(
-                f"/cloud/{client.cloud_id}/project/{client.project_id}"
-                f"/model/{client.model_id}/classification-element",
-                relations,
-            )
+            client.assign_classification_elements(relations)
             n_linked = len(relations)
         except Exception as e:
             errors.append(f"bulk link {len(relations)} relations: {e}")
