@@ -16,24 +16,30 @@ déjà écrit, testé, et branché sur les contrats `bim-core`.
 
 **Décision 1 — c'est une extraction, pas une création.** La couche vit déjà dans
 `audit_bim/query/` (filtrage, alias de propriétés, requêtes tabulaires, presets)
-et consomme déjà les contrats extraits (`bim-core`, `bimdata-read`). Le chantier
-consiste à la **sortir derrière une frontière propre** et à la republier, en
-gardant `audit-bim-i3f` comme façade (ré-exports), à l'identique du schéma
-bim-core / bimdata-read / bim-sandbox.
+et consomme déjà les **contrats `bim-core`** (`ModelSnapshot`, `BimObject`,
+filtres). Le chantier consiste à la **sortir derrière une frontière propre** et à
+la republier, en gardant `audit-bim-i3f` comme façade (ré-exports), à l'identique
+du schéma bim-core / bimdata-read / bim-sandbox.
+
+**Cible de dépendance saine (CTO) : `bim-query` dépend de `bim-core` uniquement.**
+Les `ModelSnapshot` *peuvent* être produits en amont par `bimdata-read`, mais
+`bim-query` ne doit **pas** dépendre de `bimdata-read` — il consomme un snapshot
+déjà normalisé, quelle qu'en soit la source. Conséquence concrète : dans le
+package, importer `ModelSnapshot` **directement depuis `bim_core`**, jamais depuis
+`audit_bim.extraction.model_data` (shim historique qui, lui, importe aussi
+`extract_snapshot` de `bimdata-read` — couplage à ne pas propager).
 
 **Décision 2 — read-only strict.** Query **lit** un `ModelSnapshot` / des objets
 normalisés (`BimObject`) et ne fait **aucune écriture BIMData**, aucun appel
 réseau, aucune mutation d'état. Frontière non négociable (cf. §4, §6).
 
-**Décision 3 — nommage `bim-query` (à trancher, recommandation posée).**
-Recommandation : **`bim-query`** plutôt que `bimdata-query`. Raison
-architecturale : la couche travaille sur un **snapshot normalisé** (`ModelSnapshot`
-+ `BimObject` de `bim-core`), pas sur le transport BIMData. Elle est
-**source-agnostique** — le champ `source` (`"bimdata"`, …) est une simple donnée
-filtrable, pas une dépendance. `bimdata-query` sur-signalerait un couplage
-BIMData qui n'existe pas. `bim-query` s'aligne sur `bim-core`. **Décision finale
-laissée au CTO.** (Le fichier est nommé `scope-bim-query.md` pour refléter la
-recommandation ; à renommer si le CTO tranche `bimdata-query`.)
+**Décision 3 — nommage `bim-query` (validé CTO).** Retenu : **`bim-query`** (et
+non `bimdata-query`). Raison architecturale : la couche travaille sur un
+**snapshot normalisé** (`ModelSnapshot` + `BimObject` de `bim-core`), pas sur le
+transport ni l'API BIMData. Elle est **source-agnostique** — le champ `source`
+(`"bimdata"`, …) est une simple donnée filtrable, pas une dépendance.
+`bimdata-query` sur-signalerait un couplage BIMData qui n'existe pas ; `bim-query`
+s'aligne sur `bim-core`. Décision entérinée.
 
 **Décision 4 — la validation A1 (écritures BCF/SmartViews réelles) ne bloque pas
 cette PR.** A1 est un contrôle **write** sur projet BIMData bac-à-sable ; Query
@@ -197,8 +203,10 @@ Aligné sur le schéma éprouvé bim-core / bimdata-read / bim-sandbox :
 1. **PR scope (celle-ci)** — doc figé, aucun code applicatif.
 2. **Package pur `bim-query` + tag `bim-query-v0.1.0`** — extraction du cœur
    (`filtering`, `property_aliases`, `table_query`, `views`, presets) + suite de
-   tests unitaires portée telle quelle (fixtures snapshot). Dépend de `bim-core`.
-   Aucun couplage MCP / sandbox / réseau.
+   tests unitaires portée telle quelle (fixtures snapshot). **Dépend de `bim-core`
+   uniquement** : imports directs depuis `bim_core` (dont `ModelSnapshot`), **zéro
+   `import audit_bim.*`, zéro `import bimdata_read`**, aucun couplage MCP / sandbox
+   / réseau.
 3. **PR adoption (infra-only) dans `audit-bim-i3f`** — ajout de la dépendance
    (git tag + `[tool.uv.sources]`), wiring CI/preinstall. Aucun changement de
    comportement.
@@ -235,8 +243,11 @@ résultats déterministes sur fixture snapshot stable.
 - **Read-only prouvé** : garde CI (grep) interdisant tout appel réseau/écriture
   dans le package `bim-query`.
 
-## 8. Décision en attente (CTO)
+## 8. Décisions (revue CTO)
 
-- **Nommage définitif** : `bim-query` (recommandé) vs `bimdata-query`.
-- Confirmation de l'ordre des PR §5 et de la frontière §4 (notamment le
-  traitement findings/suggestions couplés audit).
+- **Nommage** : `bim-query` — **entériné** (cf. Décision 3).
+- **Dépendance** : `bim-query` → `bim-core` **uniquement** ; jamais `bimdata-read`
+  (le snapshot est produit en amont, le package le consomme déjà normalisé) —
+  **entériné** (cf. Décision 1).
+- Ordre des PR §5 et frontière §4 (traitement des findings/suggestions couplés
+  audit) : confirmés pour exécution.
