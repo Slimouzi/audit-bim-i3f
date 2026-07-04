@@ -1,8 +1,8 @@
-"""Provenance opposable des findings préliminaires (MCP ifc-openshell).
+"""Provenance opposable des findings préliminaires (MCP ifc-geometry).
 
 Un ``Finding`` sans ``ref_cch`` n'est pas opposable au MOA. Les findings
 géométriques importés n'ont pas de chapitre CCH dédié : ils doivent porter
-au minimum leur source (audit préliminaire + outil ifc-openshell) et, si
+au minimum leur source (audit préliminaire + outil ifc-geometry) et, si
 connu, le nom du fichier JSON d'origine.
 """
 
@@ -21,7 +21,7 @@ def test_imported_findings_carry_provenance():
     assert findings, "au moins un finding attendu"
     for f in findings:
         assert f.ref_cch, "finding préliminaire sans ref_cch (non opposable)"
-        assert "ifc-openshell" in f.ref_cch
+        assert "ifc-geometry" in f.ref_cch
 
 
 def test_provenance_names_the_source_tool_and_file():

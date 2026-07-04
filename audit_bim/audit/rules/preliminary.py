@@ -1,8 +1,8 @@
-"""Import des findings de l'audit préliminaire géométrique (MCP ifc-openshell).
+"""Import des findings de l'audit préliminaire géométrique (MCP ifc-geometry).
 
 Contrairement aux autres règles, ce module ne lit pas le snapshot BIMData :
-il convertit les JSON produits par le serveur MCP ``ifc-openshell``
-(dépôt « IFC Openshell » — clash ifcclash + inventaire pièces/zones) en
+il convertit les JSON produits par le serveur MCP ``ifc-geometry``
+(moteur IfcOpenShell — clash géométrique + inventaire pièces/zones) en
 ``Finding`` natifs, pour que les rapports Word/XLSX, les topics BCF et les
 Smart Views les consomment sans modification.
 
@@ -26,7 +26,7 @@ from typing import Any
 
 from ..findings import ErrorType, Finding, Severity, Theme
 
-# Sévérité ifc-openshell ("Critique"/"Majeur"/"Mineur") → Severity native
+# Sévérité ifc-geometry ("Critique"/"Majeur"/"Mineur") → Severity native
 _SEV_MAP = {
     "Critique": Severity.CRITICAL,
     "Majeur": Severity.HIGH,
@@ -36,9 +36,9 @@ _SEV_MAP = {
 # Provenance opposable des findings importés : un Finding sans ``ref_cch``
 # n'est pas opposable au MOA (cf. audit.findings.Finding). Les contrôles
 # géométriques n'ont pas de chapitre CCH dédié — on trace donc la source
-# (audit préliminaire) et l'outil ifc-openshell qui l'a produit, plus le
+# (audit préliminaire) et l'outil ifc-geometry qui l'a produit, plus le
 # nom du fichier JSON quand il est connu.
-_PROVENANCE = "Audit préliminaire géométrique — MCP ifc-openshell"
+_PROVENANCE = "Audit préliminaire géométrique — MCP ifc-geometry"
 _SOURCE_TOOLS: dict[str, str] = {
     "inventory": "extract_space_inventory",
     "space_clash": "run_space_clash_audit",
@@ -422,10 +422,10 @@ def load_preliminary_findings(
     openings: dict | None = None,
     source_files: dict[str, str] | None = None,
 ) -> list[Finding]:
-    """Convertit les JSON du MCP ifc-openshell en Findings natifs.
+    """Convertit les JSON du MCP ifc-geometry en Findings natifs.
 
     Chaque finding importé reçoit une provenance opposable dans ``ref_cch``
-    (source « audit préliminaire géométrique » + outil ifc-openshell + nom
+    (source « audit préliminaire géométrique » + outil ifc-geometry + nom
     du fichier JSON quand il est fourni via ``source_files``).
 
     Args:

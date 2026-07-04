@@ -613,7 +613,7 @@ def import_preliminary_findings(
     openings_json: str | None = None,
 ) -> dict:
     """Importe les findings de l'audit préliminaire géométrique produits par
-    le serveur MCP ``ifc-openshell`` et les fusionne dans l'audit courant.
+    le serveur MCP ``ifc-geometry`` et les fusionne dans l'audit courant.
 
     Les findings importés alimentent ensuite automatiquement le rapport Word,
     l'annexe XLSX, les topics BCF et les Smart Views (thème « Cohérence
