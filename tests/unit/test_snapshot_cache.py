@@ -171,14 +171,18 @@ class FakeClient:
 
 
 def _patched_extract(monkeypatch, fake_snap, counter):
-    """Patch extract_snapshot pour retourner notre snapshot factice."""
-    from audit_bim.extraction import snapshot_cache
+    """Patch extract_snapshot pour retourner notre snapshot factice.
+
+    La logique de cache vit désormais dans ``bimdata_read.cache`` (audit-bim ne
+    fait que ré-exporter) : on patche donc ``extract_snapshot`` à sa source.
+    """
+    from bimdata_read import cache as _bd_cache
 
     def fake_extract(client):
         counter["n"] += 1
         return fake_snap
 
-    monkeypatch.setattr(snapshot_cache, "extract_snapshot", fake_extract)
+    monkeypatch.setattr(_bd_cache, "extract_snapshot", fake_extract)
 
 
 class TestCachedExtractSnapshot:
