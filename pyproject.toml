@@ -68,6 +68,7 @@ dependencies = [
     "bimdata-read>=0.1.0,<0.2",
     "bimdata-write>=0.1.0,<0.2",
     "bim-sandbox>=0.1.0,<0.2",
+    "bim-query>=0.1.0,<0.2",
 ]
 
 [project.optional-dependencies]
@@ -108,6 +109,7 @@ bim-core = { git = "https://github.com/Slimouzi/bim-core.git", tag = "bim-core-v
 bimdata-read = { git = "https://github.com/Slimouzi/bimdata-read.git", tag = "bimdata-read-v0.1.0" }
 bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "bimdata-write-v0.1.0" }
 bim-sandbox = { git = "https://github.com/Slimouzi/bim-sandbox.git", tag = "bim-sandbox-v0.1.0" }
+bim-query = { git = "https://github.com/Slimouzi/bim-query.git", tag = "bim-query-v0.1.0" }
 
 [tool.setuptools.packages.find]
 include = ["audit_bim*"]
