@@ -184,10 +184,21 @@ def amo_workflow_session(tmp_path, monkeypatch):
 def _assert_no_api_calls(client: MagicMock, step: str) -> None:
     """Vérifie qu'aucun appel API mutatif n'a été émis depuis le client.
 
-    Méthodes surveillées : ``_post``, ``_put``, ``_patch``, ``_delete``,
-    ``create_bcf_full_topic`` (utilisée par les builders BCF/SmartView).
+    Méthodes surveillées : le transport ``_post``/``_put``/``_patch``/``_delete``
+    et les **écritures nommées** de bimdata-write (``create_bcf_full_topic``,
+    ``create_classification``, ``assign_classification_elements``,
+    ``write_element_propertyset``).
     """
-    forbidden = ["_post", "_put", "_patch", "_delete", "create_bcf_full_topic"]
+    forbidden = [
+        "_post",
+        "_put",
+        "_patch",
+        "_delete",
+        "create_bcf_full_topic",
+        "create_classification",
+        "assign_classification_elements",
+        "write_element_propertyset",
+    ]
     for method in forbidden:
         attr = getattr(client, method, None)
         if attr is None:

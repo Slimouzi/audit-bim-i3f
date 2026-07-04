@@ -1,26 +1,20 @@
 """Client BIMData — façade lecture + écriture.
 
-La **lecture** (auth, transport ``GET``, routes ``get_*``, dénormalisation
-``/element/raw``) vit désormais dans ``bimdata-read`` (``BIMDataReadClient``).
-``BIMDataClient`` en hérite et n'ajoute que les **écritures** — transport
-``_post`` (utilisé aussi directement par ``classifier/applier``) et
-``create_bcf_full_topic`` (BCF Topics / Smart Views) — réservées à ce MCP jusqu'à
-l'extraction d'un MCP « BIMData Write » dédié.
+Toute la **lecture** (`bimdata-read`) **et** l'**écriture** (`bimdata-write` :
+classifications, property sets, BCF/Smart Views) vivent désormais dans les
+packages extraits. ``BIMDataClient`` hérite de
+:class:`bimdata_write.BIMDataWriteClient` (qui hérite lui-même de la lecture) et
+ne fait plus que câbler le fallback ``config.*`` (``.env``) — aucun transport ni
+``_post`` brut ici.
 
-Le constructeur préserve le fallback ``config.*`` (``.env`` : base_url, IDs,
-API_KEY, OAuth) : le comportement historique côté audit-bim est inchangé.
+Les garde-fous d'intention (``WritePlan``, ``dry_run``, journal, sandbox,
+``ensure_writes_allowed``) et la logique métier I3F restent dans ``audit-bim-i3f``.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-from bimdata_read.client import (
-    BIMDataAuthError,
-    BIMDataReadClient,
-    _build_retry_adapter,
-    _denormalize_raw_elements,
-)
+from bimdata_read.client import _build_retry_adapter, _denormalize_raw_elements
+from bimdata_write import BIMDataAuthError, BIMDataWriteClient
 
 from .. import config
 
@@ -32,19 +26,17 @@ __all__ = [
 ]
 
 
-class BIMDataClient(BIMDataReadClient):
+class BIMDataClient(BIMDataWriteClient):
     """Client BIMData **lecture + écriture** (façade historique).
 
-    Hérite toute la lecture de :class:`bimdata_read.BIMDataReadClient` et ajoute
-    les écritures. Signature de constructeur inchangée : les IDs et l'auth
-    retombent sur ``config.*`` (``.env``) quand ils ne sont pas passés.
+    Hérite la lecture (`bimdata-read`) et l'écriture (`bimdata-write`). Signature
+    de constructeur inchangée : IDs et auth retombent sur ``config.*`` (``.env``)
+    quand ils ne sont pas passés — comportement historique préservé.
 
     Exemple:
         >>> client = BIMDataClient(cloud_id=..., project_id=..., model_id=...)
-        >>> client.get_buildings()                  # lecture (héritée)
-        [...]
-        >>> client.create_bcf_full_topic({"title": "..."})   # écriture (locale)
-        {'guid': '...', ...}
+        >>> client.get_buildings()                       # lecture (héritée)
+        >>> client.create_classification(name=..., notation=..., title=...)  # écriture
     """
 
     def __init__(
@@ -67,43 +59,4 @@ class BIMDataClient(BIMDataReadClient):
             client_secret=config.CLIENT_SECRET,
             iam_url=config.BIMDATA_IAM_URL,
             timeout=timeout,
-        )
-
-    # ── Écriture (hors périmètre lecture — futur MCP « BIMData Write ») ───────
-
-    def _post(self, path: str, json: dict, timeout: int | None = None) -> Any:
-        """POST authentifié JSON → JSON décodé.
-
-        Returns:
-            Réponse JSON décodée, ``None`` si 204 No Content, ou la chaîne brute
-            si la réponse n'est pas du JSON parseable.
-
-        Raises:
-            BIMDataAuthError: Statut 401/403.
-            requests.HTTPError: Autres statuts 4xx/5xx.
-        """
-        resp = self.session.post(self._url(path), json=json, timeout=(timeout or self.timeout))
-        if resp.status_code in (401, 403):
-            raise BIMDataAuthError(f"BIMData {resp.status_code} on {path}")
-        resp.raise_for_status()
-        if not resp.content:
-            return None
-        try:
-            return resp.json()
-        except Exception:
-            return resp.text
-
-    def create_bcf_full_topic(self, payload: dict) -> dict:
-        """Crée un BCF Topic + Viewpoints en une requête.
-
-        Endpoint : ``POST /bcf/2.1/projects/{project_id}/full-topic``. Inclure
-        ``"format": "bimdata-smartview"`` dans le body cible le panneau Smart
-        Views du viewer (cf. ``smartview/builder.py``).
-        """
-        # Timeout généreux : un topic Vue d'ensemble peut compter quelques
-        # milliers d'UUIDs en selection + plusieurs groupes de coloring.
-        return self._post(
-            f"/bcf/2.1/projects/{self.project_id}/full-topic",
-            payload,
-            timeout=240,
         )

@@ -36,21 +36,22 @@ def _mock_client(*, list_existing=None, post_classification=None, post_link=None
 
     client._get.side_effect = _get
 
-    def _post(url, body):
-        if "/classification-element" in url:
-            if isinstance(post_link, Exception):
-                raise post_link
-            if callable(post_link):
-                return post_link(url, body)
-            return post_link or {}
-        # création classif
+    def _create_classification(*, name, notation, title):
         if isinstance(post_classification, Exception):
             raise post_classification
         if callable(post_classification):
-            return post_classification(url, body)
+            return post_classification(name=name, notation=notation, title=title)
         return post_classification or {"id": 100}
 
-    client._post.side_effect = _post
+    def _assign_classification_elements(relations):
+        if isinstance(post_link, Exception):
+            raise post_link
+        if callable(post_link):
+            return post_link(relations)
+        return post_link or {}
+
+    client.create_classification.side_effect = _create_classification
+    client.assign_classification_elements.side_effect = _assign_classification_elements
     return client
 
 
@@ -63,9 +64,7 @@ class TestApplyClassificationsLinkedUuids:
         ]
         # Chaque POST de classif renvoie un id incrémenté.
         ids = iter([100, 101])
-        client._post.side_effect = lambda url, body: (
-            {} if "/classification-element" in url else {"id": next(ids)}
-        )
+        client.create_classification.side_effect = lambda **kw: {"id": next(ids)}
 
         res = apply_classifications(client, items, dry_run=False)
         assert res["link_failed"] is False
@@ -79,13 +78,8 @@ class TestApplyClassificationsLinkedUuids:
             post_link=RuntimeError("bulk link 500"),
         )
         ids = iter([100, 101])
-
-        def _post(url, body):
-            if "/classification-element" in url:
-                raise RuntimeError("bulk link 500")
-            return {"id": next(ids)}
-
-        client._post.side_effect = _post
+        client.create_classification.side_effect = lambda **kw: {"id": next(ids)}
+        # assign_classification_elements lève déjà (post_link=RuntimeError du helper).
 
         items = [
             {"uuid": "W1", "code": "B2010", "system": "uniformat"},
@@ -104,17 +98,15 @@ class TestApplyClassificationsLinkedUuids:
         ]
         creation_calls = []
 
-        def _post(url, body):
-            if "/classification-element" in url:
-                # bulk link OK pour ce qui a survécu à la création.
-                return {}
-            creation_calls.append(body)
-            if (body.get("notation") or "").upper() == "B2010":
+        def _create(*, name, notation, title):
+            creation_calls.append({"name": name, "notation": notation, "title": title})
+            if (notation or "").upper() == "B2010":
                 raise RuntimeError("create B2010 failed: 422")
             return {"id": 200 + len(creation_calls)}
 
         client = _mock_client()
-        client._post.side_effect = _post
+        client.create_classification.side_effect = _create
+        # bulk link OK (helper : assign_classification_elements renvoie {}).
 
         res = apply_classifications(client, items, dry_run=False)
         # Seul W1 a été lié (sa classif C1010 a été créée avec succès)

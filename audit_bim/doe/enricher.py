@@ -174,8 +174,6 @@ def apply_matches_to_model(
     errors: list[str] = []
     preview: list[dict] = []
 
-    base = f"/cloud/{client.cloud_id}/project/{client.project_id}/model/{client.model_id}/element"
-
     for m in matched:
         match_reports = reports_by_uuid.get(m.ifc_uuid or "", [])
         for pset_name, props in (m.record.properties or {}).items():
@@ -211,7 +209,7 @@ def apply_matches_to_model(
             if dry_run:
                 continue
             try:
-                client._post(f"{base}/{m.ifc_uuid}/propertyset", payload)
+                client.write_element_propertyset(m.ifc_uuid, payload)
                 n_pushed += 1
             except Exception as e:
                 errors.append(f"element {m.ifc_uuid} pset {pset_name}: {e}")

@@ -231,8 +231,9 @@ class TestLegacyDefaultNoWrite:
         assert res["n_auto_accepted"] == 1
         # Suggestion basculée en ACCEPTED
         assert store.get("W1").status == SuggestionStatus.ACCEPTED
-        # Pas d'appel API
-        assert sess.client._post.call_count == 0
+        # Pas d'appel API mutatif (méthodes d'écriture nommées de bimdata-write)
+        assert sess.client.create_classification.call_count == 0
+        assert sess.client.assign_classification_elements.call_count == 0
 
 
 # ── Mode legacy_execute=True : ancien comportement + warning ────────────

@@ -2,14 +2,15 @@
 vers les symboles extraits dans ``bimdata-read`` / ``bim-core`` (façade).
 
 Ces tests garantissent que le découpage n'a pas dupliqué de logique : les
-ré-exports sont *les mêmes objets*, et ``BIMDataClient`` hérite de la lecture tout
-en gardant les écritures locales.
+ré-exports sont *les mêmes objets*, et ``BIMDataClient`` hérite de la lecture
+(`bimdata-read`) **et** de l'écriture (`bimdata-write`) — aucun transport local.
 """
 
 from __future__ import annotations
 
 import bim_core
 import bimdata_read
+import bimdata_write
 
 from audit_bim.extraction import client as ex_client
 from audit_bim.extraction import model_data as ex_model_data
@@ -30,16 +31,31 @@ def test_cache_symbols_are_bimdata_read():
     assert ex_cache.load_snapshot_from_cache is bimdata_read.load_snapshot_from_cache
 
 
-def test_client_inherits_read_from_bimdata_read():
-    # La lecture vient de bimdata-read ; l'écriture reste locale.
+def test_client_inherits_read_and_write():
+    # La façade hérite écriture (bimdata-write) → lecture (bimdata-read).
+    assert issubclass(ex_client.BIMDataClient, bimdata_write.BIMDataWriteClient)
     assert issubclass(ex_client.BIMDataClient, bimdata_read.BIMDataReadClient)
-    # Méthodes de lecture héritées.
+    # Lecture héritée.
     for name in ("get_project", "get_model", "get_raw_elements", "get_structure_tree", "_get"):
         assert hasattr(ex_client.BIMDataClient, name)
-    # Écritures définies localement dans audit-bim (pas dans le client lecture).
-    for name in ("_post", "create_bcf_full_topic"):
-        assert name in vars(ex_client.BIMDataClient)
+    # Écritures = méthodes NOMMÉES, définies dans bimdata-write (pas en local,
+    # pas dans le client lecture).
+    for name in (
+        "create_classification",
+        "assign_classification_elements",
+        "write_element_propertyset",
+        "create_bcf_full_topic",
+        "_post",
+    ):
+        assert name in vars(bimdata_write.BIMDataWriteClient)
+        assert name not in vars(ex_client.BIMDataClient)  # aucun transport local
         assert not hasattr(bimdata_read.BIMDataReadClient, name)
+
+
+def test_no_raw_post_in_audit_bim():
+    """Aucun transport ``_post`` brut ne subsiste dans le code applicatif :
+    ``BIMDataClient`` ne redéfinit pas ``_post`` (il vient de bimdata-write)."""
+    assert "_post" not in vars(ex_client.BIMDataClient)
 
 
 def test_auth_error_and_retry_adapter_reexported():

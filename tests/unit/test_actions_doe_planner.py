@@ -103,9 +103,9 @@ def _mock_client(success: bool = True):
     client.project_id = "2"
     client.model_id = "3"
     if success:
-        client._post.return_value = {}
+        client.write_element_propertyset.return_value = {}
     else:
-        client._post.side_effect = RuntimeError("HTTP 500")
+        client.write_element_propertyset.side_effect = RuntimeError("HTTP 500")
     return client
 
 
@@ -185,8 +185,8 @@ class TestApplyDoeEnrichment:
         assert result.succeeded == 1
         assert result.failed == 0
         assert "W1" in result.impacted_uuids
-        # Un seul POST sur /element/W1/propertyset
-        assert client._post.call_count == 1
+        # Un seul write_element_propertyset sur W1
+        assert client.write_element_propertyset.call_count == 1
         # Journal écrit
         journal_path = tmp_path / "write_log" / "journal.jsonl"
         assert journal_path.exists()
@@ -212,13 +212,13 @@ class TestApplyDoeEnrichment:
         # 2e appel échoue
         calls = [0]
 
-        def _fail_second(url, payload):
+        def _fail_second(element_uuid, payload):
             calls[0] += 1
             if calls[0] == 2:
                 raise RuntimeError("Bearer abcd12345678 - 500")
             return {}
 
-        client._post.side_effect = _fail_second
+        client.write_element_propertyset.side_effect = _fail_second
         result = apply_doe_enrichment(plan, client)
         assert result.succeeded == 1
         assert result.failed == 1
