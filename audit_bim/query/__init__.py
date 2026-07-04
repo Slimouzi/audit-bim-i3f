@@ -1,15 +1,10 @@
-"""Moteur de filtrage local et adaptateurs domaine.
+"""Ré-export : moteur de filtrage local et adaptateurs domaine.
 
-Cette couche est la **seule** à connaître à la fois :
-
-- la structure brute des éléments BIMData (via ``extraction/``) ;
-- les modèles domaine (:class:`audit_bim.domain.BimObject` etc.) ;
-- les filtres déclaratifs (:class:`audit_bim.domain.ObjectFilter` etc.).
-
-Les tools MCP de filtrage (``filter_bim_objects``, ``list_audit_findings``,
-``list_classification_suggestions``) **doivent passer par ces fonctions**
-plutôt que de recalculer leur propre vérité — c'est ce qui garantit que
-BCF, Smart Views et corrections API consomment exactement le même index.
+L'implémentation vit désormais dans le package **``bim-query``** (couche requête
+read-only sur un ``ModelSnapshot`` normalisé, dépend de ``bim-core`` uniquement).
+Ce package ``audit_bim.query`` reste une **façade** : mêmes symboles, mêmes
+chemins d'import historiques, comportement inchangé. Les tools MCP de filtrage
+et les planners ``actions/`` continuent d'importer d'ici.
 """
 
 from __future__ import annotations
