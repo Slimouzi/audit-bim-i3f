@@ -36,9 +36,20 @@ Toute harmonisation ira en **v0.2** avec migration explicite.
 | Outputs | `safe_export_path`, `safe_export_read_path`, `safe_export_dir`, `get_export_root` | `safe_output_path(name)` |
 | Erreur | `UnsafePathError(ValueError)` | `ValueError` / `FileExistsError` / `FileNotFoundError` |
 
-Le **cœur est identique** (ban `..`, résolution sous la racine autorisée, mêmes
-noms d'env). Deux divergences seulement : le **type d'erreur** et l'**étendue de
-l'API**.
+Seul un **socle minimal est commun** (ban `..`, confinement sous une racine, mêmes
+noms d'env). Le comportement diverge sur **cinq axes** — inventaire complet, tous
+à préserver à l'identique :
+
+| Axe de divergence | audit-bim | ifc-openshell |
+|---|---|---|
+| **Type d'erreur** | `UnsafePathError(ValueError)` | `ValueError` / `FileExistsError` / `FileNotFoundError` |
+| **Surface d'API** | `safe_input_path`, `safe_export_path`, `safe_export_read_path`, `safe_export_dir`, `get_export_root` | `safe_input_path`, `safe_output_path` |
+| **Résolution des relatifs** (P2.1) | base **cwd** puis confinement | base **`AUDIT_INPUT_DIR`** |
+| **Aplatissement output** (P2.2) | non (`safe_export_path` confine, `..` interdits) | oui (`safe_output_path` = `Path(name).name`) |
+| **Contrôles input** | extension + **fichier régulier** + **taille max** | existence + extension **seulement** |
+
+⚠️ Ces cinq axes ne sont **pas** unifiés en v0.1.0 : `bim-sandbox` expose une API
+commune **configurable**, et chaque shim active son **profil historique** (cf. §3).
 
 ## 2. Frontière
 
@@ -98,12 +109,25 @@ comportement dans `safe_output_path`. Ne pas le transformer en refus strict
 (ça, ce serait une décision v0.2). (`safe_export_path` côté audit-bim garde sa
 sémantique distincte : `..` interdits + confinement, sans aplatissement.)
 
+### Règle des profils historiques
+
+`bim-sandbox` expose une **API commune configurable** ; **chaque shim active le
+profil historique de son MCP** — aucune convergence de comportement en v0.1.0 :
+
+| Profil | Base relatifs | Contrôles input | Output | Erreurs |
+|---|---|---|---|---|
+| **audit-bim** | `base="cwd"` | extension + **fichier régulier** + **taille max** | `safe_export_path` (confinement, `..` interdits) | `UnsafePathError` |
+| **ifc-openshell** | `base="input_root"` | existence + extension | `safe_output_path` (**aplati**) | `ValueError`→`UnsafePathError` (non-cassant), `FileExistsError` conservé |
+
+La taille max et le contrôle « fichier régulier » sont **optionnels** (activés par
+le profil audit-bim, désactivés par défaut / pour ifc-openshell).
+
 ## 4. Symboles à EXTRAIRE / GARDER
 
 | Symbole | Source | Destination |
 |---|---|---|
 | `UnsafePathError` | audit-bim | **bim-sandbox** |
-| `safe_input_path` (+ extensions/taille/fichier régulier) | les deux | **bim-sandbox** (union) |
+| `safe_input_path` (contrôles **paramétrables** : extension toujours ; fichier régulier + taille max = profil audit-bim uniquement) | les deux (contrôles divergents) | **bim-sandbox** (API commune + profils) |
 | `safe_export_path`, `safe_export_read_path`, `safe_export_dir`, `get_export_root` | audit-bim | **bim-sandbox** |
 | `safe_output_path(name)` | ifc-openshell | **bim-sandbox** |
 | `ALLOWED_INPUT_EXTENSIONS` (défaut métier) | audit-bim | **reste** (défaut passé par l'appelant) |
