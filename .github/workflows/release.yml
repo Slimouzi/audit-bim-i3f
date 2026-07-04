@@ -41,6 +41,8 @@ jobs:
           cache: pip
       - name: Install bim-core (tagged contract lib)
         run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
+      - name: Install bimdata-read (tagged read core)
+        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
       - run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
@@ -58,6 +60,8 @@ jobs:
           cache: pip
       - name: Install bim-core (tagged contract lib)
         run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
+      - name: Install bimdata-read (tagged read core)
+        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
       - run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
@@ -77,7 +81,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install uv pip-audit
       - run: uv lock --check
-      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --output-file requirements-from-lock.txt
+      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --output-file requirements-from-lock.txt
       - run: pip-audit -r requirements-from-lock.txt --format columns
 
   security-audit-ocr:
@@ -94,7 +98,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install uv pip-audit
       - run: uv lock --check
-      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --extra ocr --output-file requirements-from-lock-ocr.txt
+      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --extra ocr --output-file requirements-from-lock-ocr.txt
       - run: pip-audit -r requirements-from-lock-ocr.txt --format columns
 
   build:
@@ -145,11 +149,13 @@ jobs:
           body: |
             ## Installation
 
-            `bim-core` (contrats communs) n'est pas publié sur PyPI. Préinstallez-le
-            depuis son tag Git **avant** le wheel/sdist ci-joint :
+            `bim-core` (contrats communs) et `bimdata-read` (noyau lecture BIMData)
+            ne sont pas publiés sur PyPI. Préinstallez-les depuis leurs tags Git
+            **avant** le wheel/sdist ci-joint :
 
             ```bash
             pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
+            pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
             pip install <url-de-l-asset-wheel-ci-dessous>
             ```
           files: dist/*

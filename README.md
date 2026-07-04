@@ -43,19 +43,21 @@ dépendances (cf. bornes hautes dans `pyproject.toml`).
 ```bash
 cd <chemin-vers-le-repo>
 python3 -m venv .venv && source .venv/bin/activate
-# bim-core (contrats communs Finding/BimObject/… ) n'est PAS publié sur PyPI :
-# on l'installe d'abord depuis son tag Git, sinon la résolution de la
-# dépendance ``bim-core>=0.1.0,<0.2`` échoue.
+# bim-core (contrats communs) et bimdata-read (noyau lecture BIMData) ne sont
+# PAS publiés sur PyPI : on les installe d'abord depuis leurs tags Git, sinon la
+# résolution des dépendances ``bim-core``/``bimdata-read`` échoue.
 pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
+pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
 pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 ```
 
-> **Installation depuis un wheel de GitHub Release** — même prérequis : le
-> wheel ne déclare que `bim-core>=0.1.0,<0.2` (non résolvable sur PyPI).
-> Préinstaller `bim-core` depuis son tag Git *avant* le wheel :
+> **Installation depuis un wheel de GitHub Release** — même prérequis : le wheel
+> ne déclare que `bim-core`/`bimdata-read` (non résolvables sur PyPI).
+> Préinstaller les deux depuis leurs tags Git *avant* le wheel :
 >
 > ```bash
 > pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
+> pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
 > pip install <url-du-wheel-release>
 > ```
 
