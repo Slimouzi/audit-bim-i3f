@@ -45,6 +45,8 @@ jobs:
         run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
       - name: Install bimdata-write (tagged write core)
         run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
+      - name: Install bim-sandbox (tagged shared sandbox)
+        run: pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
       - run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
@@ -66,6 +68,8 @@ jobs:
         run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
       - name: Install bimdata-write (tagged write core)
         run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
+      - name: Install bim-sandbox (tagged shared sandbox)
+        run: pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
       - run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
@@ -85,7 +89,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install uv pip-audit
       - run: uv lock --check
-      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --no-emit-package bimdata-write --output-file requirements-from-lock.txt
+      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --no-emit-package bimdata-write --no-emit-package bim-sandbox --output-file requirements-from-lock.txt
       - run: pip-audit -r requirements-from-lock.txt --format columns
 
   security-audit-ocr:
@@ -102,7 +106,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install uv pip-audit
       - run: uv lock --check
-      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --no-emit-package bimdata-write --extra ocr --output-file requirements-from-lock-ocr.txt
+      - run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --no-emit-package bimdata-write --no-emit-package bim-sandbox --extra ocr --output-file requirements-from-lock-ocr.txt
       - run: pip-audit -r requirements-from-lock-ocr.txt --format columns
 
   build:
@@ -153,14 +157,15 @@ jobs:
           body: |
             ## Installation
 
-            `bim-core` (contrats), `bimdata-read` (noyau lecture) et `bimdata-write`
-            (noyau écriture) ne sont pas publiés sur PyPI. Préinstallez-les depuis
-            leurs tags Git **avant** le wheel/sdist ci-joint :
+            `bim-core` (contrats), `bimdata-read` (lecture), `bimdata-write`
+            (écriture) et `bim-sandbox` (sandbox chemins) ne sont pas publiés sur
+            PyPI. Préinstallez-les depuis leurs tags Git **avant** le wheel/sdist :
 
             ```bash
             pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
             pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
             pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
+            pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
             pip install <url-de-l-asset-wheel-ci-dessous>
             ```
           files: dist/*
