@@ -75,6 +75,7 @@ source = { editable = "." }
 dependencies = [
     { name = "bim-core" },
     { name = "bimdata-read" },
+    { name = "bimdata-write" },
     { name = "fastmcp" },
     { name = "matplotlib" },
     { name = "openpyxl" },
@@ -112,6 +113,7 @@ test = [
 requires-dist = [
     { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.1.0" },
     { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.0" },
+    { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.0" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
     { name = "fastmcp", specifier = ">=3.0,<4" },
     { name = "matplotlib", specifier = ">=3.8,<4" },
@@ -185,6 +187,14 @@ dependencies = [
     { name = "bim-core" },
     { name = "requests" },
     { name = "urllib3" },
+]
+
+[[package]]
+name = "bimdata-write"
+version = "0.1.0"
+source = { git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.0#fe4c3d1c0765832ecf967d740667ff902a48a04a" }
+dependencies = [
+    { name = "bimdata-read" },
 ]
 
 [[package]]
