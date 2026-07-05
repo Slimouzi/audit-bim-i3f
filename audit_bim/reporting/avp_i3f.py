@@ -42,6 +42,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from ..audit.engine import AuditResult
+from ..audit.findings import ErrorType, Theme
 from ..extraction.model_data import ModelSnapshot
 from .avp_snapshot import (
     build_sources_from_snapshot,
@@ -320,7 +321,7 @@ def _build_controle_maquettes_xlsx(path, result, sources, meta) -> Path:
     write_safe(ws, row, 0, "Grille de contrôle", fmts["h2"])
     row += 1
     grille = src.grille if src else None
-    if grille is None or not grille.headers:
+    if grille is None or not grille.headers or not grille.rows:
         grille = _audit_controle_table(result)
     _write_flat_table(ws, fmts, grille, start_row=row)
 
@@ -364,38 +365,116 @@ def _controle_stats(name: str, result: AuditResult | None, src) -> dict | None:
     return None
 
 
-def _audit_stats(name: str, result: AuditResult) -> dict | None:
-    from ..audit.findings import Theme
+def _zone_finding_kind(f) -> str | None:
+    """Classe un finding de nommage d'IfcZone : ``"objecttype"`` ou ``"name"``.
 
-    snap = result.snapshot
-    theme_map = {
-        "Zones Nommage": (Theme.NAMING_ZONE, len(snap.zones or [])),
-        "Pièces Nommage": (Theme.NAMING_SPACE, len(snap.spaces or [])),
-        "Zones ObjectType": (Theme.NAMING_ZONE, len(snap.zones or [])),
+    Le nommage de zone produit **deux contrôles distincts** partageant le même
+    thème (``NAMING_ZONE``) : le **Name** (pattern XXXXL-YYYY, présence) et
+    l'**ObjectType** (typologie dans la liste I3F, présence). On ne peut donc
+    PAS agréger par thème — on discrimine par ``error_type`` + libellés :
+    ``NAMING_NOT_IN_LIST`` et toute mention « ObjectType » ⇒ ObjectType ; le
+    reste des anomalies de nommage de zone ⇒ Name.
+    """
+    if f.ifc_type != "IfcZone" or f.theme != Theme.NAMING_ZONE:
+        return None
+    text = f"{f.recommended_action or ''} {f.expected or ''}".lower()
+    if f.error_type == ErrorType.NAMING_NOT_IN_LIST or "objecttype" in text:
+        return "objecttype"
+    return "name"
+
+
+def _material_name(item) -> str | None:
+    """Nom de matériau exploitable d'un item de ``material_list`` (formes variées :
+    ``{"material": {"name": …}}`` BIMData, ``{"name": …}``, ou chaîne)."""
+    if isinstance(item, dict):
+        mat = item.get("material")
+        if isinstance(mat, dict) and mat.get("name") and str(mat["name"]).strip():
+            return str(mat["name"]).strip()
+        if item.get("name") and str(item["name"]).strip():
+            return str(item["name"]).strip()
+    elif isinstance(item, str) and item.strip():
+        return item.strip()
+    return None
+
+
+def _has_material(e: dict) -> bool:
+    """Vrai si l'élément porte un **vrai nom de matériau**.
+
+    Lit ``material_list`` (forme produite par ``bimdata-read`` :
+    ``[{"material": {"name": "Béton"}}]``) avec repli ``materials``. La simple
+    présence de la clé ne suffit pas : il faut un nom non vide.
+    """
+    for key in ("material_list", "materials"):
+        for item in e.get(key) or []:
+            if _material_name(item):
+                return True
+    return False
+
+
+def _naming_stat(total: int, nc: int) -> dict:
+    conf = total - nc
+    return {
+        "label": "Nombre de Noms",
+        "total": total,
+        "conforme": conf,
+        "conforme_ratio": conf / total if total else None,
+        "non_conforme": nc,
+        "non_conforme_ratio": nc / total if total else None,
     }
-    if name in theme_map:
-        theme, total = theme_map[name]
-        nc = len({f.element_uuid for f in result.findings if f.theme == theme and f.element_uuid})
+
+
+def _audit_stats(name: str, result: AuditResult) -> dict | None:
+    snap = result.snapshot
+    # Nommage zones : Name et ObjectType sont des contrôles SÉPARÉS (mêmes
+    # zones, anomalies distinctes) — on ne compte pas le même ensemble deux fois.
+    if name == "Zones Nommage":
+        total = len(snap.zones or [])
         if total == 0:
             return None
-        conf = total - nc
-        return {
-            "label": "Nombre de Noms",
-            "total": total,
-            "conforme": conf,
-            "conforme_ratio": conf / total if total else None,
-            "non_conforme": nc,
-            "non_conforme_ratio": nc / total if total else None,
-        }
+        nc = len(
+            {
+                f.element_uuid
+                for f in result.findings
+                if _zone_finding_kind(f) == "name" and f.element_uuid
+            }
+        )
+        return _naming_stat(total, nc)
+    if name == "Zones ObjectType":
+        total = len(snap.zones or [])
+        if total == 0:
+            return None
+        nc = len(
+            {
+                f.element_uuid
+                for f in result.findings
+                if _zone_finding_kind(f) == "objecttype" and f.element_uuid
+            }
+        )
+        return _naming_stat(total, nc)
+    if name == "Pièces Nommage":
+        total = len(snap.spaces or [])
+        if total == 0:
+            return None
+        nc = len(
+            {
+                f.element_uuid
+                for f in result.findings
+                if f.theme == Theme.NAMING_SPACE and f.element_uuid
+            }
+        )
+        return _naming_stat(total, nc)
     if "matériau" in name.lower():
         elements = snap.elements or []
         total = len(elements)
         if total == 0:
             return None
-        sans = sum(1 for e in elements if not (e.get("materials")))
+        sans = sum(1 for e in elements if not _has_material(e))
+        conf = total - sans
         return {
             "label": "Nombre d'éléments sans matériau",
             "total": total,
+            "conforme": conf,
+            "conforme_ratio": conf / total if total else None,
             "non_conforme": sans,
             "non_conforme_ratio": sans / total if total else None,
         }
