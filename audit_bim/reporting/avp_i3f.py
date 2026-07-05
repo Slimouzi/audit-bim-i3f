@@ -1115,6 +1115,11 @@ def _qa_empty_deliverables(pack: AvpReportPack, snap) -> list[str]:
     if snap is None:
         return []
     problems: list[str] = []
+    # 5ᵉ annexe : la « Grille de contrôle » porte toujours sa check-list I3F.
+    # Un Contrôle sans aucune ligne métier = livrable cassé → on bloque au même
+    # titre que les autres exports (dès qu'une maquette est fournie).
+    if _count_business_rows(pack.controle_xlsx) == 0:
+        problems.append("Contrôle")
     has_spaces_or_zones = bool(getattr(snap, "spaces", None)) or bool(getattr(snap, "zones", None))
     if has_spaces_or_zones:
         if _count_business_rows(pack.shab_xlsx) == 0:

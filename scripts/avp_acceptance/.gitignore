@@ -1,0 +1,6 @@
+# Sécurité : ne jamais versionner d'artefacts d'acceptation (données client :
+# pack AVP xlsx/docx, éventuels dumps). Seuls les .py/.md sont suivis.
+*.xlsx
+*.docx
+*.pdf
+*.json
