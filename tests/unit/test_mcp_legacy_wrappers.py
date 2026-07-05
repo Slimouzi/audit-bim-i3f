@@ -120,7 +120,7 @@ class TestDeprecationMarkers:
         meta = out[0].get("_meta", {})
         assert meta.get("deprecated") is True
         assert "list_classification_suggestions" in meta.get("use_instead", "")
-        assert meta.get("removal_version") == "0.3.0"
+        assert meta.get("removal_version") == "0.5.0"
 
     def test_suggest_classifications_marker_on_empty_list(self, _isolated):
         """Garantit que le marqueur est posé même quand le suggester
@@ -155,7 +155,7 @@ class TestDeprecationMarkers:
         assert meta["deprecated"] is True
         assert meta["empty_result"] is True
         assert "list_classification_suggestions" in meta["use_instead"]
-        assert meta["removal_version"] == "0.3.0"
+        assert meta["removal_version"] == "0.5.0"
         assert "migration_hint" in meta
 
     def test_create_bcf_topics_marked(self, _isolated):
@@ -164,7 +164,7 @@ class TestDeprecationMarkers:
         res = mcp_server.create_bcf_topics()
         assert res["deprecated"] is True
         assert "prepare_bcf_topics" in res["use_instead"]
-        assert res["removal_version"] == "0.3.0"
+        assert res["removal_version"] == "0.5.0"
         assert "migration_hint" in res
 
     def test_create_smart_views_marked(self, _isolated):
@@ -173,7 +173,7 @@ class TestDeprecationMarkers:
         res = mcp_server.create_smart_views()
         assert res["deprecated"] is True
         assert "prepare_smart_views_plan" in res["use_instead"]
-        assert res["removal_version"] == "0.3.0"
+        assert res["removal_version"] == "0.5.0"
 
     def test_apply_suggested_marked(self, _isolated):
         sess, _ = _isolated
@@ -252,7 +252,7 @@ class TestLegacyExecuteFlag:
         assert res["deprecated"] is True
         # Warning fort
         assert "legacy_execute_warning" in res
-        assert "0.3.0" in res["legacy_execute_warning"]
+        assert "0.5.0" in res["legacy_execute_warning"]
 
     def test_create_smart_views_legacy_execute_calls_push(self, _isolated, monkeypatch):
         sess, _ = _isolated

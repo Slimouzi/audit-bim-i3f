@@ -138,7 +138,7 @@ DEPRECATIONS: dict[str, DeprecatedToolInfo] = {
     "create_bcf_topics": DeprecatedToolInfo(
         tool_name="create_bcf_topics",
         use_instead="prepare_bcf_topics(...) puis apply_bcf_topics(plan_path=..., confirm=True)",
-        removal_version="0.3.0",
+        removal_version="0.5.0",
         migration_hint=(
             "1) filter findings via list_audit_findings ; "
             "2) prepare_bcf_topics(finding_filter=...) ; "
@@ -152,7 +152,7 @@ DEPRECATIONS: dict[str, DeprecatedToolInfo] = {
         use_instead=(
             "prepare_smart_views_plan(...) puis apply_smart_views_plan(plan_path=..., confirm=True)"
         ),
-        removal_version="0.3.0",
+        removal_version="0.5.0",
         migration_hint=("Workflow identique aux BCF Topics : filter → prepare → review → apply."),
         legacy_status="legacy_wrapper",
     ),
@@ -164,7 +164,7 @@ DEPRECATIONS: dict[str, DeprecatedToolInfo] = {
             "prepare_classification_update_plan() → "
             "apply_classification_update_plan(plan_path=..., confirm=True)"
         ),
-        removal_version="0.3.0",
+        removal_version="0.5.0",
         migration_hint=(
             "Le pattern accept→prepare→apply remplace l'auto-écrasement "
             "et offre une revue par UUID avant push BIMData."
@@ -174,7 +174,7 @@ DEPRECATIONS: dict[str, DeprecatedToolInfo] = {
     "suggest_classifications": DeprecatedToolInfo(
         tool_name="suggest_classifications",
         use_instead="list_classification_suggestions",
-        removal_version="0.3.0",
+        removal_version="0.5.0",
         migration_hint=(
             "list_classification_suggestions expose un store indexé filtrable, "
             "avec statuts accepted/rejected/applied — supérieur fonctionnellement."
@@ -189,7 +189,7 @@ DEPRECATIONS: dict[str, DeprecatedToolInfo] = {
             "prepare_doe_enrichment_plan(...) puis "
             "apply_doe_enrichment_plan(plan_path=..., confirm=True)"
         ),
-        removal_version="0.3.0",
+        removal_version="0.5.0",
         migration_hint=(
             "Le pattern prepare/apply expose les conflits MATCH/NEW/UPGRADE/"
             "CONFLICT avant écriture, scelle le plan SHA-256 et exige "

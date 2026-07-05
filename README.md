@@ -22,7 +22,7 @@ Ce MCP transforme cet audit en **5 agents** orchestrés par Claude :
 | Model Extractor | Tire la maquette IFC depuis BIMData (auth OAuth2 ou API Key) | `set_active_model`, `extract_model_snapshot`, `verify_active_model` |
 | Audit Engine | Joue les règles (nommage, propriétés, classifications, hiérarchie) | `run_audit_tool`, `query_findings` |
 | Reporter | Produit Word d'audit + annexe XLSX | `generate_word_report`, `generate_xlsx_annex` |
-| Smart View Builder | Crée 1 Smart View BIMData par thème en erreur | `create_smart_views` |
+| Publication BIMData | BCF Topics / Smart Views par thème (workflow `prepare → review → apply`) | `prepare_bcf_topics` / `apply_bcf_topics`, `prepare_smart_views_plan` / `apply_smart_views_plan` |
 | Orchestrateur | Chaîne complète en un appel | `full_audit` |
 
 Un prompt MCP `amo_bim_i3f` charge la persona « AMO BIM senior I3F » dans

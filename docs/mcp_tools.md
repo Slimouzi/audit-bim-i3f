@@ -114,11 +114,11 @@ section *Interroger la maquette*.
 
 | Tool | Statut | R/W | Remplaçant | Suppression |
 |---|---|---|---|---|
-| `suggest_classifications` | `deprecated` | R | `list_classification_suggestions` | v0.3.0 |
-| `create_bcf_topics` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_bcf_topics` + `apply_bcf_topics` | v0.3.0 |
-| `create_smart_views` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_smart_views_plan` + `apply_smart_views_plan` | v0.3.0 |
-| `apply_suggested_classifications` | `legacy_wrapper` | R (W si `legacy_execute=True`) | `list_classification_suggestions` → `update_suggestion_status` → `prepare_classification_update_plan` → `apply_classification_update_plan` | v0.3.0 |
-| `doe_enrich_model` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan` | v0.3.0 |
+| `suggest_classifications` | `deprecated` | R | `list_classification_suggestions` | v0.5.0 |
+| `create_bcf_topics` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_bcf_topics` + `apply_bcf_topics` | v0.5.0 |
+| `create_smart_views` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_smart_views_plan` + `apply_smart_views_plan` | v0.5.0 |
+| `apply_suggested_classifications` | `legacy_wrapper` | R (W si `legacy_execute=True`) | `list_classification_suggestions` → `update_suggestion_status` → `prepare_classification_update_plan` → `apply_classification_update_plan` | v0.5.0 |
+| `doe_enrich_model` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan` | v0.5.0 |
 
 ### Comportement des wrappers
 
@@ -138,7 +138,7 @@ Politique de suppression :
 - **Release N** (actuelle) : wrappers fonctionnels, `legacy_execute=False`
   par défaut.
 - **Release N+1** : `legacy_execute=True` lèvera un avertissement bloquant.
-- **Release N+2** (v0.3.0) : suppression complète des 4 tools dépréciés.
+- **Release de rupture** (v0.5.0) : désenregistrement + suppression des 5 tools dépréciés (`suggest_classifications`, `create_bcf_topics`, `create_smart_views`, `apply_suggested_classifications`, `doe_enrich_model`) et des chemins `legacy_execute`.
 
 ## Garanties transverses
 
