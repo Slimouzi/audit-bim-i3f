@@ -506,9 +506,10 @@ Ne plus les utiliser dans le workflow cible :
 | `create_bcf_topics` | `prepare_bcf_topics` / `apply_bcf_topics` (étapes 8-9) |
 | `create_smart_views` | `prepare_smart_views_plan` / `apply_smart_views_plan` (étapes 10-11) |
 | `apply_suggested_classifications` | workflow complet 4 → 7 |
+| `doe_enrich_model` | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan` |
 
 Cf. [docs/migration_prepare_apply.md](migration_prepare_apply.md) pour les
-exemples de migration.
+exemples de migration. **Retrait planifié en v0.5.0.**
 
 ## Politique de non-investissement
 
@@ -516,7 +517,7 @@ exemples de migration.
 compatibilité — aucun nouveau développement n'est prévu dessus. **En cas
 de bug critique sur ce tool**, l'AMO doit migrer vers
 `list_classification_suggestions`. La suppression définitive est planifiée
-pour la **v0.3.0**.
+pour la **v0.5.0**.
 
 ## Voir aussi
 

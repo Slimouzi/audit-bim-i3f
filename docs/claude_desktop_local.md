@@ -152,12 +152,13 @@ recharge la config.
    sous `AUDIT_OUTPUT_DIR`.
 
 6. « **Propose les classifications manquantes sans les appliquer.** »
-   `suggest_classifications` puis `apply_suggested_classifications`
-   avec `dry_run=true`. Aperçu sans aucune écriture BIMData.
+   `list_classification_suggestions` puis `prepare_classification_corrections`
+   (plan scellé, **aucune écriture BIMData** — l'apply exige `confirm=True`).
 
-7. « **Crée les BCF topics en dry-run.** »
-   `create_bcf_topics` avec `dry_run=true`. Payloads JSON visibles, pas
-   de POST.
+7. « **Prépare les BCF topics sans écrire.** »
+   `prepare_bcf_topics` : renvoie un `plan_id` + `plan_path` (plan scellé),
+   payloads inspectables, aucun POST. L'écriture se fait ensuite via
+   `apply_bcf_topics(plan_path=..., confirm=True)` après revue.
 
 À ce stade, si tout passe, tu peux refaire les étapes 6 et 7 avec
 `dry_run=false` pour pousser réellement.

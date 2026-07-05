@@ -7,6 +7,22 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Deprecated
+
+- **Retrait annoncé en v0.5.0** des 5 tools MCP hérités, remplacés par le
+  workflow `list → prepare → apply` (revue avant écriture) :
+  - `suggest_classifications` → `list_classification_suggestions` ;
+  - `create_bcf_topics` → `prepare_bcf_topics` / `apply_bcf_topics` ;
+  - `create_smart_views` → `prepare_smart_views_plan` / `apply_smart_views_plan` ;
+  - `apply_suggested_classifications` → `list_classification_suggestions` →
+    `prepare_classification_update_plan` / `apply_classification_update_plan` ;
+  - `doe_enrich_model` → `match_doe_to_ifc` → `prepare_doe_enrichment_plan` /
+    `apply_doe_enrichment_plan`.
+  Les chemins `legacy_execute=True` (push direct) seront supprimés avec eux.
+  `removal_version` corrigé (`0.3.0` → `0.5.0`) : contrat de version aligné sur
+  la version courante 0.4.1. **Cette version ne supprime rien** — prompts, docs
+  et inventaire MCP sont mis à jour pour ne plus recommander les tools hérités.
+
 ### Added
 
 #### Pack de livrables AVP I3F (`generate_avp_i3f_pack` / `write_avp_i3f_report_pack`)
