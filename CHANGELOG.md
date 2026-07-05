@@ -7,21 +7,26 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
-### Deprecated
+## [0.5.0] - 2026-07-05
 
-- **Retrait annoncé en v0.5.0** des 5 tools MCP hérités, remplacés par le
-  workflow `list → prepare → apply` (revue avant écriture) :
+### Removed
+
+- **BREAKING** — suppression des **5 tools MCP hérités** et de leurs chemins
+  `legacy_execute=True` (push direct). Migrer vers le workflow
+  `list → (accept/reject) → prepare → apply` :
   - `suggest_classifications` → `list_classification_suggestions` ;
-  - `create_bcf_topics` → `prepare_bcf_topics` / `apply_bcf_topics` ;
-  - `create_smart_views` → `prepare_smart_views_plan` / `apply_smart_views_plan` ;
+  - `create_bcf_topics` → `prepare_bcf_topics` → `apply_bcf_topics(confirm=True)` ;
+  - `create_smart_views` → `prepare_smart_views_plan` →
+    `apply_smart_views_plan(confirm=True)` ;
   - `apply_suggested_classifications` → `list_classification_suggestions` →
-    `prepare_classification_update_plan` / `apply_classification_update_plan` ;
-  - `doe_enrich_model` → `match_doe_to_ifc` → `prepare_doe_enrichment_plan` /
-    `apply_doe_enrichment_plan`.
-  Les chemins `legacy_execute=True` (push direct) seront supprimés avec eux.
-  `removal_version` corrigé (`0.3.0` → `0.5.0`) : contrat de version aligné sur
-  la version courante 0.4.1. **Cette version ne supprime rien** — prompts, docs
-  et inventaire MCP sont mis à jour pour ne plus recommander les tools hérités.
+    `update_suggestion_status` → `prepare_classification_update_plan` →
+    `apply_classification_update_plan(confirm=True)` ;
+  - `doe_enrich_model` → `match_doe_to_ifc` → `prepare_doe_enrichment_plan` →
+    `apply_doe_enrichment_plan(confirm=True)`.
+  Le module `audit_bim/mcp/tools_legacy.py` est supprimé ; `DEPRECATIONS` est
+  vidé (infrastructure conservée). Les builders `push_bcf_topics` /
+  `push_smart_views` restent (utilisés par `full_audit`). Un test d'inventaire
+  (`test_mcp_inventory.py`) atteste l'absence des 5 tools du registre MCP.
 
 ### Added
 

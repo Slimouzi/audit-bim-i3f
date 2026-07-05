@@ -1821,7 +1821,6 @@ def full_audit(
 
 from . import aliases  # noqa: E402, F401, I001
 from . import tools_actions  # noqa: E402, F401
-from . import tools_legacy  # noqa: E402, F401
 from . import tools_query  # noqa: E402, F401
 
 # Re-export des tools déplacés pour préserver l'API publique :
@@ -1852,13 +1851,6 @@ from .tools_actions import (  # noqa: E402, F401
     prepare_smart_view_from_filter_plan,
     prepare_smart_views_plan,
     update_suggestion_status,
-)
-from .tools_legacy import (  # noqa: E402, F401
-    apply_suggested_classifications,
-    create_bcf_topics,
-    create_smart_views,
-    doe_enrich_model,
-    suggest_classifications,
 )
 from .tools_query import (  # noqa: E402, F401
     filter_bim_objects,

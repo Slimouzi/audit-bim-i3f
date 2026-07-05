@@ -112,13 +112,17 @@ section *Interroger la maquette*.
 
 ## Tools dépréciés
 
-| Tool | Statut | R/W | Remplaçant | Suppression |
-|---|---|---|---|---|
-| `suggest_classifications` | `deprecated` | R | `list_classification_suggestions` | v0.5.0 |
-| `create_bcf_topics` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_bcf_topics` + `apply_bcf_topics` | v0.5.0 |
-| `create_smart_views` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_smart_views_plan` + `apply_smart_views_plan` | v0.5.0 |
-| `apply_suggested_classifications` | `legacy_wrapper` | R (W si `legacy_execute=True`) | `list_classification_suggestions` → `update_suggestion_status` → `prepare_classification_update_plan` → `apply_classification_update_plan` | v0.5.0 |
-| `doe_enrich_model` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan` | v0.5.0 |
+**Supprimés en v0.5.0.** Les 5 tools hérités et leurs chemins `legacy_execute`
+ont été retirés. Utiliser les workflows `list → (accept/reject) → prepare →
+apply` :
+
+| Tool retiré (v0.5.0) | Remplaçant |
+|---|---|
+| `suggest_classifications` | `list_classification_suggestions` |
+| `create_bcf_topics` | `prepare_bcf_topics` → `apply_bcf_topics(confirm=True)` |
+| `create_smart_views` | `prepare_smart_views_plan` → `apply_smart_views_plan(confirm=True)` |
+| `apply_suggested_classifications` | `list_classification_suggestions` → `update_suggestion_status` → `prepare_classification_update_plan` → `apply_classification_update_plan(confirm=True)` |
+| `doe_enrich_model` | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan(confirm=True)` |
 
 ### Comportement des wrappers
 
