@@ -7,6 +7,39 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-05
+
+**Remplace v0.5.1** : le wheel/sdist v0.5.1 est **antérieur** à l'adoption du
+package `bim-audit-engine` (#63) et à la façade du moteur (#64). **Utiliser
+v0.5.2** pour un wheel cohérent avec le master.
+
+### Changed
+
+- **Moteur d'audit extrait vers `bim-audit-engine`** (7ᵉ package first-party) —
+  `audit_bim.audit.engine` devient une **façade mince** sur le cœur générique
+  `bim-audit-engine` (protocole `Rule`, `run_audit` à règles injectables,
+  `AuditResult` générique, tri déterministe) :
+  - `AuditResult` est **ré-exporté à l'identique** depuis `bim_audit_engine`
+    (`audit_bim.audit.engine.AuditResult is bim_audit_engine.AuditResult`) —
+    champs, méthodes et dump JSON inchangés (#64) ;
+  - `run_audit(snap, catalog, phase)` conserve sa signature et injecte les
+    `I3F_RULES` I3F dans le moteur générique — **parité par équivalence** ;
+  - `audit_naming` accepte désormais `phase` (ignoré) pour respecter le
+    protocole `Rule` ;
+  - adoption infra (dépendance + `[tool.uv.sources]` tag
+    `bim-audit-engine-v0.1.1` + `uv.lock` + préinstall CI/release) (#63).
+  - Restent **I3F, inchangés** : `RequirementsCatalog`, `BIMPhase`, les 6 règles
+    concrètes, `validators`/`ifc_hierarchy`/`normalizer`, `preliminary`.
+
+### Notes
+
+- **Parité prouvée sur maquette réelle** (read-only, sans publication BIMData) :
+  sur `250613_MN_BAT.ifc` (projet I3F, 10 549 éléments) avec le catalogue CCH 3.6
+  réel, l'ancien moteur (`65ac0c9`) et la façade produisent **49 798 findings
+  strictement identiques** (mêmes `Finding.model_dump()`, même **ordre**, même
+  `summary()` et mêmes agrégats). Voir
+  `docs/validation-parity-bim-audit-engine.md`.
+
 ## [0.5.1] - 2026-07-05
 
 **Remplace v0.5.0** : le wheel/sdist v0.5.0 (commit `9cc2b9d`) est **antérieur**
