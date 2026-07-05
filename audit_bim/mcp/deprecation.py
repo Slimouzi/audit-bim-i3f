@@ -54,7 +54,7 @@ class DeprecatedToolInfo:
             humain — peut décrire plusieurs étapes
             (« prepare_bcf_topics(...) puis apply_bcf_topics(...) »).
         removal_version: Version à laquelle le tool sera supprimé
-            (ex: ``"0.3.0"``). ``None`` = pas de date arrêtée.
+            (ex: ``"0.5.0"``). ``None`` = pas de date arrêtée.
         migration_hint: Indication courte pour orienter l'utilisateur,
             ex: « filtrer via list_classification_suggestions puis
             update_suggestion_status puis prepare_classification_update_plan ».

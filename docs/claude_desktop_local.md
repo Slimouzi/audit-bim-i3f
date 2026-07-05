@@ -42,15 +42,18 @@ l'auth applicative MCP n'a pas de sens, seule `BIMDATA_API_KEY` compte.
 ## Politique d'écriture BIMData
 
 En stdio, `AUDIT_BIM_ALLOW_WRITES` vaut **`true` par défaut** : les tools
-mutatifs (`apply_classifications`, `doe_enrich_model`, `create_bcf_topics`,
-`create_smart_views`, `full_audit` avec push) peuvent toucher BIMData.
+d'écriture (`apply_bcf_topics`, `apply_smart_views_plan`,
+`apply_classification_update_plan`, `apply_doe_enrichment_plan`, `full_audit`
+avec push) peuvent toucher BIMData.
 
-**Commence toujours en `dry_run=true`** pour valider le payload avant
-de pousser réellement. Exemple :
+**Toujours en deux temps `prepare → revue → apply(confirm=True)`** — le
+`prepare_*` ne fait **aucune écriture** (il renvoie un `plan_id`/`plan_path`
+scellé), on revoit le plan (cible, risques, nombre d'items), puis on applique.
+Exemple :
 
 ```text
-"Crée les BCF topics en dry-run."   # dry_run=true par défaut
-"Maintenant pousse-les réellement."  # dry_run=false explicite
+"Prépare les BCF topics."                          # prepare_bcf_topics -> plan_path
+"Applique le plan après revue."                    # apply_bcf_topics(plan_path=..., confirm=True)
 ```
 
 Pour interdire toute écriture côté serveur, même en stdio :
@@ -160,8 +163,9 @@ recharge la config.
    payloads inspectables, aucun POST. L'écriture se fait ensuite via
    `apply_bcf_topics(plan_path=..., confirm=True)` après revue.
 
-À ce stade, si tout passe, tu peux refaire les étapes 6 et 7 avec
-`dry_run=false` pour pousser réellement.
+À ce stade, si tout passe, tu peux **appliquer** les plans préparés aux
+étapes 6 et 7 via `apply_*(plan_path=..., confirm=True)` (écriture réelle,
+après revue).
 
 ## Dépannage
 
@@ -172,7 +176,7 @@ recharge la config.
 | Erreur d'auth BIMData (401/403) | `BIMDATA_API_KEY` manquante / périmée / mauvais scope | Régénérer la clé depuis l'interface BIMData du cloud cible. Vérifier `BIMDATA_CLOUD_ID` / `..._PROJECT_ID` / `..._MODEL_ID`. |
 | `Aucune adresse exploitable` | `I3F_CCH_PDF` / `I3F_DATA_SPEC_XLSX` / `I3F_NAMING_SPEC_XLSX` non définis ou chemins invalides | Mettre des chemins **absolus** existants dans `.env` ou env inline. |
 | `OCR Tesseract not found` | Binaire `tesseract` manquant | `brew install tesseract poppler` (macOS) ou équivalent Linux. |
-| Écritures BIMData involontaires | Tool mutatif appelé avec `dry_run=false` par mégarde | Toujours valider en `dry_run=true` d'abord. Pour bloquer côté serveur : `AUDIT_BIM_ALLOW_WRITES=false` dans l'env. |
+| Écritures BIMData involontaires | `apply_*` appelé avec `confirm=True` sans revue du plan | Toujours `prepare_*` (aucune écriture) → revue (cible, risques, items) → `apply_*(confirm=True)`. Pour bloquer côté serveur : `AUDIT_BIM_ALLOW_WRITES=false` dans l'env. |
 | `AccessTokenParamDisabledError` | Tool appelé avec `access_token=…` sur transport réseau | En stdio ce ne devrait pas arriver. Si en HTTP, utiliser `BIMDATA_API_KEY` côté serveur. |
 
 ## Pourquoi pas `AUDIT_BIM_API_KEY` en stdio ?

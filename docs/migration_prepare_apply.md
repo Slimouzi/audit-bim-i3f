@@ -189,7 +189,7 @@ apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
 |---|---|
 | **N** (actuelle) | Wrappers dépréciés conservés. `legacy_execute=False` par défaut. |
 | **N+1** | `legacy_execute=True` lève un warning bloquant si exécuté sur HTTP transport. |
-| **N+2** (v0.3.0) | Suppression complète des 4 tools dépréciés. |
+| **N+2** (v0.5.0) | Suppression complète des 5 tools dépréciés. |
 
 ## Lecture seule : `suggest_classifications`
 

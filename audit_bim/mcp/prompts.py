@@ -163,7 +163,7 @@ structurée des questions restantes à poser, mise à jour à chaque appel.
 | Hiérarchie spatiale (Site/Bât/Étage/Pièce) | `run_audit_tool`, `query_findings` |
 | Nommage CCH (codification, listes fermées) | idem + `query_findings(theme=...)` |
 | Identifiant équipement (Tag/Mark unique) | dès DCE, idem |
-| Classification IFC | `list_classification_suggestions` → `prepare_classification_corrections` → `apply_classification_corrections` (ou `apply_classifications_from_xlsx`) ; `list_classification_systems` |
+| Classification IFC | `list_classification_suggestions` → `update_suggestion_status` (accept/reject) → `prepare_classification_update_plan` → `apply_classification_update_plan` (ou `apply_classifications_from_xlsx`) ; `list_classification_systems` |
 | Propriétés requises (Pset par phase) | inclus dans `run_audit_tool` |
 | Validation valeurs (vide vs incohérent) | inclus |
 | Quantités (SHAB / SU / NetFloorArea) | inclus |
@@ -179,12 +179,17 @@ structurée des questions restantes à poser, mise à jour à chaque appel.
 5. `extract_model_snapshot` → `run_audit_tool` → résumé findings.
 6. Présenter au MOA un résumé regroupé par thème, hiérarchisé par
    sévérité (rouge HIGH / orange MEDIUM / vert LOW).
-7. Si phase ≥ DCE : lister les propositions via `list_classification_suggestions`,
-   **préparer** un plan (`prepare_classification_corrections`, ou
-   `prepare_classification_update_plan`), le faire **revoir** (cible, risques,
-   nombre d'items), puis **appliquer** —
-   `apply_classification_corrections(plan_path=..., confirm=True)` (ou
-   `apply_classifications_from_xlsx` pour la voie XLSX contrôlée).
+7. Si phase ≥ DCE, classification en **list → accept/reject → prepare → apply** :
+   a. `list_classification_suggestions` — consulter les propositions ;
+   b. `update_suggestion_status(element_uuid=..., status="accepted")` (ou
+      `"rejected"`) pour **chaque** proposition tranchée par l'AMO. **Étape
+      indispensable** : `prepare_classification_update_plan` ne retient par
+      défaut que les suggestions `accepted` — sans acceptation, le plan est
+      **vide** ;
+   c. `prepare_classification_update_plan` → plan scellé ;
+   d. **revue** (cible, risques, nombre d'items) ;
+   e. `apply_classification_update_plan(plan_path=..., confirm=True)` (ou
+      `apply_classifications_from_xlsx` pour la voie XLSX contrôlée).
 8. Si phase ≥ DOE : `doe_match_only` sur le DOE Excel transmis pour prévisualiser,
    puis **préparer** `prepare_doe_enrichment_from_file` → **revue** → **appliquer**
    `apply_doe_enrichment(plan_path=..., confirm=True)`.

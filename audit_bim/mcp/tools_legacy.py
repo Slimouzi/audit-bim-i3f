@@ -155,7 +155,7 @@ def create_bcf_topics(
         legacy_execute: Si ``True``, exécute l'**ancien comportement**
             (push direct via :func:`push_bcf_topics`). À ne plus utiliser
             — réservé aux scripts existants en transition. Sera supprimé
-            à la version ``0.3.0``.
+            à la version ``0.5.0``.
 
     Returns:
         Par défaut (``legacy_execute=False``) : payload ``prepare_*`` (plan_id,
@@ -280,7 +280,7 @@ def apply_suggested_classifications(
 
     Comportement legacy (``legacy_execute=True``) :
     ancien flux d'écrasement automatique (sera supprimé à la version
-    ``0.3.0``).
+    ``0.5.0``).
 
     Args:
         min_confidence: Seuil de confiance.
@@ -369,7 +369,7 @@ def doe_enrich_model(
     ancien flux (parse + match + push direct) avec
     ``legacy_execute_warning`` fort, log INFO additionnel, et passage
     par ``ensure_writes_allowed`` côté écriture. À éviter — sera
-    supprimé à la version ``0.3.0``.
+    supprimé à la version ``0.5.0``.
 
     Args:
         doe_path: Chemin du fichier DOE (.xlsx / .xlsm / .pdf).
