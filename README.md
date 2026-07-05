@@ -140,7 +140,12 @@ et aux espaces multiples — ex: `"LIFFRE"` matche
 ### Workflow recommandé
 
 ```text
-1. set_active_model(cloud_id, project_id, model_id, phase, ...)
+1. set_active_model(
+       bimdata_url="https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d",
+       phase="AVP",
+   )
+   # Alternative historique : cloud_id + project_id + model_id.
+   # L'URL peut aussi être collée directement dans model_id.
 2. verify_active_model(expected_model_name="LIFFRE")
    # rafraîchit le snapshot sans cache + bloque si mismatch
 3. parse_owner_requirements()

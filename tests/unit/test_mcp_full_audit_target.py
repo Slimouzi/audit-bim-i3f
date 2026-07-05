@@ -147,9 +147,32 @@ class TestFullAuditPreservesActiveTarget:
         # L'audit s'est bien déroulé jusqu'au bout.
         assert "summary" in out
 
-    def test_explicit_ids_trigger_set_active_model(self, _isolated_session, tmp_path, monkeypatch):
-        """Si l'appelant fournit au moins un ID, ``set_active_model``
-        est appelé (changement de cible explicite)."""
+    @pytest.mark.parametrize(
+        ("target_kwargs", "expected_key", "expected_value"),
+        [
+            ({"model_id": "new"}, "model_id", "new"),
+            (
+                {
+                    "bimdata_url": (
+                        "https://platform.bimdata.io/spaces/1/projects/2/viewer/3?window=3d"
+                    )
+                },
+                "bimdata_url",
+                "https://platform.bimdata.io/spaces/1/projects/2/viewer/3?window=3d",
+            ),
+        ],
+    )
+    def test_explicit_target_triggers_set_active_model(
+        self,
+        _isolated_session,
+        tmp_path,
+        monkeypatch,
+        target_kwargs,
+        expected_key,
+        expected_value,
+    ):
+        """Un ID ou une URL explicite recadre la cible via
+        ``set_active_model``."""
         _isolated_session.client = _FakeClient(model_id="old")
         _isolated_session.model_id = "old"
         snap = _snapshot_with_model("nouvelle_maquette.ifc", model_id="new")
@@ -188,15 +211,15 @@ class TestFullAuditPreservesActiveTarget:
             mcp_server.full_audit(
                 cloud_id=None,
                 project_id=None,
-                model_id="new",  # ID explicite → re-targeting demandé
                 push_mode="none",
                 output_dir=str(tmp_path),
                 confirm_context=True,
+                **target_kwargs,
             )
 
             m_set.assert_called_once()
             kwargs = m_set.call_args.kwargs
-            assert kwargs["model_id"] == "new"
+            assert kwargs[expected_key] == expected_value
 
     def test_no_client_no_ids_falls_back_to_env(self, _isolated_session, tmp_path, monkeypatch):
         """Pas de cible active + pas d'IDs fournis → ``set_active_model``
@@ -308,3 +331,77 @@ class TestFullAuditPreservesActiveTarget:
         # _State.phase a été ré-aligné à BIMPhase.DCE pour rester
         # cohérent avec l'audit qui vient de tourner.
         assert _isolated_session.phase == BIMPhase.DCE
+
+
+class TestFullAuditNoCrossModelContextContamination:
+    """P1 — un ``full_audit(bimdata_url=<B>)`` dans une session où le modèle
+    A est déjà chargé ne doit **jamais** proposer l'adresse, la description
+    ou la phase du modèle A pour le rapport du modèle B.
+
+    Avant le fix, les suggestions de contexte étaient calculées depuis
+    ``_State.snapshot`` (modèle A) *avant* l'activation de la cible URL
+    (modèle B). Le fix active la cible et charge son snapshot en tête de
+    ``full_audit``, si bien que phase/adresse/description proviennent
+    toujours du modèle réellement audité.
+    """
+
+    def test_url_target_context_never_leaks_from_previous_model(
+        self, _isolated_session, tmp_path, monkeypatch
+    ):
+        # Modèle A déjà en session : phase DOE, description + adresse propres.
+        snap_a = ModelSnapshot(
+            project={"name": "MODELE-A", "description": "DESCRIPTION-A", "phase": "DOE"},
+            model={"id": "AAA", "name": "modele_A.ifc"},
+        ).index()
+        _isolated_session.client = _FakeClient(model_id="AAA")
+        _isolated_session.model_id = "AAA"
+        _isolated_session.phase = BIMPhase.DOE
+        _isolated_session.snapshot = snap_a
+
+        # Modèle B — la cible URL. Phase APS, description distincte.
+        snap_b = ModelSnapshot(
+            project={"name": "MODELE-B", "description": "DESCRIPTION-B", "phase": "APS"},
+            model={"id": "BBB", "name": "modele_B.ifc"},
+        ).index()
+
+        monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
+
+        def _fake_set(**kwargs):
+            # Effet réel de set_active_model : bascule la session sur B et
+            # invalide le snapshot (rechargé juste après par extract_snapshot).
+            _isolated_session.client = _FakeClient(model_id="BBB")
+            _isolated_session.model_id = "BBB"
+            _isolated_session.phase = BIMPhase(kwargs.get("phase", "PRO").upper())
+            _isolated_session.snapshot = None
+
+        # L'adresse suggérée reflète le snapshot ACTIF au moment de l'appel :
+        # c'est précisément l'ordre que le fix garantit.
+        def _fake_addr():
+            snap = _isolated_session.snapshot
+            return f"ADDR-{(snap.model or {}).get('name')}" if snap is not None else None
+
+        with (
+            patch.object(mcp_server, "set_active_model", side_effect=_fake_set),
+            patch.object(mcp_server, "extract_snapshot", return_value=snap_b),
+            patch.object(mcp_server, "_snapshot_address_suggestion", side_effect=_fake_addr),
+        ):
+            out = mcp_server.full_audit(
+                bimdata_url="https://platform.bimdata.io/spaces/1/projects/2/viewer/BBB?window=3d",
+                push_mode="none",
+                output_dir=str(tmp_path),
+                confirm_context=False,  # force le dialogue needs_context
+            )
+
+        # Le tool refuse en demandant le contexte → on inspecte les suggestions.
+        assert out["status"] == "needs_context"
+        q_by_key = {q["key"]: q for q in out["questions"]}
+
+        # Adresse : celle de B, jamais de A.
+        assert q_by_key["project_address"]["suggested_value"] == "ADDR-modele_B.ifc"
+        # Description : celle de B, jamais de A.
+        assert q_by_key["project_description"]["suggested_value"] == "DESCRIPTION-B"
+        # Phase proposée : APS (modèle B), jamais DOE (modèle A).
+        assert q_by_key["project_phase"]["suggested_value"] == "APS"
+
+        # La session pointe bien sur B après l'activation en tête de fonction.
+        assert _isolated_session.model_id == "BBB"

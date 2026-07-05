@@ -2,6 +2,7 @@
 
 Couvre :
 
+- le parsing et la résolution des URLs viewer BIMData ;
 - les helpers purs ``normalize_model_name`` / ``model_matches_expected`` ;
 - le tool MCP ``verify_active_model`` (chemins ok / mismatch / sans
   snapshot) ;
@@ -21,6 +22,8 @@ from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.model_identity import (
     model_matches_expected,
     normalize_model_name,
+    parse_bimdata_viewer_url,
+    resolve_bimdata_target,
 )
 from audit_bim.mcp.session import _Session, current_session
 
@@ -40,10 +43,17 @@ def _isolated_session():
 class _FakeClient:
     """BIMDataClient minimal : on n'a besoin que de l'attribut ``model_id``."""
 
-    def __init__(self, cloud_id="c", project_id="p", model_id="m"):
+    def __init__(
+        self,
+        cloud_id="c",
+        project_id="p",
+        model_id="m",
+        access_token=None,
+    ):
         self.cloud_id = cloud_id
         self.project_id = project_id
         self.model_id = model_id
+        self.access_token = access_token
 
 
 def _snapshot_with_model(name: str, model_id: str = "42") -> ModelSnapshot:
@@ -54,6 +64,97 @@ def _snapshot_with_model(name: str, model_id: str = "42") -> ModelSnapshot:
 
 
 # ── Helpers purs ───────────────────────────────────────────────────────
+
+
+class TestParseBimdataViewerUrl:
+    URL = "https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d"
+
+    def test_extracts_ids_and_ignores_query_string(self):
+        assert parse_bimdata_viewer_url(self.URL) == ("33617", "2698917", "1674450")
+
+    def test_accepts_trailing_slash_and_fragment(self):
+        url = "https://platform.bimdata.io/spaces/1/projects/2/viewer/3/?window=3d#issues"
+        assert parse_bimdata_viewer_url(url) == ("1", "2", "3")
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://platform.bimdata.io/spaces/1/projects/2/viewer/3",
+            "https://example.com/spaces/1/projects/2/viewer/3",
+            "https://platform.bimdata.io/spaces/1/projects/2",
+            "https://platform.bimdata.io/spaces/cloud/projects/2/viewer/3",
+            "not-a-url",
+        ],
+    )
+    def test_rejects_non_bimdata_or_malformed_urls(self, url):
+        with pytest.raises(ValueError, match="URL BIMData invalide"):
+            parse_bimdata_viewer_url(url)
+
+
+class TestResolveBimdataTarget:
+    URL = "https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d"
+
+    def test_resolves_url_only(self):
+        assert resolve_bimdata_target(
+            cloud_id=None,
+            project_id=None,
+            model_id=None,
+            bimdata_url=self.URL,
+        ) == ("33617", "2698917", "1674450")
+
+    def test_accepts_matching_explicit_ids(self):
+        assert resolve_bimdata_target(
+            cloud_id="33617",
+            project_id="2698917",
+            model_id="1674450",
+            bimdata_url=self.URL,
+        ) == ("33617", "2698917", "1674450")
+
+    def test_accepts_url_pasted_into_model_id(self):
+        assert resolve_bimdata_target(
+            cloud_id=None,
+            project_id=None,
+            model_id=self.URL,
+        ) == ("33617", "2698917", "1674450")
+
+    def test_without_url_preserves_historical_values(self):
+        assert resolve_bimdata_target(
+            cloud_id="c",
+            project_id="p",
+            model_id="m",
+        ) == ("c", "p", "m")
+
+    def test_rejects_conflicting_explicit_id(self):
+        with pytest.raises(ValueError, match="model_id='999'"):
+            resolve_bimdata_target(
+                cloud_id="33617",
+                project_id="2698917",
+                model_id="999",
+                bimdata_url=self.URL,
+            )
+
+    def test_rejects_duplicate_url_inputs(self):
+        with pytest.raises(ValueError, match="Cible BIMData ambiguë"):
+            resolve_bimdata_target(
+                cloud_id=None,
+                project_id=None,
+                model_id=self.URL,
+                bimdata_url=self.URL,
+            )
+
+
+class TestSetActiveModelFromUrl:
+    def test_url_configures_any_model_without_env_edit(self, _isolated_session):
+        url = "https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d"
+        with patch.object(mcp_server, "BIMDataClient", _FakeClient):
+            result = mcp_server.set_active_model(bimdata_url=url, phase="AVP")
+
+        assert result["cloud_id"] == "33617"
+        assert result["project_id"] == "2698917"
+        assert result["model_id"] == "1674450"
+        assert _isolated_session.client.model_id == "1674450"
+        assert _isolated_session.snapshot is None
+        assert _isolated_session.result is None
 
 
 class TestNormalizeModelName:

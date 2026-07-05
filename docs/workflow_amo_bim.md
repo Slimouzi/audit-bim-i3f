@@ -383,14 +383,21 @@ Exemple Python :
 
 ```python
 # Premier appel — refus structuré
-result = full_audit(cloud_id=..., project_id=..., model_id=..., push_mode="none")
+result = full_audit(
+    bimdata_url=(
+        "https://platform.bimdata.io/spaces/33617/projects/2698917/"
+        "viewer/1674450?window=3d"
+    ),
+    push_mode="none",
+)
 # → {"status": "needs_context", "missing": ["project_address", "auditor_name"], ...}
 
 # Second appel — audit lancé
 result = full_audit(
-    cloud_id=...,
-    project_id=...,
-    model_id=...,
+    bimdata_url=(
+        "https://platform.bimdata.io/spaces/33617/projects/2698917/"
+        "viewer/1674450?window=3d"
+    ),
     project_address="12 rue de la Paix, 35340 LIFFRÉ",
     project_phase="PRO",
     auditor_name="Stanislas Limouzi (BET Acme)",
