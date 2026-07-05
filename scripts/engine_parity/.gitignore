@@ -1,0 +1,3 @@
+# Sécurité : ne jamais versionner d'artefacts de parité (données client :
+# snapshot, catalogue, dumps de findings). Seuls les .py/.md sont suivis.
+*.json

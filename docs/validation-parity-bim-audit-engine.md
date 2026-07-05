@@ -50,13 +50,23 @@ moteur est donc **sans effet observable**.
 
 ## Reproduire
 
+Harnais versionné : `scripts/engine_parity/` (voir son `README.md`). Les artefacts
+(`snapshot.json`, `catalog.json`, `new.json`, `old.json`) contiennent des **données
+client** et **ne sont jamais versionnés** — les scripts refusent d'écrire dans le
+dépôt ; écrire **hors du repo** (`$OUT`).
+
 ```bash
-# 1. Extraire les artefacts réels (une fois, master venv)
-python extract_artifacts.py <artifacts_dir>
-# 2. Nouveau moteur (master)
-python replay.py <artifacts_dir> new.json
-# 3. Ancien moteur (worktree 65ac0c9)
+OUT=/tmp/engine-parity                                     # HORS du repo
+# 1. Artefacts réels (une fois, depuis master + venv configuré)
+python scripts/engine_parity/extract_artifacts.py "$OUT"
+# 2. Nouveau moteur (master / façade)
+python scripts/engine_parity/replay.py "$OUT" "$OUT/new.json"
+# 3. Ancien moteur (worktree pré-façade, ex. 65ac0c9)
 git worktree add /tmp/wt-old 65ac0c9
-cd /tmp/wt-old && python replay.py <artifacts_dir> old.json
-# 4. Comparer new.json vs old.json (findings ordre+contenu, summary, agrégats)
+cd /tmp/wt-old && python <repo>/scripts/engine_parity/replay.py "$OUT" "$OUT/old.json"
+# 4. Verdict — hashes / compteurs / booléens uniquement (exit 0 = parité)
+python scripts/engine_parity/compare.py "$OUT/new.json" "$OUT/old.json"
 ```
+
+La logique de `compare.py` est couverte par un test synthétique en CI :
+`tests/unit/test_engine_parity_compare.py`.
