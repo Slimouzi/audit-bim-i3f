@@ -497,7 +497,7 @@ Bleu = `prepare_*` (lecture seule, scelle un plan). Rouge = `apply_*`
 
 ## Tools à éviter
 
-Les tools listés ci-dessous sont **dépréciés** (`removal_version=0.3.0`).
+Les tools listés ci-dessous sont **dépréciés** (`removal_version=0.5.0`).
 Ne plus les utiliser dans le workflow cible :
 
 | Tool déprécié | Remplaçant actif |
