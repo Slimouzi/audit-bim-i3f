@@ -9,6 +9,6 @@ Pour des *vues 3D rapides* (sans workflow d'issue), préférer l'agent
 ``audit_bim.smartview`` (panneau Smart Views du viewer).
 """
 
-from .builder import build_bcf_payloads, push_bcf_topics
+from .builder import build_bcf_payloads
 
-__all__ = ["build_bcf_payloads", "push_bcf_topics"]
+__all__ = ["build_bcf_payloads"]
