@@ -1519,6 +1519,12 @@ def full_audit(
             auditée est bien la version active côté BIMData. Mettre à
             ``False`` pour réutiliser ``_State.snapshot`` ou le cache
             (déconseillé quand ``expected_model_name`` est fourni).
+            **Exception (sécurité)** : fournir une **nouvelle cible
+            explicite** (``bimdata_url`` ou IDs) force **toujours** une
+            extraction fraîche de *ce* modèle, quel que soit ce paramètre —
+            on ne peut pas réutiliser le snapshot d'un autre modèle. Le
+            drapeau ne s'applique donc qu'aux cibles préservées / au
+            fallback ``.env``.
     """
     # Refus en amont du token en paramètre sur transport réseau (même
     # garde que ``set_active_model``, dupliquée pour fail-fast clair

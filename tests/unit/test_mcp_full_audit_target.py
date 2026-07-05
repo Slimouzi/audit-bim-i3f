@@ -405,3 +405,104 @@ class TestFullAuditNoCrossModelContextContamination:
 
         # La session pointe bien sur B après l'activation en tête de fonction.
         assert _isolated_session.model_id == "BBB"
+
+
+class TestForceRefreshSnapshotSemantics:
+    """P2 — sémantique de ``force_refresh_snapshot`` documentée :
+
+    - une **nouvelle cible explicite** (URL/IDs) force **toujours** une
+      extraction fraîche, même avec ``force_refresh_snapshot=False`` (on ne
+      peut pas réutiliser le snapshot d'un autre modèle) ;
+    - une **cible préservée** avec un snapshot déjà en session **respecte**
+      ``force_refresh_snapshot=False`` (pas d'extraction).
+    """
+
+    def test_explicit_target_forces_extraction_despite_flag_false(
+        self, _isolated_session, tmp_path, monkeypatch
+    ):
+        # Session avec un snapshot du modèle A déjà chargé.
+        snap_a = _snapshot_with_model("modele_A.ifc", model_id="AAA")
+        _isolated_session.client = _FakeClient(model_id="AAA")
+        _isolated_session.model_id = "AAA"
+        _isolated_session.snapshot = snap_a
+
+        snap_b = _snapshot_with_model("modele_B.ifc", model_id="BBB")
+        monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
+
+        class _FakeAuditResult:
+            findings: list = []
+            snapshot = snap_b
+
+            def summary(self):
+                return {"n_findings": 0}
+
+        def _fake_set(**kwargs):
+            _isolated_session.client = _FakeClient(model_id="BBB")
+            _isolated_session.model_id = "BBB"
+            _isolated_session.phase = BIMPhase(kwargs.get("phase", "PRO").upper())
+            _isolated_session.snapshot = None
+
+        with (
+            patch.object(mcp_server, "build_catalog"),
+            patch.object(mcp_server, "set_active_model", side_effect=_fake_set),
+            patch.object(mcp_server, "extract_snapshot", return_value=snap_b) as m_extract,
+            patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
+            patch.object(mcp_server, "build_report_context", return_value=object()),
+            patch.object(mcp_server, "merge_user_context", return_value=object()),
+            patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
+            patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
+            patch.object(mcp_server, "push_bcf_topics", return_value=[]),
+            patch.object(mcp_server, "push_smart_views", return_value=[]),
+        ):
+            mcp_server.full_audit(
+                bimdata_url="https://platform.bimdata.io/spaces/1/projects/2/viewer/BBB?window=3d",
+                force_refresh_snapshot=False,  # doit être outrepassé par la nouvelle cible
+                push_mode="none",
+                output_dir=str(tmp_path),
+                confirm_context=True,
+            )
+            # Extraction fraîche forcée malgré le flag False : exactement une fois,
+            # pour le nouveau modèle.
+            m_extract.assert_called_once()
+            assert _isolated_session.snapshot is snap_b
+
+    def test_preserved_target_honors_flag_false(self, _isolated_session, tmp_path, monkeypatch):
+        # Cible préservée + snapshot déjà chargé → aucune extraction.
+        snap = _snapshot_with_model("maquette.ifc", model_id="1673781")
+        _isolated_session.client = _FakeClient(model_id="1673781")
+        _isolated_session.model_id = "1673781"
+        _isolated_session.phase = BIMPhase.AVP
+        _isolated_session.snapshot = snap
+        monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
+
+        class _FakeAuditResult:
+            findings: list = []
+            snapshot = snap
+
+            def summary(self):
+                return {"n_findings": 0}
+
+        with (
+            patch.object(mcp_server, "build_catalog"),
+            patch.object(mcp_server, "set_active_model") as m_set,
+            patch.object(mcp_server, "extract_snapshot", return_value=snap) as m_extract,
+            patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
+            patch.object(mcp_server, "build_report_context", return_value=object()),
+            patch.object(mcp_server, "merge_user_context", return_value=object()),
+            patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
+            patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
+            patch.object(mcp_server, "push_bcf_topics", return_value=[]),
+            patch.object(mcp_server, "push_smart_views", return_value=[]),
+        ):
+            mcp_server.full_audit(
+                cloud_id=None,
+                project_id=None,
+                model_id=None,
+                phase="AVP",
+                force_refresh_snapshot=False,
+                push_mode="none",
+                output_dir=str(tmp_path),
+                confirm_context=True,
+            )
+            m_set.assert_not_called()  # cible préservée
+            m_extract.assert_not_called()  # flag False respecté (snapshot réutilisé)
