@@ -146,10 +146,13 @@ def main() -> int:
     # ``apply_bcf_topics`` / ``apply_smart_views_plan`` (confirm=True) après revue.
     do_bcf = push_mode in ("bcf", "both")
     do_sv = push_mode in ("smartview", "both")
+    # Cible **effective** issue du client (résout le fallback ``.env`` /
+    # normalisation), pas des arguments bruts — sinon le plan pourrait être
+    # scellé sur une cible différente de celle réellement extraite.
     target = {
-        "cloud_id": args.cloud_id,
-        "project_id": args.project_id,
-        "model_id": args.model_id,
+        "cloud_id": client.cloud_id,
+        "project_id": client.project_id,
+        "model_id": client.model_id,
         "model_name": (snap.model or {}).get("name"),
     }
     prepared: list[Path] = []
