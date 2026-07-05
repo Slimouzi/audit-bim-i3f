@@ -117,35 +117,27 @@ class TestLogDeprecatedToolCall:
 
 
 class TestRegistry:
-    def test_known_legacy_tools_present(self):
-        # Les 4 anciens tools référencés par la review CTO doivent être
-        # dans le registre.
+    def test_registry_empty_since_v0_5_0(self):
+        # Les 5 tools hérités ont été supprimés en v0.5.0 ; le registre est vidé
+        # (l'infrastructure de dépréciation reste disponible pour le futur).
+        assert DEPRECATIONS == {}
+
+    def test_get_deprecation_removed_tool_returns_none(self):
         for name in (
             "create_bcf_topics",
             "create_smart_views",
             "apply_suggested_classifications",
             "suggest_classifications",
+            "doe_enrich_model",
         ):
-            assert name in DEPRECATIONS, f"manquant : {name}"
-
-    def test_get_deprecation_returns_info(self):
-        info = get_deprecation("create_bcf_topics")
-        assert info is not None
-        assert info.tool_name == "create_bcf_topics"
-        assert "prepare_bcf_topics" in info.use_instead
+            assert get_deprecation(name) is None
 
     def test_get_deprecation_unknown(self):
         assert get_deprecation("does_not_exist") is None
 
-    def test_legacy_wrappers_vs_pure_deprecated(self):
-        # Les 3 mutatifs sont des wrappers (legacy_wrapper) ; le tool
-        # de lecture suggest_classifications est purement déprécié.
-        assert DEPRECATIONS["create_bcf_topics"].legacy_status == "legacy_wrapper"
-        assert DEPRECATIONS["create_smart_views"].legacy_status == "legacy_wrapper"
-        assert DEPRECATIONS["apply_suggested_classifications"].legacy_status == "legacy_wrapper"
-        assert DEPRECATIONS["suggest_classifications"].legacy_status == "deprecated"
-
     def test_removal_version_set(self):
+        # Vacui aujourd'hui (registre vide) ; garde-fou si on réintroduit des
+        # dépréciations.
         for info in DEPRECATIONS.values():
             assert info.removal_version is not None, (
                 f"{info.tool_name}: removal_version doit être documentée"

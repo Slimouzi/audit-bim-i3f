@@ -271,9 +271,10 @@ def assert_startup_config(*, transport: str, host: str | None = None) -> None:
         # signal à laisser visible pour audit de configuration.
         logger.warning(
             "AUDIT_BIM_ALLOW_WRITES=true en transport %s — les tools "
-            "mutatifs (apply_classifications, doe_enrich, create_bcf_topics, "
-            "create_smart_views, full_audit avec push) peuvent toucher "
-            "BIMData. Confirmer que c'est l'effet attendu.",
+            "d'écriture (apply_bcf_topics, apply_smart_views_plan, "
+            "apply_classification_update_plan, apply_doe_enrichment_plan, "
+            "full_audit avec push) peuvent toucher BIMData. Confirmer que "
+            "c'est l'effet attendu.",
             transport,
         )
     else:

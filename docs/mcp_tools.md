@@ -112,33 +112,30 @@ section *Interroger la maquette*.
 
 ## Tools dépréciés
 
-| Tool | Statut | R/W | Remplaçant | Suppression |
-|---|---|---|---|---|
-| `suggest_classifications` | `deprecated` | R | `list_classification_suggestions` | v0.5.0 |
-| `create_bcf_topics` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_bcf_topics` + `apply_bcf_topics` | v0.5.0 |
-| `create_smart_views` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `prepare_smart_views_plan` + `apply_smart_views_plan` | v0.5.0 |
-| `apply_suggested_classifications` | `legacy_wrapper` | R (W si `legacy_execute=True`) | `list_classification_suggestions` → `update_suggestion_status` → `prepare_classification_update_plan` → `apply_classification_update_plan` | v0.5.0 |
-| `doe_enrich_model` | `legacy_wrapper` | R+disque (W si `legacy_execute=True`) | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan` | v0.5.0 |
+**Supprimés en v0.5.0.** Les 5 tools hérités et leurs chemins `legacy_execute`
+ont été retirés. Utiliser les workflows `list → (accept/reject) → prepare →
+apply` :
 
-### Comportement des wrappers
+| Tool retiré (v0.5.0) | Remplaçant |
+|---|---|
+| `suggest_classifications` | `list_classification_suggestions` |
+| `create_bcf_topics` | `prepare_bcf_topics` → `apply_bcf_topics(confirm=True)` |
+| `create_smart_views` | `prepare_smart_views_plan` → `apply_smart_views_plan(confirm=True)` |
+| `apply_suggested_classifications` | `list_classification_suggestions` → `update_suggestion_status` → `prepare_classification_update_plan` → `apply_classification_update_plan(confirm=True)` |
+| `doe_enrich_model` | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan(confirm=True)` |
 
-Les 3 tools mutatifs dépréciés (`create_bcf_topics`, `create_smart_views`,
-`apply_suggested_classifications`) ont été transformés en **wrappers
-sécurisés** par défaut :
+### Suppression des wrappers (v0.5.0)
 
-- `legacy_execute=False` (défaut) : prépare un `WritePlan` scellé,
-  **aucune écriture BIMData**. L'AMO doit ensuite appeler `apply_*` avec
-  `confirm=True`.
-- `legacy_execute=True` : ancien comportement (push direct via les
-  builders). Marqué d'un `legacy_execute_warning` fort, log INFO côté
-  serveur, et appel à `ensure_writes_allowed` côté écriture.
+**Effective en v0.5.0** : les 5 tools hérités (`suggest_classifications`,
+`create_bcf_topics`, `create_smart_views`, `apply_suggested_classifications`,
+`doe_enrich_model`) **et** le paramètre/chemin `legacy_execute` ont été
+**supprimés** (module `tools_legacy.py` retiré). Le seul workflow d'écriture est
+désormais `prepare → review → apply(confirm=True)` (cf. table ci-dessus). Un test
+d'inventaire (`test_mcp_inventory.py`) atteste leur absence du registre MCP.
 
-Politique de suppression :
-
-- **Release N** (actuelle) : wrappers fonctionnels, `legacy_execute=False`
-  par défaut.
-- **Release N+1** : `legacy_execute=True` lèvera un avertissement bloquant.
-- **Release de rupture** (v0.5.0) : désenregistrement + suppression des 5 tools dépréciés (`suggest_classifications`, `create_bcf_topics`, `create_smart_views`, `apply_suggested_classifications`, `doe_enrich_model`) et des chemins `legacy_execute`.
+La publication via `full_audit(push_mode=…)` **ne pousse plus** : elle **prépare**
+des plans BCF/Smart Views et renvoie leur chemin ; l'écriture passe ensuite par
+`apply_*`.
 
 ## Garanties transverses
 

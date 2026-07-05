@@ -5,13 +5,12 @@ Couvre :
 - refus explicite quand ``confirm=False`` (aucune écriture) ;
 - refus quand le plan a été altéré ;
 - refus quand la cible courante diffère ;
-- propagation correcte du store de suggestions ;
-- marqueurs de dépréciation sur les 4 anciens tools.
+- propagation correcte du store de suggestions.
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -313,31 +312,6 @@ class TestAuditTrail:
 
 
 # ── Dépréciation douce ───────────────────────────────────────────────────
-
-
-class TestDeprecationMarkers:
-    def test_create_bcf_topics_marked_deprecated(self, _isolated):
-        sess, _ = _isolated
-        _wire_session(sess)
-        with patch("audit_bim.mcp.server.push_bcf_topics", return_value=[]):
-            res = mcp_server.create_bcf_topics(dry_run=True)
-        assert res.get("deprecated") is True
-        assert "prepare_bcf_topics" in res.get("use_instead", "")
-
-    def test_create_smart_views_marked_deprecated(self, _isolated):
-        sess, _ = _isolated
-        _wire_session(sess)
-        with patch("audit_bim.mcp.server.push_smart_views", return_value=[]):
-            res = mcp_server.create_smart_views(dry_run=True)
-        assert res.get("deprecated") is True
-        assert "prepare_smart_views_plan" in res.get("use_instead", "")
-
-    def test_apply_suggested_classifications_marked_deprecated(self, _isolated):
-        sess, _ = _isolated
-        _wire_session(sess)
-        with patch("audit_bim.mcp.server.suggest_for_findings", return_value=[]):
-            res = mcp_server.apply_suggested_classifications(dry_run=True)
-        assert res.get("deprecated") is True
 
 
 # ── list_write_plans ─────────────────────────────────────────────────────

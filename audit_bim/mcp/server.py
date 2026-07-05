@@ -22,7 +22,6 @@ from fastmcp import FastMCP
 from .. import config
 from ..audit.comparator import compare_audits_from_files
 from ..audit.engine import AuditResult, run_audit
-from ..bcf.builder import push_bcf_topics
 from ..classifier import (
     apply_classifications,
     read_classifications_from_xlsx,
@@ -43,7 +42,6 @@ from ..reporting.xlsx_annex import write_xlsx_annex
 from ..requirements.catalog import build_catalog
 from ..requirements.models import BIMPhase, RequirementsCatalog
 from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
-from ..smartview.builder import push_smart_views
 from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
 from .model_identity import model_matches_expected, resolve_bimdata_target
 from .prompts import AMO_BIM_I3F_PROMPT
@@ -1407,10 +1405,10 @@ def apply_classifications_from_xlsx(
     return result
 
 
-# Note : ``doe_enrich_model`` est désormais un wrapper de dépréciation
-# défini dans ``tools_legacy.py`` (legacy_execute=False par défaut →
-# prépare un plan, ne pousse rien sans confirm). Voir
-# ``docs/migration_prepare_apply.md`` pour le workflow recommandé.
+# Note : l'enrichissement DOE passe par le workflow prepare → apply
+# (``match_doe_to_ifc`` → ``prepare_doe_enrichment_plan`` →
+# ``apply_doe_enrichment_plan(confirm=True)``). Voir
+# ``docs/migration_prepare_apply.md``.
 
 
 @mcp.tool()
@@ -1421,7 +1419,7 @@ def doe_match_only(
     ocr_fallback: bool = True,
     ocr_lang: str = "fra",
 ) -> dict:
-    """Variante read-only de ``doe_enrich_model``.
+    """Variante read-only de l'enrichissement DOE.
 
     Parse + matche mais n'enrichit *jamais* la maquette. Utile pour
     valider la qualité des matches avant d'appliquer.
@@ -1467,19 +1465,19 @@ def full_audit(
 ) -> dict:
     """Orchestrateur : parse documents → extract modèle → audit → reports.
 
-    Pour la *publication des résultats* dans le viewer BIMData, deux régimes
-    distincts sont disponibles via ``push_mode`` :
+    Publication : depuis la v0.5.0, ``full_audit`` **n'écrit jamais** dans
+    BIMData. ``push_mode`` sélectionne les **plans à préparer** (``WritePlan``
+    scellés, renvoyés sous ``publication``) ; la publication se fait ensuite
+    **exclusivement** via ``apply_bcf_topics`` / ``apply_smart_views_plan`` avec
+    ``confirm=True`` après revue (workflow prepare → review → apply) :
 
-    - ``"bcf"`` : crée des **BCF Topics** (panneau *BCF Issues*) — workflow
-      d'issue à résoudre avec assignation, statut, commentaires, description
-      riche, sélection + coloration.
-    - ``"smartview"`` : crée des **Smart Views** (panneau dédié) — vues 3D
-      minimales (coloring uniquement) pour navigation rapide.
-    - ``"both"`` : pousse les deux régimes.
-    - ``"none"`` : ne pousse rien (dry-run, payloads conservés en JSON).
-    - ``"ask"`` (défaut) : aucune publication ; renvoie une question à
-      l'utilisateur pour qu'il choisisse — Claude doit demander avant de
-      ré-appeler ``full_audit`` avec une valeur explicite.
+    - ``"bcf"`` : prépare un plan **BCF Topics** (panneau *BCF Issues*).
+    - ``"smartview"`` : prépare un plan **Smart Views** (panneau dédié).
+    - ``"both"`` : prépare les deux plans.
+    - ``"none"`` : ne prépare aucun plan de publication.
+    - ``"ask"`` (défaut) : renvoie une question à l'utilisateur pour qu'il
+      choisisse — Claude doit demander avant de ré-appeler ``full_audit`` avec
+      une valeur explicite.
 
     .. warning::
        ``access_token`` est déconseillé en transport réseau — cf. note
@@ -1636,16 +1634,17 @@ def full_audit(
         return {
             "status": "needs_user_choice",
             "question": (
-                "Comment veux-tu publier les résultats de l'audit dans le viewer BIMData ?"
+                "Quels plans de publication préparer ? (aucune écriture — "
+                "full_audit prépare des WritePlan scellés ; la publication se "
+                "fait ensuite via apply_* après revue.)"
             ),
             "options": {
-                "bcf": "BCF Topics — workflow d'issues à résoudre (assignation, "
-                "statut, commentaires) dans le panneau BCF Issues.",
-                "smartview": "Smart Views — vues 3D colorées dans le panneau "
-                "Smart Views (navigation seulement, pas de workflow).",
-                "both": "Les deux — pratique pour avoir à la fois la navigation "
-                "rapide (Smart Views) et le suivi de correction (BCF).",
-                "none": "Ne rien publier — les payloads sont sauvegardés en JSON.",
+                "bcf": "Préparer un plan BCF Topics (panneau BCF Issues) — "
+                "appliquer ensuite avec apply_bcf_topics(confirm=True).",
+                "smartview": "Préparer un plan Smart Views (panneau Smart Views) — "
+                "appliquer ensuite avec apply_smart_views_plan(confirm=True).",
+                "both": "Préparer les deux plans (BCF + Smart Views).",
+                "none": "Ne préparer aucun plan de publication.",
             },
             "next_step": ("Re-appeler full_audit avec push_mode=<bcf|smartview|both|none>."),
         }
@@ -1734,11 +1733,6 @@ def full_audit(
 
     # 5. Livrables — tous les chemins passent par la sandbox d'export.
     # ``output_dir`` (relatif ou absolu) doit rester sous AUDIT_OUTPUT_DIR.
-    do_push_bcf = mode in ("bcf", "both")
-    do_push_sv = mode in ("smartview", "both")
-    if do_push_bcf or do_push_sv:
-        ensure_writes_allowed(f"full_audit(push_mode={mode})")
-
     raw_word, raw_xlsx = _default_output_paths()
     if output_dir:
         # output_dir est une sous-arborescence (sandbox-validée) où
@@ -1770,11 +1764,19 @@ def full_audit(
         context=full_ctx,
     )
 
-    # 6. Publication selon le mode
-    bcf_result = push_bcf_topics(_State.result, _State.client, dry_run=not do_push_bcf)
-    sv_result = push_smart_views(_State.result, _State.client, dry_run=not do_push_sv)
+    # 6. Publication — **préparation de plans**, aucune écriture directe.
+    # Depuis la v0.5.0, ``full_audit`` ne pousse plus les BCF / Smart Views :
+    # il prépare des ``WritePlan`` scellés et renvoie leur chemin. Les écritures
+    # passent **exclusivement** par ``apply_bcf_topics`` /
+    # ``apply_smart_views_plan`` après revue (workflow prepare → review → apply,
+    # cf. preuve A1). Aucun chemin ``push_*`` direct ici.
+    publication: dict = {"push_mode": mode}
+    if mode in ("bcf", "both"):
+        publication["bcf_plan"] = prepare_bcf_topics()
+    if mode in ("smartview", "both"):
+        publication["smart_views_plan"] = prepare_smart_views_plan()
 
-    # 7. JSON machine (chacun resandboxé pour être explicite)
+    # 7. JSON machine des findings (export lecture seule, resandboxé).
     findings_json = safe_export_path(word_path.with_name(word_path.stem + "_findings.json"))
     findings_json.write_text(
         json.dumps(
@@ -1784,29 +1786,23 @@ def full_audit(
         ),
         encoding="utf-8",
     )
-    bcf_json = safe_export_path(word_path.with_name(word_path.stem + "_bcf_topics.json"))
-    bcf_json.write_text(
-        json.dumps(bcf_result, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    sv_json = safe_export_path(word_path.with_name(word_path.stem + "_smart_views.json"))
-    sv_json.write_text(
-        json.dumps(sv_result, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
-    )
 
-    return {
+    out: dict = {
         "summary": _State.result.summary(),
         "deliverables": {
             "word": str(word_written),
             "xlsx": str(xlsx_written),
             "findings_json": str(findings_json),
-            "bcf_topics_json": str(bcf_json),
-            "smart_views_json": str(sv_json),
         },
-        "push_mode": mode,
-        "bcf_topics": {"n": len(bcf_result), "pushed": do_push_bcf},
-        "smart_views": {"n": len(sv_result), "pushed": do_push_sv},
+        "publication": publication,
     }
+    if mode in ("bcf", "smartview", "both"):
+        out["next_step"] = (
+            "Aucune écriture BIMData effectuée. Revoir le(s) plan(s) préparé(s) "
+            "(champ « publication »), puis publier via apply_bcf_topics / "
+            "apply_smart_views_plan avec confirm=True."
+        )
+    return out
 
 
 # ── Enregistrement des tools des modules dédiés ──────────────────────────
@@ -1821,7 +1817,6 @@ def full_audit(
 
 from . import aliases  # noqa: E402, F401, I001
 from . import tools_actions  # noqa: E402, F401
-from . import tools_legacy  # noqa: E402, F401
 from . import tools_query  # noqa: E402, F401
 
 # Re-export des tools déplacés pour préserver l'API publique :
@@ -1852,13 +1847,6 @@ from .tools_actions import (  # noqa: E402, F401
     prepare_smart_view_from_filter_plan,
     prepare_smart_views_plan,
     update_suggestion_status,
-)
-from .tools_legacy import (  # noqa: E402, F401
-    apply_suggested_classifications,
-    create_bcf_topics,
-    create_smart_views,
-    doe_enrich_model,
-    suggest_classifications,
 )
 from .tools_query import (  # noqa: E402, F401
     filter_bim_objects,

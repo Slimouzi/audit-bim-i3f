@@ -348,8 +348,6 @@ class TestFullAuditExpectedModelName:
             patch.object(mcp_server, "merge_user_context") as m_merge,
             patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
             patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
-            patch.object(mcp_server, "push_bcf_topics", return_value=[]),
-            patch.object(mcp_server, "push_smart_views", return_value=[]),
         ):
             m_ctx.return_value = object()
             m_merge.return_value = object()
@@ -397,8 +395,6 @@ class TestFullAuditExpectedModelName:
             patch.object(mcp_server, "merge_user_context") as m_merge,
             patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
             patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
-            patch.object(mcp_server, "push_bcf_topics", return_value=[]),
-            patch.object(mcp_server, "push_smart_views", return_value=[]),
         ):
             m_ctx.return_value = object()
             m_merge.return_value = object()

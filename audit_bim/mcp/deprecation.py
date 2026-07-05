@@ -135,68 +135,10 @@ def log_deprecated_tool_call(
 # non-régression sur ``list_tools``.
 
 DEPRECATIONS: dict[str, DeprecatedToolInfo] = {
-    "create_bcf_topics": DeprecatedToolInfo(
-        tool_name="create_bcf_topics",
-        use_instead="prepare_bcf_topics(...) puis apply_bcf_topics(plan_path=..., confirm=True)",
-        removal_version="0.5.0",
-        migration_hint=(
-            "1) filter findings via list_audit_findings ; "
-            "2) prepare_bcf_topics(finding_filter=...) ; "
-            "3) review plan_path ; "
-            "4) apply_bcf_topics(plan_path=..., confirm=True)."
-        ),
-        legacy_status="legacy_wrapper",
-    ),
-    "create_smart_views": DeprecatedToolInfo(
-        tool_name="create_smart_views",
-        use_instead=(
-            "prepare_smart_views_plan(...) puis apply_smart_views_plan(plan_path=..., confirm=True)"
-        ),
-        removal_version="0.5.0",
-        migration_hint=("Workflow identique aux BCF Topics : filter → prepare → review → apply."),
-        legacy_status="legacy_wrapper",
-    ),
-    "apply_suggested_classifications": DeprecatedToolInfo(
-        tool_name="apply_suggested_classifications",
-        use_instead=(
-            "list_classification_suggestions(...) → "
-            "update_suggestion_status(uuid, 'accepted') → "
-            "prepare_classification_update_plan() → "
-            "apply_classification_update_plan(plan_path=..., confirm=True)"
-        ),
-        removal_version="0.5.0",
-        migration_hint=(
-            "Le pattern accept→prepare→apply remplace l'auto-écrasement "
-            "et offre une revue par UUID avant push BIMData."
-        ),
-        legacy_status="legacy_wrapper",
-    ),
-    "suggest_classifications": DeprecatedToolInfo(
-        tool_name="suggest_classifications",
-        use_instead="list_classification_suggestions",
-        removal_version="0.5.0",
-        migration_hint=(
-            "list_classification_suggestions expose un store indexé filtrable, "
-            "avec statuts accepted/rejected/applied — supérieur fonctionnellement."
-        ),
-        # Lecture seule donc pas de wrapper exécutable — purement déprécié.
-        legacy_status="deprecated",
-    ),
-    "doe_enrich_model": DeprecatedToolInfo(
-        tool_name="doe_enrich_model",
-        use_instead=(
-            "match_doe_to_ifc(...) puis "
-            "prepare_doe_enrichment_plan(...) puis "
-            "apply_doe_enrichment_plan(plan_path=..., confirm=True)"
-        ),
-        removal_version="0.5.0",
-        migration_hint=(
-            "Le pattern prepare/apply expose les conflits MATCH/NEW/UPGRADE/"
-            "CONFLICT avant écriture, scelle le plan SHA-256 et exige "
-            "confirm=True. Workflow : extract → match → prepare → review → apply."
-        ),
-        legacy_status="legacy_wrapper",
-    ),
+    # Vidé en v0.5.0 : les 5 tools hérités (create_bcf_topics, create_smart_views,
+    # apply_suggested_classifications, suggest_classifications, doe_enrich_model)
+    # ont été supprimés. L'infrastructure de dépréciation reste disponible pour
+    # d'éventuelles dépréciations futures.
 }
 
 

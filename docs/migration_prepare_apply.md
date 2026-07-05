@@ -160,45 +160,28 @@ prepare_classification_corrections()
 apply_classification_corrections(plan_path="...", confirm=True)
 ```
 
-## Période de transition — `legacy_execute`
+## Suppression effective en v0.5.0
 
-Pour ne pas casser les scripts existants, les 3 wrappers acceptent un
-paramètre `legacy_execute: bool = False` :
-
-- `legacy_execute=False` (défaut) : pattern prepare/apply.
-- `legacy_execute=True` : ancien comportement (push direct), avec :
-  - log INFO côté serveur,
-  - `legacy_execute_warning` fort dans le retour,
-  - appel à `ensure_writes_allowed`.
-
-Exemple migration progressive :
+Les 5 tools hérités **et** le paramètre `legacy_execute` ont été **supprimés en
+v0.5.0** (module `tools_legacy.py` retiré). Migrer vers `prepare → review →
+apply(confirm=True)` :
 
 ```python
-# Étape 1 (release N) — code actuel, fonctionne mais marqué deprecated.
-create_bcf_topics(legacy_execute=True, dry_run=False)
-# → {"deprecated": True, "use_instead": "prepare_bcf_topics + apply_bcf_topics", ...}
-
-# Étape 2 (avant release N+1) — migration côté script.
 prep = prepare_bcf_topics()
+# revue : prep["plan_path"], prep["risks"], prep["n_items"]
 apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
 ```
 
-## Politique de suppression
+`full_audit(push_mode=…)` **prépare** désormais les plans BCF/Smart Views (renvoyés
+sous `publication`) sans écrire ; la publication passe par `apply_*`.
 
-| Release | Comportement |
-|---|---|
-| **N** (actuelle) | Wrappers dépréciés conservés. `legacy_execute=False` par défaut. |
-| **N+1** | `legacy_execute=True` lève un warning bloquant si exécuté sur HTTP transport. |
-| **N+2** (v0.5.0) | Suppression complète des 5 tools dépréciés. |
+## Lecture seule : `suggest_classifications` (supprimé v0.5.0)
 
-## Lecture seule : `suggest_classifications`
+`suggest_classifications` a été **supprimé en v0.5.0** ; il dupliquait
+fonctionnellement `list_classification_suggestions` (store indexé filtrable,
+statuts persistés). Migration :
 
-Le tool `suggest_classifications` est purement de lecture (analyse). Il
-n'a pas de mode `legacy_execute` — c'est un **alias historique** qui
-duplique fonctionnellement `list_classification_suggestions` avec un
-format de sortie différent.
-
-**Avant** :
+**Avant** (retiré) :
 
 ```python
 suggest_classifications(min_confidence=0.4, top_n=3, limit=200)
