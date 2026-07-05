@@ -33,7 +33,6 @@ Sortie (exemple de forme, sans donnée client) :
 
 ```json
 {
-  "model": "…",
   "phase": "AVP",
   "annexes": {
     "Contrôle":      {"rows": 7,  "non_empty": true, "wordmark": true, "primary": true, "font": true, "no_korhus": true},

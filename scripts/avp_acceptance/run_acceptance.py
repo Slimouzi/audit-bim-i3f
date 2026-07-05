@@ -53,7 +53,11 @@ def main(argv: list[str]) -> int:
     from audit_bim.audit.engine import run_audit
     from audit_bim.extraction.client import BIMDataClient
     from audit_bim.extraction.model_data import extract_snapshot
-    from audit_bim.reporting.avp_i3f import _count_business_rows, write_avp_i3f_report_pack
+    from audit_bim.reporting.avp_i3f import (
+        _count_business_rows,
+        _count_controle_rows,
+        write_avp_i3f_report_pack,
+    )
     from audit_bim.reporting.bimdata_brand import WORDMARK
     from audit_bim.reporting.theming import BIMDATA_FONT_PRIMARY, BIMDATA_PRIMARY
     from audit_bim.requirements.catalog import build_catalog
@@ -69,6 +73,23 @@ def main(argv: list[str]) -> int:
         data_spec_xlsx=config.I3F_DATA_SPEC_XLSX,
         naming_spec_xlsx=config.I3F_NAMING_SPEC_XLSX,
     )
+    # Garde CCH : ``build_catalog`` tolère des documents absents et rend un
+    # catalogue partiel/vide. Sans contrôle, l'acceptation pourrait rendre PASS
+    # sans aucun référentiel CCH réellement chargé → on refuse.
+    docs = {
+        "cch_pdf": config.I3F_CCH_PDF,
+        "data_spec_xlsx": config.I3F_DATA_SPEC_XLSX,
+        "naming_spec_xlsx": config.I3F_NAMING_SPEC_XLSX,
+    }
+    missing = [name for name, p in docs.items() if not p or not Path(p).exists()]
+    if missing:
+        raise SystemExit(f"REFUS : documents I3F absents {missing} — contrôle CCH impossible.")
+    if not catalog.properties or not catalog.naming_rules:
+        raise SystemExit(
+            f"REFUS : catalogue CCH vide (properties={len(catalog.properties)}, "
+            f"naming_rules={len(catalog.naming_rules)}) — acceptation non fiable."
+        )
+
     client = BIMDataClient()  # cible + auth depuis l'environnement (read-only)
     snap = extract_snapshot(client)
     result = run_audit(snap, catalog, phase)
@@ -91,10 +112,15 @@ def main(argv: list[str]) -> int:
         "Menuiseries": pack.menuiseries_xlsx,
     }
 
-    report: dict = {"model": (snap.model or {}).get("name"), "phase": phase.value, "annexes": {}}
+    # Confidentialité : la sortie stdout ne porte AUCUNE donnée client (pas de
+    # nom de modèle/projet). Uniquement phase, compteurs, booléens de charte,
+    # verdict. Le pack complet (données client) reste hors repo.
+    report: dict = {"phase": phase.value, "annexes": {}}
     ok = True
     for label, p in annexes.items():
-        rows = _count_business_rows(p)
+        # Contrôle : compteur propre (points de contrôle sous la grille, hors
+        # entête/légende/NOT_AVAILABLE) ; les 4 autres : compteur générique.
+        rows = _count_controle_rows(p) if label == "Contrôle" else _count_business_rows(p)
         charte = _charte_flags(p, WORDMARK, BIMDATA_PRIMARY, BIMDATA_FONT_PRIMARY)
         entry = {"rows": rows, "non_empty": rows > 0, **charte}
         report["annexes"][label] = entry
