@@ -1,5 +1,40 @@
 # Scope (étude) — `bim-rule-kit` : validators, hiérarchie IFC, accesseurs
 
+## ✅ Verdict (gelé le 2026-07-05) — décision, pas migration
+
+**`bim-rule-kit` n'est PAS créé.** Étude close. Aucun code, aucun déplacement de
+fichier, aucun renommage. Ce document est une **référence de décision** — il fige
+le débat pour ne pas le rejouer.
+
+| # | Décision | Verdict |
+|---|---|---|
+| **D1** | Besoin de partage réel (2ᵉ consommateur) ? | **NON** — aucun 2ᵉ consommateur n'existe. C'est le seul déclencheur légitime d'extraction (comme bim-core, bim-sandbox…). |
+| **D2** | Contrat « élément » & foyer d'un éventuel kit | Contrat = **`bim_core.BimObject`** ; foyer = **`bim-core`** (Option C), **différé**. |
+| **D3** | Périmètre minimal si ré-ouverture | **`expand_class` / `IFC_SUBCLASSES` + les 5 accesseurs** neutres. Rien de plus. |
+| **D4** | `normalize_catalog_class` | **reste I3F** (ingestion catalogue). |
+| **D5** | `validators.py` (MIX) | **reste I3F** (le vocabulaire n'est pas paramétrable → pas de séparation propre). |
+
+**Réserve de périmètre (ligne gelée)** — classification vérifiée ligne à ligne :
+
+- **Surface générique-nette** (seule éligible, et seulement si D1 devient vrai) :
+  - `ifc_hierarchy.expand_class` + `IFC_SUBCLASSES` ;
+  - les **5 accesseurs neutres** : `normalizer.get_attribute`, `get_property`,
+    `has_classification`, `classification_codes`, `NATIVE_IFC_ATTRIBUTES`.
+- **Tout `*_fallback` = I3F** (`get_attribute_with_fallback`,
+  `get_quantity_with_fallback`, `ATTRIBUTE_FALLBACKS`, `QUANTITY_FALLBACKS`),
+  ainsi que `resolve_value`, `normalize_catalog_class` et **tout `validators.py`**.
+
+**Condition de ré-ouverture (unique et explicite) :** apparition d'un **2ᵉ
+consommateur réel** (autre CCH / bailleur / MCP) ⇒ D1 devient vrai ⇒ alors
+**Option C d'abord** (remonter les 5 accesseurs + `expand_class`/`IFC_SUBCLASSES`
+dans `bim-core`, contrat `BimObject`), même playbook que les 7 extractions
+précédentes (package/remontée pur + tag → adoption infra → façade/parité prouvée).
+Tant que cette condition n'est pas remplie, **le sujet est clos**.
+
+> L'étude ci-dessous est conservée telle quelle comme justification du verdict.
+
+---
+
 > **Nature de ce document.** Ceci est une **étude de cadrage**, pas un plan de
 > migration. Objectif fixé par le CTO : *« étudier séparément validators,
 > hiérarchie IFC et accesseurs, **sans les déplacer automatiquement** »*. Aucun
