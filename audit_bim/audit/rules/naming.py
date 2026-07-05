@@ -35,8 +35,18 @@ def _check_room_name(name: str | None, allowed: set[str]) -> bool:
     return base in allowed
 
 
-def audit_naming(snap: ModelSnapshot, catalog: RequirementsCatalog) -> list[Finding]:
-    """Audit IfcProject/Site/Building/Storey + IfcZone + IfcSpace."""
+def audit_naming(
+    snap: ModelSnapshot,
+    catalog: RequirementsCatalog,
+    phase: object = None,
+) -> list[Finding]:
+    """Audit IfcProject/Site/Building/Storey + IfcZone + IfcSpace.
+
+    ``phase`` est accepté (et **ignoré**) pour satisfaire le protocole ``Rule``
+    ``(snap, catalog, phase) -> list[Finding]`` du moteur générique
+    ``bim-audit-engine`` : le nommage CCH ne dépend pas de la phase, mais la
+    règle doit avoir la même signature que les autres pour être injectée.
+    """
     findings: list[Finding] = []
 
     # ── IfcProject (LongName) ───────────────────────────────────────────────
