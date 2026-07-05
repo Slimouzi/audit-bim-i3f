@@ -1,0 +1,30 @@
+{
+  "format": "bimdata-smartview",
+  "models": [
+    1674450
+  ],
+  "title": "Sélection",
+  "viewpoints": [
+    {
+      "components": {
+        "coloring": [
+          {
+            "color": "#123456",
+            "components": [
+              {
+                "authoring_tool_id": 1674450,
+                "ifc_guid": "W1",
+                "originating_system": "Mur porteur"
+              },
+              {
+                "authoring_tool_id": 1674450,
+                "ifc_guid": "D1",
+                "originating_system": "Porte EI30"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
