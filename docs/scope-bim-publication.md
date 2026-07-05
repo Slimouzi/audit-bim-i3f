@@ -33,10 +33,11 @@ responsabilité de **`bimdata-write`** (via le `apply_*` qui reste côté audit)
 couche produit des **payloads/plans** à partir de findings normalisés, sans savoir
 comment ils seront poussés.
 
-**`bim-query` en dépendance optionnelle.** Les builders **n'en ont pas besoin**.
-Seule la **préparation** (`prepare_*`) l'utilise, pour filtrer les findings via
-`finding_matches` (`bim_query.filtering`). Si on inclut `prepare_*` dans le package
-(recommandé, cf. §4), `bim-query` devient une dépendance **réelle mais bornée**.
+**`bim-query` en dépendance réelle bornée (figé).** Les builders `build_*`
+**n'en ont pas besoin** ; seule la **préparation** (`prepare_*`, incluse dans le
+package) l'utilise, pour filtrer les findings via `finding_matches`
+(`bim_query.filtering`). `bim-publication` dépend donc de **`bim-core` + `bim-query`**,
+et de rien d'autre côté first-party (cf. §8).
 
 ## 1. Constat — couche publication déjà en place
 
@@ -149,12 +150,12 @@ Ainsi les call-sites (planners → tools) restent inchangés, comportement ident
 **Couplage B — `reporting.theming`.** `THEME_COLORS`/`SEVERITY_COLORS` viennent de
 `audit_bim.reporting.theming`, **aussi importé par `audit/findings.py` et le
 reporting Word/xlsx**. On ne peut pas déplacer tout `theming` dans le package
-(cela créerait `audit → bim-publication` à rebours). **Recommandation** : le
-package **embarque ses propres constantes de publication** `THEME_COLORS` /
-`SEVERITY_COLORS` (valeurs **copiées verbatim** pour parité stricte), source de
-vérité des couleurs **de publication**. Le reporting garde sa palette. Une
-unification ultérieure de la palette dans `bim-core` reste possible (hors scope).
-→ **Décision CTO attendue** (§8).
+(cela créerait `audit → bim-publication` à rebours). **Décision figée (CTO)** : le
+package **embarque ses propres constantes locales de publication** `THEME_COLORS` /
+`SEVERITY_COLORS` (valeurs **copiées verbatim** pour parité stricte), **sans aucune
+dépendance à `reporting.theming`**. C'est la source de vérité des couleurs **de
+publication**. Le reporting garde sa palette. Une unification ultérieure dans
+`bim-core` reste possible (hors scope).
 
 **Consommateurs internes à préserver** (façade, zéro réécriture) :
 `actions/bcf_planner.py`, `actions/smartview_planner.py` (si `prepare_*` extrait,
@@ -209,14 +210,23 @@ Suppression de l'ancien code **seulement après preuve** : parité des payloads
 - **Replay A1** : `succeeded>0 / failed=0`, topics + Smart Views visibles dans le
   viewer sandbox.
 
-## 8. Décisions en attente (CTO)
+## 8. Décisions figées (CTO)
 
-1. **Palette `theming`** : (a) package embarque ses `THEME_COLORS`/`SEVERITY_COLORS`
-   verbatim (**recommandé**, découplage total, unification bim-core différée) ;
-   ou (b) extraire d'abord la palette partagée dans `bim-core` (chantier préalable).
-2. **Périmètre du package** : builders **+** `prepare_*` (**recommandé** — le CTO a
-   listé « préparation des `WritePlan` » dans le package ; `bim-query` devient dép.
-   réelle bornée) ; ou builders **seuls** (`prepare_*` restent côté audit,
-   `bim-query` non requis).
-3. **Signature** : confirmer le passage de `AuditResult` → `list[Finding] + phase`
-   dans le package, avec adaptation dans la façade audit-bim.
+Toutes tranchées — le package peut être codé sur ces bases :
+
+1. **Package** : **`bim-publication`**.
+2. **Contenu** : **builders `build_*` + `prepare_*` purs** (BCF + Smart Views +
+   préparation des `WritePlan` + calcul des risques). `bim-query` est une
+   dépendance **réelle mais bornée** (filtrage `finding_matches` des `prepare_*`).
+3. **Entrée** : **`Sequence[Finding]` + phase / métadonnées primitives**
+   (`phase: str`, `model_id`, `prefix`, `element_by_uuid`, `target: dict`,
+   `finding_filter`). **Aucun `AuditResult`** dans le package — la façade
+   audit-bim adapte depuis `AuditResult`.
+4. **Couleurs** : **constantes locales `bim-publication`** (`THEME_COLORS` /
+   `SEVERITY_COLORS`, copiées verbatim), **sans dépendance à `reporting.theming`**.
+5. **Hors package** : réseau BIMData, `apply_*`, gating `confirm`, auth, journal,
+   état MCP, sandbox — restent dans l'orchestrateur audit-bim et l'exécution
+   distante dans **`bimdata-write`**.
+
+**Suite d'exécution** : package pur + tag `bim-publication-v0.1.0` → adoption
+infra → shims → **replay A1** (validation write réelle sur bac-à-sable).
