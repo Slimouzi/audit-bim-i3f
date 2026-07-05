@@ -35,14 +35,20 @@ Sortie (exemple de forme, sans donnée client) :
 {
   "phase": "AVP",
   "annexes": {
-    "Contrôle":      {"rows": 7,  "non_empty": true, "wordmark": true, "primary": true, "font": true, "no_korhus": true},
+    "Contrôle":      {"rows": 4,   "non_empty": true, "wordmark": true, "primary": true, "font": true, "no_korhus": true},
     "SHAB":          {"rows": 316, "non_empty": true, ...},
-    "Zones/Espaces": {"rows": 24,  "non_empty": true, ...},
-    "Enveloppe":     {"rows": 12,  "non_empty": true, ...},
-    "Menuiseries":   {"rows": 464, "non_empty": true, ...}
+    "Zones/Espaces": {"rows": 340, "non_empty": true, ...},
+    "Enveloppe":     {"rows": 484, "non_empty": true, ...},
+    "Menuiseries":   {"rows": 465, "non_empty": true, ...}
   },
   "verdict": "PASS"
 }
 ```
 
 Code de sortie 0 si `PASS` (5 annexes non vides + charte sur les 5), 1 sinon.
+
+`Contrôle` est mesuré par un **compteur propre** (`_count_controle_rows`) : il ne
+compte que les **points de contrôle** sous la grille (hors bandeau / entête projet
+/ légende / titres / `NOT_AVAILABLE`) — d'où `rows: 4` sur la maquette de référence
+(Zones Nommage, Pièces Nommage, ARC matériau, Zones ObjectType). Les 4 autres
+annexes utilisent le compteur générique de lignes métier.
