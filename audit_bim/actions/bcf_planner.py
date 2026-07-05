@@ -10,12 +10,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from bim_publication import prepare_bcf as _pub_prepare_bcf
+
 from ..audit.engine import AuditResult
-from ..bcf.builder import build_bcf_payloads
 from ..domain.filters import FindingFilter
 from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
-from ..query.filtering import finding_matches
 from ..security.redaction import redact_secrets
 from ..security.write_journal import get_journal
 from .plans import validate_target
@@ -45,56 +45,19 @@ def prepare_bcf(
     Returns:
         Plan **non encore sauvé** ; le caller appelle :func:`save_plan`
         séparément (ou le tool MCP ``prepare_bcf_topics`` le fait).
+
+    Façade au-dessus de ``bim_publication.prepare_bcf`` : adapte l'``AuditResult``
+    vers l'entrée primitive du package (``findings`` + ``phase``). Filtrage,
+    construction des payloads, risques et assemblage du ``WritePlan`` sont
+    identiques (extraits verbatim).
     """
-    # 1. Filtre les findings si demandé (sans pagination — un planner
-    # traite tout le périmètre, contrairement aux tools MCP de filtrage
-    # qui bornent à MAX_LIMIT).
-    if finding_filter is not None:
-        filtered = [f for f in result.findings if finding_matches(f, finding_filter)]
-    else:
-        filtered = list(result.findings)
-
-    # 2. Construit un AuditResult temporaire pour build_bcf_payloads.
-    scoped = AuditResult(
-        phase=result.phase,
-        catalog=result.catalog,
-        snapshot=result.snapshot,
-        findings=filtered,
-    )
-
-    model_id = target.get("model_id")
-    payloads = build_bcf_payloads(
-        scoped,
-        prefix=prefix,
-        model_id=model_id,
-        include_overview=include_overview,
-    )
-
-    # 3. Risks : alertes utiles à la revue manuelle.
-    risks: list[str] = []
-    if not payloads:
-        risks.append("Aucun finding ne matche le filtre — 0 topic à créer.")
-    n_findings_with_uuid = sum(1 for f in filtered if f.element_uuid)
-    if n_findings_with_uuid == 0 and filtered:
-        risks.append(
-            f"{len(filtered)} findings filtrés mais aucun n'a d'element_uuid "
-            "(anomalies projet uniquement) → topics minimaux."
-        )
-
-    summary = {
-        "n_topics": len(payloads),
-        "n_findings_in_scope": len(filtered),
-        "include_overview": include_overview,
-        "filter_applied": finding_filter is not None,
-        "prefix": prefix,
-    }
-
-    return WritePlan(
-        kind=WritePlanKind.BCF_TOPICS,
+    return _pub_prepare_bcf(
+        result.findings,
+        phase=result.phase.value,
         target=target,
-        summary=summary,
-        items=payloads,
-        risks=risks,
+        finding_filter=finding_filter,
+        prefix=prefix,
+        include_overview=include_overview,
     )
 
 

@@ -10,19 +10,19 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from bim_publication import DEFAULT_FILTER_SMARTVIEW_COLOR
+from bim_publication import prepare_smart_view_from_filter as _pub_prepare_svff
+from bim_publication import prepare_smart_views as _pub_prepare_sv
+
 from ..audit.engine import AuditResult
 from ..domain.filters import FindingFilter
 from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
-from ..query.filtering import finding_matches
 from ..security.redaction import redact_secrets
 from ..security.write_journal import get_journal
-from ..smartview.builder import build_smartview_payload_from_uuids, build_smartview_payloads
 from .plans import validate_target
 
 logger = logging.getLogger("audit_bim.actions.smartview")
-
-DEFAULT_FILTER_SMARTVIEW_COLOR = "#FF3D1E"
 
 
 def prepare_smart_view_from_filter(
@@ -54,35 +54,17 @@ def prepare_smart_view_from_filter(
         description: Note libre tracée dans le plan (hors payload).
         color: Couleur hex ``#RRGGBB`` du coloring (défaut ``#FF3D1E``).
         element_by_uuid: Index ``uuid -> élément`` du snapshot (noms Revit).
+
+    Façade → ``bim_publication.prepare_smart_view_from_filter`` (signature
+    identique, aucun ``AuditResult`` en jeu).
     """
-    payload = build_smartview_payload_from_uuids(
+    return _pub_prepare_svff(
         uuids,
-        title=name,
-        color=color,
-        model_id=target.get("model_id"),
-        element_by_uuid=element_by_uuid,
-    )
-    n_uuids = len(payload["viewpoints"][0]["components"]["coloring"][0]["components"])
-
-    risks: list[str] = []
-    if n_uuids == 0:
-        risks.append("Sélection vide — la Smart View ne colorera aucun élément.")
-
-    summary = {
-        "n_smart_views": 1,
-        "name": name,
-        "n_elements": n_uuids,
-        "color": color,
-        "description": description,
-        "source": "filter_selection",
-    }
-
-    return WritePlan(
-        kind=WritePlanKind.SMART_VIEWS,
+        name=name,
         target=target,
-        summary=summary,
-        items=[payload],
-        risks=risks,
+        description=description,
+        color=color,
+        element_by_uuid=element_by_uuid,
     )
 
 
@@ -96,46 +78,19 @@ def prepare_smart_views(
 ) -> WritePlan:
     """Construit un :class:`WritePlan` pour création de Smart Views.
 
-    Mêmes paramètres que :func:`prepare_bcf` ; cf. docstring.
+    Mêmes paramètres que :func:`prepare_bcf` ; cf. docstring. Façade →
+    ``bim_publication.prepare_smart_views`` : adapte l'``AuditResult``
+    (``findings`` + ``phase`` + ``element_by_uuid`` du snapshot).
     """
-    if finding_filter is not None:
-        filtered = [f for f in result.findings if finding_matches(f, finding_filter)]
-    else:
-        filtered = list(result.findings)
-
-    scoped = AuditResult(
-        phase=result.phase,
-        catalog=result.catalog,
-        snapshot=result.snapshot,
-        findings=filtered,
-    )
-
-    model_id = target.get("model_id")
-    payloads = build_smartview_payloads(
-        scoped,
-        prefix=prefix,
-        model_id=model_id,
-        include_overview=include_overview,
-    )
-
-    risks: list[str] = []
-    if not payloads:
-        risks.append("Aucun finding ne matche le filtre — 0 Smart View à créer.")
-
-    summary = {
-        "n_smart_views": len(payloads),
-        "n_findings_in_scope": len(filtered),
-        "include_overview": include_overview,
-        "filter_applied": finding_filter is not None,
-        "prefix": prefix,
-    }
-
-    return WritePlan(
-        kind=WritePlanKind.SMART_VIEWS,
+    element_by_uuid = getattr(result.snapshot, "element_by_uuid", None) or {}
+    return _pub_prepare_sv(
+        result.findings,
+        phase=result.phase.value,
         target=target,
-        summary=summary,
-        items=payloads,
-        risks=risks,
+        finding_filter=finding_filter,
+        prefix=prefix,
+        include_overview=include_overview,
+        element_by_uuid=element_by_uuid,
     )
 
 
