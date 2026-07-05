@@ -154,38 +154,38 @@ par `bim_core.BimObject`). Deux implications :
   Le plus ambitieux ; le plus risqué pour la parité ; justifié **seulement** si un
   2ᵉ consommateur réel apparaît (autre CCH, autre bailleur).
 
-## 5. Recommandation (à valider)
+## 5. Recommandation (adoptée)
 
 Le déclencheur historique d'une extraction dans ce chantier a toujours été un
 **besoin de partage réel** (bim-core: contrats communs ; bim-sandbox: 2 MCPs ;
 bim-publication/query: frontière métier nette). **Aucun second consommateur
 n'existe** pour ces helpers aujourd'hui.
 
-Recommandation : **ne pas créer `bim-rule-kit` maintenant** (Option A par défaut),
-et — si l'on veut un premier pas à valeur sûre et sans risque de contrat —
-préparer **Option C** (accesseurs neutres → `bim-core`) comme candidat privilégié,
-car il supprime une duplication latente au lieu d'ajouter une surface. Décision au
-CTO.
+Décision retenue : **ne pas créer `bim-rule-kit`** (Option A). Si un jour un 2ᵉ
+consommateur réel apparaît, le premier pas sûr sera l'**Option C** (accesseurs
+neutres → `bim-core`), qui supprime une duplication latente au lieu d'ajouter une
+surface.
 
-## 6. Décisions ouvertes (CTO)
+## 6. Décisions (tranchées le 2026-07-05)
 
-- **D1 — Y a-t-il un besoin de partage réel** (2ᵉ consommateur : autre CCH /
-  bailleur / MCP) qui justifie un package ? Sinon → Option A.
-- **D2 — Contrat « élément »** : les accesseurs neutres doivent-ils dépendre du
-  dict BIMData brut, de `bim_core.BimObject`, ou **remonter dans `bim-core`**
-  (Option C) plutôt que dans un nouveau package ?
-- **D3 — Périmètre** si extraction : B (IFC pur), C (accès → bim-core), ou D
-  (large avec vocabulaire injectable) ?
-- **D4 — `normalize_catalog_class`** reste **I3F** (ingestion catalogue) : confirmé ?
-- **D5 — validators (MIX)** : accepte-t-on qu'il **reste I3F** tant que le
-  vocabulaire n'est pas paramétrable, faute de séparation propre ?
+Ces questions **ne sont plus ouvertes** — le verdict figé en tête du document fait
+foi. Rappel :
+
+- **D1 — besoin de partage réel ?** → **NON** (aucun 2ᵉ consommateur) ⇒ Option A.
+- **D2 — contrat « élément » & foyer** → contrat = **`bim_core.BimObject`** ;
+  foyer d'un éventuel kit = **`bim-core`** (Option C), **différé**.
+- **D3 — périmètre minimal si ré-ouverture** → **`expand_class`/`IFC_SUBCLASSES` +
+  les 5 accesseurs neutres**, rien de plus.
+- **D4 — `normalize_catalog_class`** → **reste I3F** (ingestion catalogue).
+- **D5 — `validators.py` (MIX)** → **reste I3F** (vocabulaire non paramétrable).
 
 ## 7. Non-objectifs (cadre de sécurité)
 
 - **Aucun déplacement automatique** de fichier sur la base de ce document.
 - **Aucun** changement de comportement, **aucun** renommage `audit-bim-i3f` /
   `audit_bim`.
-- Pas de package créé tant que D1–D3 ne sont pas tranchées.
-- Si extraction un jour : même playbook que les 7 précédents (package pur + tag →
-  adoption infra → façade/parité) et **parité prouvée** (unit + replay réel),
-  jamais de suppression avant preuve.
+- **Aucun package créé** — décision **D1 NON**. Le sujet reste clos tant qu'aucun
+  2ᵉ consommateur réel n'apparaît.
+- Si ré-ouverture un jour : même playbook que les 7 précédents (package/remontée
+  pur + tag → adoption infra → façade/parité) et **parité prouvée** (unit + replay
+  réel), jamais de suppression avant preuve.
