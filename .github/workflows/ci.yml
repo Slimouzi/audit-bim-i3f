@@ -21,9 +21,9 @@ jobs:
       - name: Install ruff
         run: pip install ruff
       - name: Ruff check
-        run: ruff check audit_bim tests
+        run: ruff check audit_bim tests scripts
       - name: Ruff format check
-        run: ruff format --check audit_bim tests
+        run: ruff format --check audit_bim tests scripts
       - name: Guard — no raw BIMData _post in audit_bim
         # Les écritures BIMData doivent passer par les méthodes nommées de
         # bimdata-write (create_classification, assign_classification_elements,

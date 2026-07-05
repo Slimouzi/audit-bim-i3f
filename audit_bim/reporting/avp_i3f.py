@@ -42,6 +42,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from ..audit.engine import AuditResult
+from ..audit.findings import ErrorType, Theme
 from ..extraction.model_data import ModelSnapshot
 from .avp_snapshot import (
     build_sources_from_snapshot,
@@ -314,10 +315,15 @@ def _build_controle_maquettes_xlsx(path, result, sources, meta) -> Path:
         row += 1
     row += 1
 
-    # Grille de contrôle.
+    # Grille de contrôle. Source I3F « Contrôle » prioritaire ; à défaut, on
+    # génère une **vraie grille depuis l'audit** (points de contrôle évalués)
+    # plutôt qu'un tableau vide — sinon l'annexe Contrôle sort sans contenu réel.
     write_safe(ws, row, 0, "Grille de contrôle", fmts["h2"])
     row += 1
-    _write_flat_table(ws, fmts, src.grille if src else None, start_row=row)
+    grille = src.grille if src else None
+    if grille is None or not grille.headers or not grille.rows:
+        grille = _audit_controle_table(result)
+    _write_flat_table(ws, fmts, grille, start_row=row)
 
     # Onglets de stats conformité : synthèse KPI + **grille détaillée
     # complète** (listes de contrôle exploitables I3F : noms, éléments…).
@@ -359,42 +365,199 @@ def _controle_stats(name: str, result: AuditResult | None, src) -> dict | None:
     return None
 
 
-def _audit_stats(name: str, result: AuditResult) -> dict | None:
-    from ..audit.findings import Theme
+def _zone_finding_kind(f) -> str | None:
+    """Classe un finding de nommage d'IfcZone : ``"objecttype"`` ou ``"name"``.
 
-    snap = result.snapshot
-    theme_map = {
-        "Zones Nommage": (Theme.NAMING_ZONE, len(snap.zones or [])),
-        "Pièces Nommage": (Theme.NAMING_SPACE, len(snap.spaces or [])),
-        "Zones ObjectType": (Theme.NAMING_ZONE, len(snap.zones or [])),
+    Le nommage de zone produit **deux contrôles distincts** partageant le même
+    thème (``NAMING_ZONE``) : le **Name** (pattern XXXXL-YYYY, présence) et
+    l'**ObjectType** (typologie dans la liste I3F, présence). On ne peut donc
+    PAS agréger par thème — on discrimine par ``error_type`` + libellés :
+    ``NAMING_NOT_IN_LIST`` et toute mention « ObjectType » ⇒ ObjectType ; le
+    reste des anomalies de nommage de zone ⇒ Name.
+    """
+    if f.ifc_type != "IfcZone" or f.theme != Theme.NAMING_ZONE:
+        return None
+    text = f"{f.recommended_action or ''} {f.expected or ''}".lower()
+    if f.error_type == ErrorType.NAMING_NOT_IN_LIST or "objecttype" in text:
+        return "objecttype"
+    return "name"
+
+
+def _material_name(item) -> str | None:
+    """Nom de matériau exploitable d'un item de ``material_list`` (formes variées :
+    ``{"material": {"name": …}}`` BIMData, ``{"name": …}``, ou chaîne)."""
+    if isinstance(item, dict):
+        mat = item.get("material")
+        if isinstance(mat, dict) and mat.get("name") and str(mat["name"]).strip():
+            return str(mat["name"]).strip()
+        if item.get("name") and str(item["name"]).strip():
+            return str(item["name"]).strip()
+    elif isinstance(item, str) and item.strip():
+        return item.strip()
+    return None
+
+
+def _has_material(e: dict) -> bool:
+    """Vrai si l'élément porte un **vrai nom de matériau**.
+
+    Lit ``material_list`` (forme produite par ``bimdata-read`` :
+    ``[{"material": {"name": "Béton"}}]``) avec repli ``materials``. La simple
+    présence de la clé ne suffit pas : il faut un nom non vide.
+    """
+    for key in ("material_list", "materials"):
+        for item in e.get(key) or []:
+            if _material_name(item):
+                return True
+    return False
+
+
+def _naming_stat(total: int, nc: int) -> dict:
+    conf = total - nc
+    return {
+        "label": "Nombre de Noms",
+        "total": total,
+        "conforme": conf,
+        "conforme_ratio": conf / total if total else None,
+        "non_conforme": nc,
+        "non_conforme_ratio": nc / total if total else None,
     }
-    if name in theme_map:
-        theme, total = theme_map[name]
-        nc = len({f.element_uuid for f in result.findings if f.theme == theme and f.element_uuid})
+
+
+def _audit_stats(name: str, result: AuditResult) -> dict | None:
+    snap = result.snapshot
+    # Nommage zones : Name et ObjectType sont des contrôles SÉPARÉS (mêmes
+    # zones, anomalies distinctes) — on ne compte pas le même ensemble deux fois.
+    if name == "Zones Nommage":
+        total = len(snap.zones or [])
         if total == 0:
             return None
-        conf = total - nc
-        return {
-            "label": "Nombre de Noms",
-            "total": total,
-            "conforme": conf,
-            "conforme_ratio": conf / total if total else None,
-            "non_conforme": nc,
-            "non_conforme_ratio": nc / total if total else None,
-        }
+        nc = len(
+            {
+                f.element_uuid
+                for f in result.findings
+                if _zone_finding_kind(f) == "name" and f.element_uuid
+            }
+        )
+        return _naming_stat(total, nc)
+    if name == "Zones ObjectType":
+        total = len(snap.zones or [])
+        if total == 0:
+            return None
+        nc = len(
+            {
+                f.element_uuid
+                for f in result.findings
+                if _zone_finding_kind(f) == "objecttype" and f.element_uuid
+            }
+        )
+        return _naming_stat(total, nc)
+    if name == "Pièces Nommage":
+        total = len(snap.spaces or [])
+        if total == 0:
+            return None
+        nc = len(
+            {
+                f.element_uuid
+                for f in result.findings
+                if f.theme == Theme.NAMING_SPACE and f.element_uuid
+            }
+        )
+        return _naming_stat(total, nc)
     if "matériau" in name.lower():
         elements = snap.elements or []
         total = len(elements)
         if total == 0:
             return None
-        sans = sum(1 for e in elements if not (e.get("materials")))
+        sans = sum(1 for e in elements if not _has_material(e))
+        conf = total - sans
         return {
             "label": "Nombre d'éléments sans matériau",
             "total": total,
+            "conforme": conf,
+            "conforme_ratio": conf / total if total else None,
             "non_conforme": sans,
             "non_conforme_ratio": sans / total if total else None,
         }
     return None
+
+
+def _audit_controle_table(result: AuditResult | None) -> SheetTable | None:
+    """Grille de contrôle **réelle dérivée de l'AuditResult** (aucune source I3F).
+
+    Une ligne par point de contrôle effectivement évalué (nommage zones/pièces,
+    ObjectType zones, matériaux), avec la conformité mesurée sur la maquette.
+    Renvoie ``None`` si l'audit n'expose aucun point exploitable — auquel cas
+    l'annexe Contrôle est vide et la QA gate lève (livrable non exploitable).
+    """
+    if result is None:
+        return None
+    rows: list[list] = []
+    for name in _CONTROLE_STATS_SHEETS:
+        stats = _audit_stats(name, result)
+        if not stats:
+            continue
+        total = stats.get("total")
+        nc = stats.get("non_conforme")
+        conf = stats.get("conforme")
+        if conf is None and total is not None and nc is not None:
+            conf = total - nc
+        ratio = stats.get("conforme_ratio")
+        rows.append(
+            [
+                name,
+                total if total is not None else "",
+                conf if conf is not None else "",
+                nc if nc is not None else "",
+                round(ratio, 3) if isinstance(ratio, (int, float)) else "",
+            ]
+        )
+    if not rows:
+        return None
+    return SheetTable(
+        title="Grille de contrôle",
+        headers=["Point de contrôle", "Total", "Conformes", "Non conformes", "Taux conformité"],
+        rows=rows,
+    )
+
+
+def _count_controle_rows(path: Path) -> int:
+    """Compte les lignes de données **sous le titre « Grille de contrôle »**.
+
+    Compteur **propre à l'annexe Contrôle** : contrairement à
+    :func:`_count_business_rows`, il ignore l'entête projet, la légende, les
+    titres et ``NOT_AVAILABLE`` — il ne compte que les points de contrôle réels
+    de la grille. Sert de garde qualité fiable (0 = grille sans contrôle réel).
+    """
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception:
+        return 0
+    try:
+        if "Grille de contrôle" not in wb.sheetnames:
+            return 0
+        ws = wb["Grille de contrôle"]
+        anchor = None
+        for r_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            if any(isinstance(c, str) and c.strip().lower() == "grille de contrôle" for c in row):
+                anchor = r_idx
+                break
+        if anchor is None:
+            return 0
+        total = 0
+        header_seen = False
+        for row in ws.iter_rows(min_row=anchor + 1, values_only=True):
+            cells = [c for c in row if c not in (None, "")]
+            if not cells:
+                continue
+            if str(cells[0]).strip() == NOT_AVAILABLE:
+                continue
+            if not header_seen:
+                header_seen = True  # 1re ligne utile = en-tête de la table
+                continue
+            total += 1
+        return total
+    finally:
+        wb.close()
 
 
 def _write_stats_block(ws, fmts, stats: dict | None, *, start_row: int) -> None:
@@ -1087,7 +1250,7 @@ def write_avp_i3f_report_pack(
     # export sort sans ligne alors que la maquette contient des entités
     # exploitables (espaces / murs / zones). On lève : le tool renverra un
     # statut d'erreur explicite plutôt qu'un fichier vide.
-    empty = _qa_empty_deliverables(pack, snap)
+    empty = _qa_empty_deliverables(pack, snap, result)
     if empty:
         raise AvpQaError(empty)
 
@@ -1110,11 +1273,18 @@ def _tabular_is_empty(src) -> bool:
     return table is None or not getattr(table, "rows", None)
 
 
-def _qa_empty_deliverables(pack: AvpReportPack, snap) -> list[str]:
+def _qa_empty_deliverables(
+    pack: AvpReportPack, snap, result: AuditResult | None = None
+) -> list[str]:
     """Liste des annexes vides alors que la maquette a des données."""
     if snap is None:
         return []
     problems: list[str] = []
+    # 5ᵉ annexe : quand un audit est disponible, la « Grille de contrôle » doit
+    # porter des points de contrôle réels (comptés SOUS son titre, hors entête/
+    # légende/NOT_AVAILABLE). Vide malgré un audit = livrable non exploitable.
+    if result is not None and _count_controle_rows(pack.controle_xlsx) == 0:
+        problems.append("Contrôle")
     has_spaces_or_zones = bool(getattr(snap, "spaces", None)) or bool(getattr(snap, "zones", None))
     if has_spaces_or_zones:
         if _count_business_rows(pack.shab_xlsx) == 0:
