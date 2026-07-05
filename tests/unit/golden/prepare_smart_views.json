@@ -1,0 +1,108 @@
+{
+  "items": [
+    {
+      "format": "bimdata-smartview",
+      "models": [
+        1674450
+      ],
+      "title": "I3F Audit — Vue d'ensemble",
+      "viewpoints": [
+        {
+          "components": {
+            "coloring": [
+              {
+                "color": "#DC3545",
+                "components": [
+                  {
+                    "authoring_tool_id": 1674450,
+                    "ifc_guid": "W1",
+                    "originating_system": "Mur porteur"
+                  }
+                ]
+              },
+              {
+                "color": "#28A745",
+                "components": [
+                  {
+                    "authoring_tool_id": 1674450,
+                    "ifc_guid": "D1",
+                    "originating_system": "Porte EI30"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "format": "bimdata-smartview",
+      "models": [
+        1674450
+      ],
+      "title": "I3F Audit — Classification IFC",
+      "viewpoints": [
+        {
+          "components": {
+            "coloring": [
+              {
+                "color": "#FF8C00",
+                "components": [
+                  {
+                    "authoring_tool_id": 1674450,
+                    "ifc_guid": "W1",
+                    "originating_system": "Mur porteur"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "format": "bimdata-smartview",
+      "models": [
+        1674450
+      ],
+      "title": "I3F Audit — Propriété manquante",
+      "viewpoints": [
+        {
+          "components": {
+            "coloring": [
+              {
+                "color": "#DC3545",
+                "components": [
+                  {
+                    "authoring_tool_id": 1674450,
+                    "ifc_guid": "W1",
+                    "originating_system": "Mur porteur"
+                  },
+                  {
+                    "authoring_tool_id": 1674450,
+                    "ifc_guid": "D1",
+                    "originating_system": "Porte EI30"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "kind": "smart_views",
+  "risks": [],
+  "summary": {
+    "filter_applied": false,
+    "include_overview": true,
+    "n_findings_in_scope": 3,
+    "n_smart_views": 3,
+    "prefix": "I3F Audit — "
+  },
+  "target": {
+    "cloud_id": "33617",
+    "model_id": "1674450",
+    "project_id": "2698917"
+  }
+}

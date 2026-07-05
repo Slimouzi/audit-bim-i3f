@@ -1,0 +1,172 @@
+{
+  "items": [
+    {
+      "description": "Audit BIM I3F — Vue d'ensemble (phase AVP).\n2 éléments distincts en erreur, 3 anomalies au total, réparties sur 2 thèmes (légende couleur ci-dessous).\n\nLégende :\n• Propriété manquante : 2 anomalie(s)\n• Classification IFC : 1 anomalie(s)",
+      "labels": [
+        "I3F",
+        "audit",
+        "AVP",
+        "vue-ensemble"
+      ],
+      "models": [
+        1674450
+      ],
+      "priority": "High",
+      "title": "I3F Audit — Vue d'ensemble",
+      "topic_status": "Open",
+      "topic_type": "Audit BIM",
+      "viewpoints": [
+        {
+          "components": {
+            "coloring": [
+              {
+                "color": "997A4FBF",
+                "components": [
+                  {
+                    "ifc_guid": "W1",
+                    "originating_system": "audit-bim-i3f"
+                  },
+                  {
+                    "ifc_guid": "D1",
+                    "originating_system": "audit-bim-i3f"
+                  }
+                ]
+              },
+              {
+                "color": "992F374A",
+                "components": [
+                  {
+                    "ifc_guid": "W1",
+                    "originating_system": "audit-bim-i3f"
+                  }
+                ]
+              }
+            ],
+            "selection": [
+              {
+                "ifc_guid": "W1",
+                "originating_system": "audit-bim-i3f"
+              },
+              {
+                "ifc_guid": "D1",
+                "originating_system": "audit-bim-i3f"
+              }
+            ]
+          },
+          "models": [
+            1674450
+          ],
+          "originating_system": "audit-bim-i3f"
+        }
+      ]
+    },
+    {
+      "description": "Audit BIM I3F — thème « Classification IFC ».\n1 anomalie(s) détectée(s). Référence CCH : CCH-CLS-1.\n\nÉchantillon :\n• IfcWallStandardCase — Mur",
+      "labels": [
+        "I3F",
+        "audit",
+        "AVP",
+        "classification-ifc"
+      ],
+      "models": [
+        1674450
+      ],
+      "priority": "Medium",
+      "title": "I3F Audit — Classification IFC",
+      "topic_status": "Open",
+      "topic_type": "Audit BIM",
+      "viewpoints": [
+        {
+          "components": {
+            "coloring": [
+              {
+                "color": "802F374A",
+                "components": [
+                  {
+                    "ifc_guid": "W1",
+                    "originating_system": "audit-bim-i3f"
+                  }
+                ]
+              }
+            ],
+            "selection": [
+              {
+                "ifc_guid": "W1",
+                "originating_system": "audit-bim-i3f"
+              }
+            ]
+          },
+          "models": [
+            1674450
+          ],
+          "originating_system": "audit-bim-i3f"
+        }
+      ]
+    },
+    {
+      "description": "Audit BIM I3F — thème « Propriété manquante ».\n2 anomalie(s) détectée(s). Référence CCH : —.\n\nÉchantillon :\n• IfcWallStandardCase — Mur\n• IfcDoor — Porte",
+      "labels": [
+        "I3F",
+        "audit",
+        "AVP",
+        "propriete-manquante"
+      ],
+      "models": [
+        1674450
+      ],
+      "priority": "High",
+      "title": "I3F Audit — Propriété manquante",
+      "topic_status": "Open",
+      "topic_type": "Audit BIM",
+      "viewpoints": [
+        {
+          "components": {
+            "coloring": [
+              {
+                "color": "807A4FBF",
+                "components": [
+                  {
+                    "ifc_guid": "W1",
+                    "originating_system": "audit-bim-i3f"
+                  },
+                  {
+                    "ifc_guid": "D1",
+                    "originating_system": "audit-bim-i3f"
+                  }
+                ]
+              }
+            ],
+            "selection": [
+              {
+                "ifc_guid": "W1",
+                "originating_system": "audit-bim-i3f"
+              },
+              {
+                "ifc_guid": "D1",
+                "originating_system": "audit-bim-i3f"
+              }
+            ]
+          },
+          "models": [
+            1674450
+          ],
+          "originating_system": "audit-bim-i3f"
+        }
+      ]
+    }
+  ],
+  "kind": "bcf_topics",
+  "risks": [],
+  "summary": {
+    "filter_applied": false,
+    "include_overview": true,
+    "n_findings_in_scope": 3,
+    "n_topics": 3,
+    "prefix": "I3F Audit — "
+  },
+  "target": {
+    "cloud_id": "33617",
+    "model_id": "1674450",
+    "project_id": "2698917"
+  }
+}

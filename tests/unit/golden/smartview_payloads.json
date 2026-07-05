@@ -1,0 +1,92 @@
+[
+  {
+    "format": "bimdata-smartview",
+    "models": [
+      1674450
+    ],
+    "title": "I3F Audit — Vue d'ensemble",
+    "viewpoints": [
+      {
+        "components": {
+          "coloring": [
+            {
+              "color": "#DC3545",
+              "components": [
+                {
+                  "authoring_tool_id": 1674450,
+                  "ifc_guid": "W1",
+                  "originating_system": "Mur porteur"
+                }
+              ]
+            },
+            {
+              "color": "#28A745",
+              "components": [
+                {
+                  "authoring_tool_id": 1674450,
+                  "ifc_guid": "D1",
+                  "originating_system": "Porte EI30"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "format": "bimdata-smartview",
+    "models": [
+      1674450
+    ],
+    "title": "I3F Audit — Classification IFC",
+    "viewpoints": [
+      {
+        "components": {
+          "coloring": [
+            {
+              "color": "#FF8C00",
+              "components": [
+                {
+                  "authoring_tool_id": 1674450,
+                  "ifc_guid": "W1",
+                  "originating_system": "Mur porteur"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "format": "bimdata-smartview",
+    "models": [
+      1674450
+    ],
+    "title": "I3F Audit — Propriété manquante",
+    "viewpoints": [
+      {
+        "components": {
+          "coloring": [
+            {
+              "color": "#DC3545",
+              "components": [
+                {
+                  "authoring_tool_id": 1674450,
+                  "ifc_guid": "W1",
+                  "originating_system": "Mur porteur"
+                },
+                {
+                  "authoring_tool_id": 1674450,
+                  "ifc_guid": "D1",
+                  "originating_system": "Porte EI30"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

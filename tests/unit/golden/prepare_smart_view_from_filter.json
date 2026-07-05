@@ -1,0 +1,49 @@
+{
+  "items": [
+    {
+      "format": "bimdata-smartview",
+      "models": [
+        1674450
+      ],
+      "title": "Sélection",
+      "viewpoints": [
+        {
+          "components": {
+            "coloring": [
+              {
+                "color": "#FF3D1E",
+                "components": [
+                  {
+                    "authoring_tool_id": 1674450,
+                    "ifc_guid": "W1",
+                    "originating_system": ""
+                  },
+                  {
+                    "authoring_tool_id": 1674450,
+                    "ifc_guid": "D1",
+                    "originating_system": ""
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "kind": "smart_views",
+  "risks": [],
+  "summary": {
+    "color": "#FF3D1E",
+    "description": "note",
+    "n_elements": 2,
+    "n_smart_views": 1,
+    "name": "Sélection",
+    "source": "filter_selection"
+  },
+  "target": {
+    "cloud_id": "33617",
+    "model_id": "1674450",
+    "project_id": "2698917"
+  }
+}

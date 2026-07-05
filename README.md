@@ -69,7 +69,6 @@ pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 > pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
 > pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.0"
 > pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.0"
-pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.0"
 > pip install <url-du-wheel-release>
 > ```
 
