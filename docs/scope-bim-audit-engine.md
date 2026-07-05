@@ -187,17 +187,22 @@ inchangée + audit réel I3F non régressé.
 - **Garde de pureté** (CI package) : interdiction d'`import audit_bim`, de réseau,
   d'ingestion de document dans le package.
 
-## 8. Décisions en attente (CTO)
+## 8. Décisions figées (CTO)
 
-1. **Champs I3F dans le schéma** (`PropertySpec.usage_3f`/`ref_cch`,
-   `ZoneSpec.localisation` PP/PC) : (a) **conserver** comme champs **optionnels
-   neutres** dans le package (**recommandé**, découplage total, churn minimal) ;
-   ou (b) les sortir du schéma package (nécessiterait une sous-classe I3F).
-2. **Périmètre v0.1.0** : moteur **+ helpers**, les 6 règles restent I3F
-   (**recommandé**) ; ou tenter d'emblée des « règles génériques par défaut »
-   (mécanique de `properties`/`uniqueness`) — plus ambitieux, plus risqué.
-3. **`normalizer`** (`extraction/normalizer.py`) : le déplacer dans le package
-   (**recommandé** — accès Pset générique, utilisé par toutes les règles) ou le
-   garder côté audit-bim et l'injecter.
-4. Confirmation du protocole `Rule` `(snap, catalog, phase) -> list[Finding]` et
-   de la normalisation de `audit_naming`.
+Les quatre recommandations sont **validées telles quelles** — le package peut
+être codé sur ces bases :
+
+1. **Champs I3F du schéma** : **conservés comme champs optionnels neutres** dans
+   le package (`PropertySpec.usage_3f`/`ref_cch`, `ZoneSpec.localisation` PP/PC)
+   — découplage total, churn minimal.
+2. **Périmètre v0.1.0** : moteur **+ helpers** (`ifc_hierarchy`, `validators`,
+   `normalizer`, `preliminary`) ; **les 6 règles restent côté I3F** et sont
+   **injectées**. « Règles génériques par défaut » différées (v0.2).
+3. **`normalizer`** (`extraction/normalizer.py`) : **déplacé dans le package**
+   (accès Pset générique, utilisé par toutes les règles).
+4. **Protocole `Rule`** `(snap, catalog, phase) -> list[Finding]` **confirmé** ;
+   `audit_naming` **normalisée** pour accepter `phase`.
+
+**Suite d'exécution** : package pur + tag `bim-audit-engine-v0.1.0` → adoption
+infra → shims (façade `run_audit` injectant `I3F_RULES`, zéro changement de
+call-site).
