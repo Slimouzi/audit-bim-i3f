@@ -7,6 +7,34 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-05
+
+**Remplace v0.5.0** : le wheel/sdist v0.5.0 (commit `9cc2b9d`) est **antérieur**
+au correctif CLI (#59) et embarque encore les écritures directes de la CLI.
+**Utiliser v0.5.1.**
+
+### Changed
+
+- **CLI `audit-bim` : préparation de plans uniquement** (#59) — la CLI n'écrit
+  plus jamais dans BIMData. `--push bcf|smartview|both` **prépare** des `WritePlan`
+  scellés (`prepare_bcf`/`prepare_smart_views` + `save_plan`) ; la publication se
+  fait via le serveur MCP `apply_*(confirm=True)` après revue. La **cible** des
+  plans provient désormais du **client effectif** (`client.cloud_id/project_id/
+  model_id`), pas des arguments bruts.
+- **CI/CD** : `actions/setup-python@v6` (#3), `actions/upload-artifact@v7` (#4),
+  `actions/download-artifact@v8` (#2).
+
+### Removed
+
+- Builders d'écriture directe `push_bcf_topics` / `push_smart_views` (devenus
+  morts après #59) — les modules `bcf.builder` / `smartview.builder` sont de
+  pures façades `build_*` au-dessus de `bim-publication`.
+
+### Added
+
+- Test CLI de non-écriture (`test_cli_no_write.py`) : client mutatif qui **échoue
+  au moindre appel** d'écriture + vérification de la cible issue du client.
+
 ## [0.5.0] - 2026-07-05
 
 ### Removed
