@@ -33,6 +33,28 @@ def _assert_outside_repo(out: Path) -> None:
         )
 
 
+def assert_catalog_usable(docs: dict[str, str | None], catalog) -> None:
+    """Refuse un référentiel CCH inexploitable — **helper pur, testable**.
+
+    ``build_catalog`` tolère des documents absents et rend un catalogue
+    partiel/vide ; sans contrôle, l'acceptation pourrait rendre ``PASS`` sans
+    aucun référentiel CCH réellement chargé. On refuse (``SystemExit``) si :
+
+    - un des documents I3F (``docs`` = nom → chemin) est absent/introuvable ;
+    - ``catalog.properties`` ou ``catalog.naming_rules`` est vide.
+    """
+    missing = [name for name, p in docs.items() if not p or not Path(p).exists()]
+    if missing:
+        raise SystemExit(f"REFUS : documents I3F absents {missing} — contrôle CCH impossible.")
+    n_props = len(getattr(catalog, "properties", None) or [])
+    n_rules = len(getattr(catalog, "naming_rules", None) or [])
+    if n_props == 0 or n_rules == 0:
+        raise SystemExit(
+            f"REFUS : catalogue CCH vide (properties={n_props}, naming_rules={n_rules}) "
+            f"— acceptation non fiable."
+        )
+
+
 def _charte_flags(path: Path, wordmark: str, primary: str, font: str) -> dict:
     with zipfile.ZipFile(path) as z:
         blob = b"".join(z.read(n) for n in z.namelist() if n.endswith((".xml", ".rels"))).upper()
@@ -73,22 +95,15 @@ def main(argv: list[str]) -> int:
         data_spec_xlsx=config.I3F_DATA_SPEC_XLSX,
         naming_spec_xlsx=config.I3F_NAMING_SPEC_XLSX,
     )
-    # Garde CCH : ``build_catalog`` tolère des documents absents et rend un
-    # catalogue partiel/vide. Sans contrôle, l'acceptation pourrait rendre PASS
-    # sans aucun référentiel CCH réellement chargé → on refuse.
-    docs = {
-        "cch_pdf": config.I3F_CCH_PDF,
-        "data_spec_xlsx": config.I3F_DATA_SPEC_XLSX,
-        "naming_spec_xlsx": config.I3F_NAMING_SPEC_XLSX,
-    }
-    missing = [name for name, p in docs.items() if not p or not Path(p).exists()]
-    if missing:
-        raise SystemExit(f"REFUS : documents I3F absents {missing} — contrôle CCH impossible.")
-    if not catalog.properties or not catalog.naming_rules:
-        raise SystemExit(
-            f"REFUS : catalogue CCH vide (properties={len(catalog.properties)}, "
-            f"naming_rules={len(catalog.naming_rules)}) — acceptation non fiable."
-        )
+    # Garde CCH (helper pur, testé) : refuse un référentiel inexploitable.
+    assert_catalog_usable(
+        {
+            "cch_pdf": config.I3F_CCH_PDF,
+            "data_spec_xlsx": config.I3F_DATA_SPEC_XLSX,
+            "naming_spec_xlsx": config.I3F_NAMING_SPEC_XLSX,
+        },
+        catalog,
+    )
 
     client = BIMDataClient()  # cible + auth depuis l'environnement (read-only)
     snap = extract_snapshot(client)
