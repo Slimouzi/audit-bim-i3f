@@ -139,9 +139,9 @@ Le vocabulaire (schéma des payloads, couleurs, priorités, format Smart View) e
 Comme **aucune dépendance à `audit-bim-i3f`** n'est autorisée, les fonctions du
 package prennent des **primitives bim-core** :
 
-- `build_bcf_payloads(findings: list[Finding], *, phase: str, prefix, model_id, include_overview) -> list[dict]`
-- `build_smartview_payloads(findings: list[Finding], *, phase, prefix, model_id, include_overview, element_by_uuid=None) -> list[dict]`
-- `prepare_bcf(findings: list[Finding], *, phase, finding_filter, target, prefix, include_overview) -> WritePlan`
+- `build_bcf_payloads(findings: Sequence[Finding], *, phase: str, prefix, model_id, include_overview) -> list[dict]`
+- `build_smartview_payloads(findings: Sequence[Finding], *, phase, prefix, model_id, include_overview, element_by_uuid=None) -> list[dict]`
+- `prepare_bcf(findings: Sequence[Finding], *, phase, finding_filter, target, prefix, include_overview) -> WritePlan`
 
 La façade `audit-bim` conserve les signatures historiques prenant `AuditResult`
 en **adaptant** : `build_bcf_payloads(result)` → `pub.build_bcf_payloads(result.findings, phase=result.phase.value, …)`.
@@ -165,7 +165,7 @@ ils ré-exportent depuis le package ; `apply_*` reste local), et indirectement
 ## 5. Ordre des PR (à valider)
 
 Aligné sur le schéma éprouvé bim-core / bimdata-read / bim-sandbox / bim-query,
-+ un replay A1 en clôture :
++ un replay A1 en clôture (validation write réelle sur **modèle jetable**) :
 
 1. **PR scope (celle-ci)** — doc figé, aucun code applicatif.
 2. **Package pur `bim-publication` + tag `bim-publication-v0.1.0`** — builders
@@ -178,9 +178,15 @@ Aligné sur le schéma éprouvé bim-core / bimdata-read / bim-sandbox / bim-que
 4. **PR shims** — `bcf/builder.py`, `smartview/builder.py` et les `prepare_*` des
    planners deviennent des ré-exports/adaptateurs fins du package ; `apply_*`
    inchangés. Tests d'identité + parité des payloads.
-5. **Replay A1 sandbox** — rejouer la validation write BCF/Smart Views réelle
-   (projet bac-à-sable) **après** les shims, pour prouver qu'un plan préparé par
+5. **Replay A1 (modèle de validation jetable)** — rejouer la validation write
+   BCF/Smart Views réelle **après** les shims, pour prouver qu'un plan préparé par
    le package produit des topics/Smart Views valides via `apply_*` + `bimdata-write`.
+   Stratégie retenue : **authentification unique** (la même qu'en production) et un
+   **modèle de validation jetable autorisé à l'écriture** dans l'environnement
+   BIMData courant — **Dieppe `1674450`** (projet I3F `2698917`). Activation
+   **temporaire** des écritures (`AUDIT_BIM_ALLOW_WRITES=true`) le temps du run,
+   puis **retour immédiat** à `AUDIT_BIM_ALLOW_WRITES=false`. Pas de projet
+   « bac-à-sable » séparé.
 
 Suppression de l'ancien code **seulement après preuve** : parité des payloads
 (octet à octet sur fixtures) + suite planners inchangée + replay A1 vert.
@@ -208,7 +214,8 @@ Suppression de l'ancien code **seulement après preuve** : parité des payloads
 - **Garde de pureté** (CI package) : interdiction d'`import audit_bim`, de tout
   appel réseau/`client`, de `write_journal`, de `safe_paths` dans le package.
 - **Replay A1** : `succeeded>0 / failed=0`, topics + Smart Views visibles dans le
-  viewer sandbox.
+  viewer du **modèle de validation jetable** (Dieppe `1674450`), journal écrit,
+  puis `AUDIT_BIM_ALLOW_WRITES` remis à `false`.
 
 ## 8. Décisions figées (CTO)
 
@@ -229,4 +236,6 @@ Toutes tranchées — le package peut être codé sur ces bases :
    distante dans **`bimdata-write`**.
 
 **Suite d'exécution** : package pur + tag `bim-publication-v0.1.0` → adoption
-infra → shims → **replay A1** (validation write réelle sur bac-à-sable).
+infra → shims → **replay A1** (validation write réelle sur **modèle jetable
+Dieppe `1674450`**, même authentification qu'en production, écritures activées
+**temporairement** puis `AUDIT_BIM_ALLOW_WRITES=false`).
