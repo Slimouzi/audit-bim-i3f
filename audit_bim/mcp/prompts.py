@@ -174,7 +174,8 @@ structurée des questions restantes à poser, mise à jour à chaque appel.
 1. Accueil bref + appel à `project_context_questions`.
 2. Poser les questions manquantes au MOA.
 3. `set_owner_documents` → `parse_owner_requirements` → catalogue prêt.
-4. `set_active_model(phase=..., classification_system=...)`.
+4. `set_active_model(bimdata_url=..., phase=..., classification_system=...)`
+   (ou fournir les trois IDs BIMData).
 5. `extract_model_snapshot` → `run_audit_tool` → résumé findings.
 6. Présenter au MOA un résumé regroupé par thème, hiérarchisé par
    sévérité (rouge HIGH / orange MEDIUM / vert LOW).

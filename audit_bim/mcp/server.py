@@ -45,7 +45,7 @@ from ..requirements.models import BIMPhase, RequirementsCatalog
 from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
 from ..smartview.builder import push_smart_views
 from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
-from .model_identity import model_matches_expected
+from .model_identity import model_matches_expected, resolve_bimdata_target
 from .prompts import AMO_BIM_I3F_PROMPT
 from .security import ensure_access_token_param_allowed, ensure_writes_allowed
 from .security import scrub as _scrub
@@ -148,10 +148,13 @@ def project_context_questions() -> dict:
             {
                 "key": "bimdata_target",
                 "question": (
-                    "Quelle maquette BIMData auditer ? (cloud_id, project_id, "
-                    "model_id — ou utiliser les valeurs du .env)"
+                    "Quelle maquette BIMData auditer ? Collez l'URL du viewer "
+                    "BIMData, ou fournissez cloud_id, project_id et model_id."
                 ),
-                "suggestion": "Appelle set_active_model avec les bons IDs.",
+                "suggestion": (
+                    "Appelle set_active_model(bimdata_url=...) ; les IDs restent "
+                    "acceptés et les valeurs du .env servent de fallback."
+                ),
             }
         )
 
@@ -256,6 +259,7 @@ def set_active_model(
     cloud_id: str | None = None,
     project_id: str | None = None,
     model_id: str | None = None,
+    bimdata_url: str | None = None,
     phase: str = "PRO",
     classification_system: str | None = None,
     access_token: str | None = None,
@@ -275,6 +279,12 @@ def set_active_model(
 
     Args:
         cloud_id, project_id, model_id: IDs BIMData (fallback ``.env``).
+            ``model_id`` accepte aussi une URL viewer complète pour tolérer
+            un copier-coller direct.
+        bimdata_url: URL viewer BIMData
+            ``https://platform.bimdata.io/spaces/<cloud>/projects/<project>/viewer/<model>``.
+            Les IDs sont extraits automatiquement. Si des IDs explicites sont
+            également fournis, ils doivent correspondre à l'URL.
         phase: APS | AVP | PRO | DCE | EXE | DOE | GESTION (défaut PRO).
         classification_system: référentiel à utiliser pour les
             classifications. Valeurs admises : ``UniFormat II`` (défaut) |
@@ -283,6 +293,12 @@ def set_active_model(
     """
     from ..classifier import get_system
 
+    cloud_id, project_id, model_id = resolve_bimdata_target(
+        cloud_id=cloud_id,
+        project_id=project_id,
+        model_id=model_id,
+        bimdata_url=bimdata_url,
+    )
     _State.cloud_id = cloud_id or config.CLOUD_ID
     _State.project_id = project_id or config.PROJECT_ID
     _State.model_id = model_id or config.MODEL_ID
@@ -1437,6 +1453,7 @@ def full_audit(
     cloud_id: str | None = None,
     project_id: str | None = None,
     model_id: str | None = None,
+    bimdata_url: str | None = None,
     phase: str | None = None,
     output_dir: str | None = None,
     push_mode: str = "ask",
@@ -1471,6 +1488,9 @@ def full_audit(
 
     Args:
         cloud_id, project_id, model_id: cible BIMData (fallback ``.env``).
+            ``model_id`` accepte aussi une URL viewer complète.
+        bimdata_url: URL viewer BIMData. Permet de lancer l'audit sur
+            n'importe quel modèle sans modifier la configuration locale.
         phase: phase BIM auditée.
         output_dir: dossier de sortie (fallback ``AUDIT_OUTPUT_DIR`` env).
         push_mode: ``"ask"`` | ``"bcf"`` | ``"smartview"`` | ``"both"`` | ``"none"``.
@@ -1499,6 +1519,12 @@ def full_audit(
             auditée est bien la version active côté BIMData. Mettre à
             ``False`` pour réutiliser ``_State.snapshot`` ou le cache
             (déconseillé quand ``expected_model_name`` est fourni).
+            **Exception (sécurité)** : fournir une **nouvelle cible
+            explicite** (``bimdata_url`` ou IDs) force **toujours** une
+            extraction fraîche de *ce* modèle, quel que soit ce paramètre —
+            on ne peut pas réutiliser le snapshot d'un autre modèle. Le
+            drapeau ne s'applique donc qu'aux cibles préservées / au
+            fallback ``.env``.
     """
     # Refus en amont du token en paramètre sur transport réseau (même
     # garde que ``set_active_model``, dupliquée pour fail-fast clair
@@ -1507,11 +1533,36 @@ def full_audit(
     if access_token:
         ensure_access_token_param_allowed()
 
+    # P1 — anti-contamination multi-modèle. Si l'appelant fournit une cible
+    # explicite (URL viewer ou IDs), on l'active **et on charge SON snapshot**
+    # (lecture seule) *avant* de calculer les suggestions de contexte (phase /
+    # adresse / description). Sinon, dans une session multi-modèle, ces
+    # suggestions seraient tirées du snapshot du modèle précédemment chargé :
+    # un ``full_audit(bimdata_url=<B>)`` proposerait l'adresse/description/phase
+    # du modèle A resté en session. On active donc la cible en tête de fonction.
+    explicit_target = any(v is not None for v in (cloud_id, project_id, model_id, bimdata_url))
+    target_loaded = False
+    if explicit_target:
+        set_active_model(
+            cloud_id=cloud_id,
+            project_id=project_id,
+            model_id=model_id,
+            bimdata_url=bimdata_url,
+            # Phase provisoire : ``_State.phase`` est ré-aligné plus bas sur la
+            # phase effective résolue depuis le **nouveau** snapshot.
+            phase=(phase.strip() if isinstance(phase, str) and phase.strip() else "PRO"),
+            access_token=access_token,
+        )
+        _State.snapshot = extract_snapshot(_State.client)
+        target_loaded = True
+
     # Phase — question **unique**, phase confirmée = unique source de
     # vérité (audit + rapport Word + pack AVP). Règle :
     #
     #   - ``phase`` passé explicitement (non vide) → choix de l'appelant,
     #     source de vérité, pas de re-confirmation ;
+    #   - cible explicite fraîchement chargée → phase **détectée dans son
+    #     IFC** (pas ``_State.phase``, provisoire depuis l'activation ci-dessus) ;
     #   - sinon, candidat = ``_State.phase`` (posée par un
     #     ``set_active_model`` précédent) ou, à défaut, la phase détectée
     #     dans l'IFC (mappée depuis un jalon loi MOP si besoin) ;
@@ -1523,6 +1574,8 @@ def full_audit(
     detected_raw, detected_mapped = _detect_snapshot_phase()
     if explicit_phase:
         effective_phase = explicit_phase
+    elif target_loaded:
+        effective_phase = detected_mapped  # phase du modèle actif (nouvelle cible)
     elif _State.phase is not None:
         effective_phase = _State.phase.value
     else:
@@ -1536,14 +1589,17 @@ def full_audit(
         else detected_mapped
     )
 
-    # Suggestions pour le dialogue de contexte, best-effort depuis un
-    # snapshot **déjà chargé** en session (workflow standard
-    # ``set_active_model`` → ``verify_active_model`` → ``full_audit``).
-    # On ne force pas d'extraction ici : la validation reste bon marché
-    # et sans accès modèle en démarrage à froid. Snapshot présent → on
-    # propose l'adresse (IfcPostalAddress) + la description et on exige
-    # la description ; snapshot absent → question sans suggestion et
-    # description non requise.
+    # Suggestions pour le dialogue de contexte, best-effort depuis le
+    # snapshot **actif**. Deux cas garantissent qu'il s'agit bien du modèle
+    # ciblé, jamais d'un précédent :
+    #   - cible explicite → snapshot chargé en tête de fonction (fix P1) ;
+    #   - sinon → snapshot déjà en session (``set_active_model`` →
+    #     ``verify_active_model`` → ``full_audit``).
+    # On ne force pas d'extraction supplémentaire ici : à froid (aucun
+    # snapshot), la validation reste bon marché et sans accès modèle.
+    # Snapshot présent → on propose l'adresse (IfcPostalAddress) + la
+    # description et on exige la description ; snapshot absent → question
+    # sans suggestion et description non requise.
     sugg_address = _snapshot_address_suggestion()
     sugg_description = _snapshot_description()
 
@@ -1607,10 +1663,11 @@ def full_audit(
     )
 
     # 2. Cible — politique de préservation :
-    #   - si l'appelant a fourni au moins un ID → ``set_active_model``
-    #     explicite (l'utilisateur veut changer / poser la cible) ;
-    #   - sinon, si une cible est déjà active en session
-    #     (``_State.client``), on la **garde** ;
+    #   - cible explicite (URL/IDs) → déjà activée + snapshot chargé en tête
+    #     de fonction (``target_loaded``, fix P1) : on aligne seulement la
+    #     phase de session sur la phase effective résolue ;
+    #   - sinon, si une cible est déjà active en session (``_State.client``),
+    #     on la **garde** (et on aligne la phase) ;
     #   - sinon (pas de client en session, pas d'ID fourni) →
     #     fallback ``.env`` via ``set_active_model``.
     #
@@ -1621,16 +1678,23 @@ def full_audit(
     # vérifie la bonne maquette puis se fait re-router sur l'ancienne
     # cible de l'environnement.
     # ``effective_phase`` est résolu en BIMPhase ici pour pouvoir
-    # l'aligner sur ``_State.phase`` ci-dessous (cible préservée). On
-    # passe en majuscules par robustesse vs entrée utilisateur.
+    # l'aligner sur ``_State.phase`` ci-dessous. On passe en majuscules par
+    # robustesse vs entrée utilisateur.
     effective_bim_phase = BIMPhase(effective_phase.upper())
 
-    explicit_target = any(v is not None for v in (cloud_id, project_id, model_id))
-    if explicit_target or _State.client is None:
+    if target_loaded:
+        # Cible explicite déjà activée + snapshot fraîchement chargé plus haut.
+        # L'activation initiale a posé une phase provisoire : on la réaligne
+        # sur la phase effective (détectée ou explicite) pour que l'audit et le
+        # rapport partagent la même source de vérité.
+        _State.phase = effective_bim_phase
+    elif _State.client is None:
+        # Pas de cible fournie ni de session active → fallback ``.env``.
         set_active_model(
             cloud_id=cloud_id,
             project_id=project_id,
             model_id=model_id,
+            bimdata_url=bimdata_url,
             phase=effective_phase,
             access_token=access_token,
         )
@@ -1648,9 +1712,10 @@ def full_audit(
         _State.phase = effective_bim_phase
 
     # 3. Snapshot — refresh forcé par défaut pour éviter d'auditer une
-    # version périmée en cache. On garde une porte de sortie pour les
-    # workflows déjà cadrés (snapshot fraîchement chargé).
-    if force_refresh_snapshot or _State.snapshot is None:
+    # version périmée en cache. Sauté pour une cible explicite déjà chargée
+    # fraîchement en tête de fonction (``target_loaded``) — inutile de
+    # re-extraire ce qu'on vient d'obtenir sans cache.
+    if not target_loaded and (force_refresh_snapshot or _State.snapshot is None):
         _State.snapshot = extract_snapshot(_State.client)
 
     # 3 bis. Garde-fou d'identité : si l'auditeur a déclaré la maquette

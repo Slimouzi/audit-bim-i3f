@@ -76,7 +76,7 @@ section *Interroger la maquette*.
 | `set_owner_documents` | actif | R | charge les 3 documents MOA |
 | `parse_owner_requirements` | actif | R | construit le catalogue d'exigences |
 | `get_catalog_properties` | actif | R | filtre les PropertySpec du catalogue |
-| `set_active_model` | actif | R | cible la maquette BIMData |
+| `set_active_model` | actif | R | cible toute maquette par IDs ou URL viewer BIMData |
 | `list_classification_systems` | actif | R | référentiels disponibles |
 | `extract_model_snapshot` | actif | R | récupère depuis BIMData |
 | `run_audit_tool` | actif | R | exécute les règles d'audit |
