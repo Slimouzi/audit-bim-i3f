@@ -495,12 +495,11 @@ flowchart LR
 Bleu = `prepare_*` (lecture seule, scelle un plan). Rouge = `apply_*`
 (écriture BIMData, exige `confirm=True`).
 
-## Tools à éviter
+## Tools supprimés (v0.5.0)
 
-Les tools listés ci-dessous sont **dépréciés** (`removal_version=0.5.0`).
-Ne plus les utiliser dans le workflow cible :
+Les tools ci-dessous ont été **supprimés en v0.5.0** — utiliser leur remplaçant :
 
-| Tool déprécié | Remplaçant actif |
+| Tool retiré | Remplaçant actif |
 |---|---|
 | `suggest_classifications` | `list_classification_suggestions` (étape 4) |
 | `create_bcf_topics` | `prepare_bcf_topics` / `apply_bcf_topics` (étapes 8-9) |
@@ -509,15 +508,13 @@ Ne plus les utiliser dans le workflow cible :
 | `doe_enrich_model` | `match_doe_to_ifc` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan` |
 
 Cf. [docs/migration_prepare_apply.md](migration_prepare_apply.md) pour les
-exemples de migration. **Retrait planifié en v0.5.0.**
+exemples de migration. **Supprimés en v0.5.0.**
 
-## Politique de non-investissement
+## Classification en lecture
 
-`suggest_classifications` est conservé en lecture seule pour
-compatibilité — aucun nouveau développement n'est prévu dessus. **En cas
-de bug critique sur ce tool**, l'AMO doit migrer vers
-`list_classification_suggestions`. La suppression définitive est planifiée
-pour la **v0.5.0**.
+`suggest_classifications` a été **supprimé en v0.5.0** ; utiliser
+`list_classification_suggestions` (store indexé filtrable, statuts
+`accepted`/`rejected`/`applied`).
 
 ## Voir aussi
 

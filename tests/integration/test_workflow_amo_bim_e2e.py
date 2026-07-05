@@ -288,30 +288,6 @@ class TestWorkflowAmoBimE2E:
         trail = mcp_server.audit_trail()
         assert trail["total_returned"] == 0
 
-    def test_legacy_wrappers_in_default_mode_do_not_write(self, amo_workflow_session):
-        """Les 3 wrappers legacy (create_bcf_topics / create_smart_views /
-        apply_suggested_classifications), appelés sans ``legacy_execute=True``,
-        ne doivent émettre aucun appel API.
-        """
-        sess, client, _ = amo_workflow_session
-
-        res_bcf = mcp_server.create_bcf_topics()
-        assert res_bcf["deprecated"] is True
-        assert "plan_path" in res_bcf
-        _assert_no_api_calls(client, "create_bcf_topics(legacy_execute=False)")
-
-        res_sv = mcp_server.create_smart_views()
-        assert res_sv["deprecated"] is True
-        assert "plan_path" in res_sv
-        _assert_no_api_calls(client, "create_smart_views(legacy_execute=False)")
-
-        res_apply = mcp_server.apply_suggested_classifications()
-        assert res_apply["deprecated"] is True
-        # Au moins un kind plan attendu (classification_update) OU le mode
-        # fallback sans suggestions retourne quand même un plan vide.
-        assert res_apply.get("kind") == "classification_update"
-        _assert_no_api_calls(client, "apply_suggested_classifications(legacy_execute=False)")
-
     def test_workflow_full_audit_with_push_mode_none_does_not_write(self, amo_workflow_session):
         """``full_audit(push_mode='none')`` exécute audit + reports + payloads
         BCF/SmartView en mémoire mais ne pousse pas vers BIMData."""
@@ -336,10 +312,8 @@ class TestWorkflowAmoBimE2E:
     ):
         """Workflow DOE complet : extract → match → prepare → apply(confirm=False).
 
-        Garantit que la nouvelle chaîne DOE prepare/apply respecte le même
-        contrat que les autres : aucun appel API tant que confirm=True
-        n'est pas fourni. Couvre aussi le wrapper legacy doe_enrich_model
-        en mode default.
+        Garantit que la chaîne DOE prepare/apply respecte le même contrat que
+        les autres : aucun appel API tant que ``confirm=True`` n'est pas fourni.
         """
         sess, client, _ = amo_workflow_session
 
@@ -383,10 +357,3 @@ class TestWorkflowAmoBimE2E:
         )
         assert refused.get("refused") is True
         _assert_no_api_calls(client, "apply_doe_enrichment_plan(False)")
-
-        # ── Wrapper legacy doe_enrich_model en mode default ──────────────
-        legacy_res = mcp_server.doe_enrich_model(doe_path=str(doe_path))
-        assert legacy_res["deprecated"] is True
-        assert legacy_res.get("kind") == "doe_enrichment"
-        assert "plan_path" in legacy_res
-        _assert_no_api_calls(client, "doe_enrich_model(legacy_execute=False)")

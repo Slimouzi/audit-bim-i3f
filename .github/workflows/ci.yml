@@ -165,7 +165,7 @@ jobs:
         # (missing/wrong/valid), isolation de session entre clients.
         # Le runner GitHub autorise bind(127.0.0.1) contrairement au
         # sandbox local.
-        run: pytest tests/integration -q -m integration
+        run: pytest tests/integration -q
 
   build:
     name: Build sdist + wheel
