@@ -12,15 +12,14 @@ import sys
 from pathlib import Path
 
 from . import config
+from .actions import prepare_bcf, prepare_smart_views, save_plan
 from .audit.engine import run_audit
-from .bcf.builder import push_bcf_topics
 from .extraction.client import BIMDataClient
 from .extraction.model_data import extract_snapshot
 from .reporting.word_report import write_word_report
 from .reporting.xlsx_annex import write_xlsx_annex
 from .requirements.catalog import build_catalog
 from .requirements.models import BIMPhase
-from .smartview.builder import push_smart_views
 
 PUSH_MODES = ("ask", "bcf", "smartview", "both", "none")
 
@@ -28,11 +27,13 @@ PUSH_MODES = ("ask", "bcf", "smartview", "both", "none")
 def _prompt_push_mode() -> str:
     """Demande interactive si ``--push`` vaut ``ask``. Retourne le mode choisi."""
     print(
-        "\nComment publier les résultats dans le viewer BIMData ?\n"
-        "  bcf       — BCF Topics (workflow d'issues à résoudre)\n"
-        "  smartview — Smart Views (vues 3D colorées, panneau dédié)\n"
-        "  both      — Les deux\n"
-        "  none      — Ne rien publier (payloads sauvegardés en JSON)\n",
+        "\nQuels plans de publication préparer ? (la CLI n'écrit jamais dans "
+        "BIMData — elle prépare des plans scellés ; l'écriture se fait ensuite "
+        "via le serveur MCP apply_* avec confirm=True après revue.)\n"
+        "  bcf       — Plan BCF Topics (panneau BCF Issues)\n"
+        "  smartview — Plan Smart Views (panneau dédié)\n"
+        "  both      — Les deux plans\n"
+        "  none      — Ne préparer aucun plan de publication\n",
         file=sys.stderr,
     )
     while True:
@@ -46,8 +47,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="audit-bim",
         description=(
-            "Audit BIM I3F : génère rapport Word + annexe XLSX et publie "
-            "vers BIMData (BCF Topics et/ou Smart Views)."
+            "Audit BIM I3F : génère rapport Word + annexe XLSX et **prépare** "
+            "des plans de publication BIMData (BCF Topics et/ou Smart Views). "
+            "N'écrit jamais dans BIMData — la publication se fait via le serveur "
+            "MCP apply_* après revue."
         ),
     )
     parser.add_argument("--cch-pdf", default=config.I3F_CCH_PDF)
@@ -67,9 +70,9 @@ def main() -> int:
         default="ask",
         choices=list(PUSH_MODES),
         help=(
-            "Mode de publication des résultats : "
-            "'bcf' (issues à résoudre), 'smartview' (vues 3D), "
-            "'both' (les deux), 'none' (rien). Par défaut 'ask' = "
+            "Plans de publication à préparer (aucune écriture) : "
+            "'bcf' (BCF Topics), 'smartview' (Smart Views), "
+            "'both' (les deux), 'none' (aucun). Par défaut 'ask' = "
             "demande interactive."
         ),
     )
@@ -137,25 +140,30 @@ def main() -> int:
     print(">> Rapport Word", file=sys.stderr)
     write_word_report(result, word_path, xlsx_annex_path=xlsx_path)
 
+    # Publication — **préparation de plans uniquement**. La CLI n'écrit jamais
+    # dans BIMData (aucun appel ``push_*`` direct) : elle prépare des ``WritePlan``
+    # scellés. La publication passe ensuite par le serveur MCP
+    # ``apply_bcf_topics`` / ``apply_smart_views_plan`` (confirm=True) après revue.
     do_bcf = push_mode in ("bcf", "both")
     do_sv = push_mode in ("smartview", "both")
+    target = {
+        "cloud_id": args.cloud_id,
+        "project_id": args.project_id,
+        "model_id": args.model_id,
+        "model_name": (snap.model or {}).get("name"),
+    }
+    prepared: list[Path] = []
+    if do_bcf:
+        bcf_path = save_plan(prepare_bcf(result, target=target))
+        prepared.append(bcf_path)
+        print(f">> Plan BCF préparé (aucune écriture) : {bcf_path}", file=sys.stderr)
+    if do_sv:
+        sv_path = save_plan(prepare_smart_views(result, target=target))
+        prepared.append(sv_path)
+        print(f">> Plan Smart Views préparé (aucune écriture) : {sv_path}", file=sys.stderr)
 
-    print(
-        f">> Publication : BCF Topics (dry_run={not do_bcf}) — Smart Views (dry_run={not do_sv})",
-        file=sys.stderr,
-    )
-    bcf_res = push_bcf_topics(result, client, dry_run=not do_bcf)
-    sv_res = push_smart_views(result, client, dry_run=not do_sv)
-
-    Path(f"{base}_bcf_topics.json").write_text(
-        json.dumps(bcf_res, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    Path(f"{base}_smart_views.json").write_text(
-        json.dumps(sv_res, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    Path(f"{base}_findings.json").write_text(
+    findings_path = Path(f"{base}_findings.json")
+    findings_path.write_text(
         json.dumps(
             [f.model_dump(mode="json") for f in result.findings],
             ensure_ascii=False,
@@ -165,14 +173,15 @@ def main() -> int:
     )
 
     print("\n>> Livrables :", file=sys.stderr)
-    for p in (
-        word_path,
-        xlsx_path,
-        Path(f"{base}_findings.json"),
-        Path(f"{base}_bcf_topics.json"),
-        Path(f"{base}_smart_views.json"),
-    ):
+    for p in (word_path, xlsx_path, findings_path, *prepared):
         print(f"   • {p}", file=sys.stderr)
+    if prepared:
+        print(
+            "\n>> Publication : plans préparés (aucune écriture). Pour publier, "
+            "revoir chaque plan puis, côté serveur MCP, "
+            "apply_bcf_topics / apply_smart_views_plan(plan_path=..., confirm=True).",
+            file=sys.stderr,
+        )
     return 0
 
 
