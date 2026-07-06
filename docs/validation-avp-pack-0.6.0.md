@@ -3,8 +3,14 @@
 Preuve que le pack de livrables AVP I3F est **accepté sur une vraie maquette
 BIMData** : les **5 annexes xlsx** sont non vides et exactes, toutes habillées de
 la **charte BIMData**. Read-only (extraction seule ; aucune écriture ni
-publication BIMData). Aucune donnée client n'est versionnée (le pack reste hors du
-dépôt ; seule la sortie compteurs/booléens/verdict est consignée ici).
+publication BIMData).
+
+**Politique de données** : aucun **fichier brut ni livrable client** n'est
+versionné — le pack complet (xlsx/docx) reste **hors du dépôt**. Ce document ne
+consigne qu'un **identifiant de maquette et des agrégats approuvés** (nom IFC de la
+maquette de référence I3F + compteurs/conformités), à des fins de traçabilité de la
+validation. La sortie **stdout** du runner, elle, ne porte **aucun** identifiant
+(phase / compteurs / booléens / verdict uniquement).
 
 ## Deux niveaux d'acceptation
 

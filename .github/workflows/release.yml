@@ -144,9 +144,50 @@ jobs:
           name: dist
           path: dist/
 
+  smoke-install:
+    name: Smoke install wheel (clean venv)
+    # Le wheel n'est pas seulement construit + vérifié (twine) : on l'INSTALLE
+    # dans un venv vierge, on vérifie la cohérence des dépendances (pip check),
+    # et on exécute un smoke test (import + CLI). Une release dont le wheel ne
+    # s'installe/importe pas ne doit pas être publiée.
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Clean venv + preinstall tagged deps + install wheel
+        run: |
+          python -m venv /tmp/smoke
+          . /tmp/smoke/bin/activate
+          python -m pip install --upgrade pip
+          # Les 7 packages first-party (non PyPI) depuis leurs tags Git AVANT le wheel.
+          pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
+          pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
+          pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
+          pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
+          pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.0"
+          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.0"
+          pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.1"
+          # Le WHEEL construit (pas -e, pas l'arbre source).
+          pip install dist/*.whl
+      - name: pip check (dependency consistency)
+        run: |
+          . /tmp/smoke/bin/activate
+          pip check
+      - name: Import + CLI smoke test
+        run: |
+          . /tmp/smoke/bin/activate
+          python -c "import audit_bim; print('import audit_bim OK')"
+          audit-bim --help
+
   create-release:
     name: Create GitHub Release
-    needs: [build]
+    needs: [smoke-install]
     runs-on: ubuntu-latest
     # Distribution via GitHub Releases uniquement (le projet n'est pas
     # publié sur PyPI). Les artefacts sdist + wheel produits par
