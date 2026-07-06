@@ -93,7 +93,8 @@ def _valid_docx(
     """Fabrique un docx qui satisfait TOUS les critères (base des cas négatifs)."""
     d = _Docx()
     for n in sections:
-        _brand(d.add_paragraph().add_run(f"{n}. Section {n}"))
+        title = runner.WORD_SECTION_TITLES[n]  # vrai intitulé métier attendu
+        _brand(d.add_paragraph().add_run(f"{n}. {title}"))
     for i in range(5):
         d.add_paragraph().add_run(f"Contenu réel {i}")
     d.add_paragraph().add_run(WORDMARK)  # wordmark BIMDATA
@@ -159,6 +160,27 @@ def test_word_reject_missing_required_section(tmp_path):
     r = _inspect(p)
     assert 9 not in r["sections_present"]
     assert r["sections_ok"] is False
+    assert r["ok"] is False
+
+
+def test_word_reject_numbers_present_wrong_titles(tmp_path):
+    # Les 9 numéros sont présents mais les INTITULÉS sont faux (« 1. Foo »… « 9.
+    # Bar ») → le contrôle par intitulé métier doit refuser.
+    p = tmp_path / "wrongtitles.docx"
+    d = _Docx()
+    for n in range(1, 10):
+        _brand(d.add_paragraph().add_run(f"{n}. Titre bidon {n}"))
+    for i in range(5):
+        d.add_paragraph().add_run(f"Contenu réel {i}")
+    d.add_paragraph().add_run(WORDMARK)
+    d.add_paragraph().add_run("Projet PROG — Phase AVP")
+    t = d.add_table(rows=12, cols=1)
+    for i in range(12):
+        t.rows[i].cells[0].text = f"valeur {i}"
+    d.save(str(p))
+    r = _inspect(p)
+    assert r["sections_present"] == list(range(1, 10))  # numéros bien présents…
+    assert r["sections_ok"] is False  # …mais intitulés faux → refus
     assert r["ok"] is False
 
 

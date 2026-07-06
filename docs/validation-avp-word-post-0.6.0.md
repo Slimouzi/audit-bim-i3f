@@ -3,9 +3,12 @@
 Preuve d'acceptation du **6ᵉ livrable** du pack AVP — le rapport Word
 (`… Rapport analyse BIM.docx`). **Postérieure au tag `v0.6.0`** : ce contrôle et le
 bloc `word_report` du runner ne figurent pas dans `v0.6.0` (voir `CHANGELOG`
-[Unreleased]). Read-only ; aucune donnée client versionnée (mêmes règles que
-`docs/validation-avp-pack-0.6.0.md` : seuls un identifiant approuvé et des agrégats
-figurent ici ; la sortie stdout du runner ne porte aucun identifiant).
+[Unreleased]). Read-only.
+
+**Politique de données** (identique à `docs/validation-avp-pack-0.6.0.md`) : aucun
+**fichier brut ni livrable client** n'est versionné — **uniquement un identifiant et
+des agrégats approuvés** figurent ici. La sortie stdout du runner ne porte **aucun**
+identifiant.
 
 ## Critères (helper unique `inspect_word_report`)
 

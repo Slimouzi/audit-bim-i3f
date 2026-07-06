@@ -28,7 +28,22 @@ PLACEHOLDER_PROJECT_NAME = "ACCEPTANCE"
 # Seuils du rapport Word (partagés runner ↔ tests via inspect_word_report).
 WORD_MIN_PARAGRAPHS = 10
 WORD_MIN_SIGNIFICANT_CELLS = 10
-_WORD_SECTION_RE = re.compile(r"^([1-9])\.")
+
+# Intitulés MÉTIER attendus des 9 sections : le contrôle vérifie le numéro **ET**
+# l'intitulé (un « 1. Foo … 9. Bar » avec les bons numéros mais de faux titres est
+# refusé). On matche par mot-clé (sous-chaîne, insensible à la casse/accents).
+WORD_SECTION_TITLES = {
+    1: "Données d'entrée",
+    2: "Usages BIM 3F",
+    3: "Synthèse",
+    4: "Indicateurs",
+    5: "Écarts",
+    6: "Grille",
+    7: "Points bloquants",
+    8: "Recommandations",
+    9: "Annexes",
+}
+_WORD_SECTION_RE = re.compile(r"^\s*([1-9])\.\s*(.+?)\s*$")
 
 
 def _assert_outside_repo(out: Path) -> None:
@@ -117,10 +132,18 @@ def inspect_word_report(
 
     doc_txt = "\n".join(p.text for p in doc.paragraphs) + "\n" + "\n".join(cell_texts)
 
-    sections = sorted(
-        {int(m.group(1)) for p in paragraphs if (m := _WORD_SECTION_RE.match(p.strip()))}
+    # Sections : on capture numéro + intitulé, et on vérifie que CHAQUE numéro
+    # 1..9 porte le BON intitulé métier (pas seulement « N. quelque chose »).
+    found_titles: dict[int, str] = {}
+    for text in paragraphs:
+        m = _WORD_SECTION_RE.match(text)
+        if m:
+            found_titles.setdefault(int(m.group(1)), m.group(2))
+    sections_present = sorted(found_titles)
+    sections_ok = all(
+        n in found_titles and WORD_SECTION_TITLES[n].casefold() in found_titles[n].casefold()
+        for n in range(1, 10)
     )
-    sections_ok = set(sections) >= set(range(1, 10))
 
     # Le bouchon ne satisfait JAMAIS le contrôle : on exige le vrai nom BIMData.
     real_name = expected_project_name or ""
@@ -138,7 +161,7 @@ def inspect_word_report(
     return {
         "n_paragraphs": len(paragraphs),
         "n_significant_cells": significant_cells,
-        "sections_present": sections,
+        "sections_present": sections_present,
         "sections_ok": sections_ok,
         "non_empty": non_empty,
         "metadata_present": metadata_present,
