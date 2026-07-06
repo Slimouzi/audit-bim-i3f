@@ -128,3 +128,50 @@ def test_refusal_write_target_is_the_fourth_guard():
     # 4ᵉ refus : cible ≠ modèle jetable (déjà couvert, rappelé ici pour le contrat).
     with pytest.raises(SystemExit):
         runner.assert_write_target({"model_id": "1726110"}, "1674450")
+
+
+# ── Vérification journal (étape 9) — helper pur ────────────────────────────
+
+
+def _entry(action, plan_id, succeeded, failed=0):
+    return types.SimpleNamespace(action=action, plan_id=plan_id, succeeded=succeeded, failed=failed)
+
+
+def test_journal_confirms_match():
+    entries = [_entry("apply_bcf_topics", "p1", 1)]
+    assert (
+        runner.journal_confirms(
+            entries, action="apply_bcf_topics", plan_id="p1", expected_succeeded=1
+        )
+        is True
+    )
+
+
+def test_journal_confirms_wrong_count():
+    entries = [_entry("apply_bcf_topics", "p1", 2)]
+    assert (
+        runner.journal_confirms(
+            entries, action="apply_bcf_topics", plan_id="p1", expected_succeeded=1
+        )
+        is False
+    )
+
+
+def test_journal_confirms_failed_nonzero():
+    entries = [_entry("apply_smart_views", "p2", 1, failed=1)]
+    assert (
+        runner.journal_confirms(
+            entries, action="apply_smart_views", plan_id="p2", expected_succeeded=1
+        )
+        is False
+    )
+
+
+def test_journal_confirms_missing_entry():
+    entries = [_entry("apply_smart_views", "pX", 1)]
+    assert (
+        runner.journal_confirms(
+            entries, action="apply_bcf_topics", plan_id="p1", expected_succeeded=1
+        )
+        is False
+    )

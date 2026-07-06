@@ -27,7 +27,9 @@ from pathlib import Path
 # déterministe. Une évolution légitime de la maquette = un diff d'une ligne, revu.
 EXPECTED_BCF_TOPICS = 1
 EXPECTED_SMART_VIEWS = 1
-DISPOSABLE_MODEL_NAME_FRAGMENT = "DIEPPE"  # contrôle d'identité (verify_active_model)
+# Contrôle d'identité par **nom exact** attendu (pas un simple fragment) : côté
+# écriture on n'accepte que la maquette jetable désignée.
+EXPECTED_MODEL_NAME = "DIEPPE-7427L-BATA-ARCHI-APD.ifc"
 REPLAY_ERROR_TYPES = ["naming_invalid_format"]
 REPLAY_INCLUDE_OVERVIEW = False
 PREFIX_BASE = "REPLAY-BIM-PUBLICATION-"  # + YYYYMMDD + " — "
@@ -97,6 +99,22 @@ def inspect_plan(plan, *, effective_target: dict, title_prefix: str, min_items: 
     }
 
 
+def journal_confirms(entries, *, action: str, plan_id: str, expected_succeeded: int) -> bool:
+    """Vrai si le journal (``audit_trail``) contient une entrée **de ce run** —
+    ``action`` + ``plan_id`` — avec ``succeeded == attendu`` et ``failed == 0``.
+
+    Vérification **indépendante** du retour d'``apply`` (étape 9 du scope). Pure,
+    testable hors réseau (entrées = objets à attributs ``action/plan_id/succeeded/
+    failed``)."""
+    return any(
+        getattr(e, "action", None) == action
+        and getattr(e, "plan_id", None) == plan_id
+        and getattr(e, "succeeded", None) == expected_succeeded
+        and getattr(e, "failed", None) == 0
+        for e in entries
+    )
+
+
 def _plan_report(review: dict, expected_count: int) -> dict:
     count_ok = review["n_items"] == expected_count
     return {
@@ -124,9 +142,13 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     from audit_bim.domain.filters import FindingFilter
     from audit_bim.extraction.client import BIMDataClient
     from audit_bim.extraction.model_data import extract_snapshot
-    from audit_bim.mcp.tools_actions import apply_bcf_topics  # confirm gate (early-return)
+    from audit_bim.mcp.tools_actions import (  # confirm gate (early-return)
+        apply_bcf_topics,
+        apply_smart_views_plan,
+    )
     from audit_bim.requirements.catalog import build_catalog
     from audit_bim.requirements.models import BIMPhase
+    from audit_bim.security.write_journal import get_journal
 
     out = Path(args[0])
     _assert_outside_repo(out)
@@ -134,15 +156,13 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     os.environ["AUDIT_OUTPUT_DIR"] = str(out)  # plans scellés écrits hors repo
     phase = BIMPhase(args[1]) if len(args) > 1 else BIMPhase.AVP
 
-    # 1. Cible explicite + contrôle d'identité (nom de modèle attendu).
+    # 1. Cible explicite + contrôle d'identité par NOM EXACT.
     client = BIMDataClient()
     snap = extract_snapshot(client)
     model_name = (snap.model or {}).get("name") or ""
-    identity_ok = DISPOSABLE_MODEL_NAME_FRAGMENT.casefold() in model_name.casefold()
-    if not identity_ok:
+    if model_name.strip().casefold() != EXPECTED_MODEL_NAME.strip().casefold():
         raise SystemExit(
-            f"REFUS : identité cible non conforme — modèle actif ne contient pas "
-            f"{DISPOSABLE_MODEL_NAME_FRAGMENT!r}."
+            f"REFUS : identité cible non conforme — modèle actif ≠ {EXPECTED_MODEL_NAME!r}."
         )
     effective_target = {
         "cloud_id": client.cloud_id,
@@ -150,12 +170,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
         "model_id": client.model_id,
     }
 
-    # 3. Audit réel (catalogue CCH complet).
-    catalog = build_catalog(
-        cch_pdf=config.I3F_CCH_PDF,
-        data_spec_xlsx=config.I3F_DATA_SPEC_XLSX,
-        naming_spec_xlsx=config.I3F_NAMING_SPEC_XLSX,
-    )
+    # 3. Audit réel — vérifier d'ABORD la présence des documents I3F (refus
+    # lisible AVANT build_catalog, qui tolère des documents absents).
     _docs = {
         "cch_pdf": config.I3F_CCH_PDF,
         "data_spec_xlsx": config.I3F_DATA_SPEC_XLSX,
@@ -164,6 +180,11 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     _missing = [n for n, p in _docs.items() if not p or not Path(p).exists()]
     if _missing:
         raise SystemExit(f"REFUS : documents I3F absents {_missing} — contrôle CCH impossible.")
+    catalog = build_catalog(
+        cch_pdf=config.I3F_CCH_PDF,
+        data_spec_xlsx=config.I3F_DATA_SPEC_XLSX,
+        naming_spec_xlsx=config.I3F_NAMING_SPEC_XLSX,
+    )
     if not catalog.properties or not catalog.naming_rules:
         raise SystemExit("REFUS : catalogue CCH vide — replay non fiable.")
     result = run_audit(snap, catalog, phase)
@@ -225,10 +246,12 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     bcf_path = save_plan(bcf_plan)
     sv_path = save_plan(sv_plan)
 
-    # 6. Garde-fou négatif rejoué : apply(confirm=False) → refus prouvé.
+    # 6. Garde-fou négatif rejoué sur LES DEUX régimes : apply(confirm=False) → refus.
     neg_bcf = apply_bcf_topics(str(bcf_path), confirm=False)
-    report["guardrail_confirm_false_refused"] = bool(neg_bcf.get("refused"))
-    if not neg_bcf.get("refused"):
+    neg_sv = apply_smart_views_plan(str(sv_path), confirm=False)
+    guardrail_ok = bool(neg_bcf.get("refused")) and bool(neg_sv.get("refused"))
+    report["guardrail_confirm_false_refused"] = guardrail_ok
+    if not guardrail_ok:
         raise SystemExit("REFUS : le garde-fou confirm=False n'a pas refusé — arrêt.")
 
     # 7. Apply confirm=True (chemin Python planner).
@@ -237,16 +260,34 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     report["bcf_apply"] = {"succeeded": bcf_res.succeeded, "failed": bcf_res.failed}
     report["smart_views_apply"] = {"succeeded": sv_res.succeeded, "failed": sv_res.failed}
 
-    # 8. Vérification post-apply : le compte appliqué doit matcher l'attendu.
-    #    NOTE : la relecture INDÉPENDANTE via l'API (list topics/views) nécessite
-    #    un endpoint de liste absent de bimdata-read — prérequis borné à ajouter
-    #    (cf. scope §4 / suivi). En attendant, on vérifie succeeded == attendu +
-    #    failed == 0 (rapport d'apply + journal).
+    # 9. Journal : relire audit_trail et vérifier que LES DEUX apply du run y
+    #    figurent avec des compteurs conformes (indépendant du retour d'apply).
+    journal = get_journal().tail(20)
+    journal_bcf = journal_confirms(
+        journal,
+        action="apply_bcf_topics",
+        plan_id=bcf_plan.plan_id,
+        expected_succeeded=EXPECTED_BCF_TOPICS,
+    )
+    journal_sv = journal_confirms(
+        journal,
+        action="apply_smart_views",
+        plan_id=sv_plan.plan_id,
+        expected_succeeded=EXPECTED_SMART_VIEWS,
+    )
+    report["journal"] = {"bcf": journal_bcf, "smart_views": journal_sv}
+
+    # 8. Vérification post-apply : compte appliqué == attendu (rapport d'apply ET
+    #    journal). NOTE : la relecture INDÉPENDANTE via l'API (list topics/views)
+    #    nécessite un endpoint de liste absent de bimdata-read — prérequis borné
+    #    (cf. scope §4). Tant qu'il manque, 5b reste recommandé après un --write.
     write_ok = (
         bcf_res.succeeded == EXPECTED_BCF_TOPICS
         and bcf_res.failed == 0
         and sv_res.succeeded == EXPECTED_SMART_VIEWS
         and sv_res.failed == 0
+        and journal_bcf
+        and journal_sv
     )
     report["verdict"] = "PASS" if write_ok else "FAIL"
     print(json.dumps(report, ensure_ascii=False, indent=2))
