@@ -184,6 +184,33 @@ def test_word_reject_numbers_present_wrong_titles(tmp_path):
     assert r["ok"] is False
 
 
+def test_word_accepts_unaccented_titles(tmp_path):
+    # Le match des intitulés est insensible à la casse ET aux accents : un doc
+    # dont les titres ont perdu leurs accents (« Donnees d'entree », « Ecarts »)
+    # doit passer sections_ok.
+    import unicodedata
+
+    def _strip_accents(s: str) -> str:
+        return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+    p = tmp_path / "noaccents.docx"
+    d = _Docx()
+    for n in range(1, 10):
+        title = _strip_accents(runner.WORD_SECTION_TITLES[n]).upper()
+        _brand(d.add_paragraph().add_run(f"{n}. {title}"))
+    for i in range(5):
+        d.add_paragraph().add_run(f"Contenu réel {i}")
+    d.add_paragraph().add_run(WORDMARK)
+    d.add_paragraph().add_run("Projet PROG — Phase AVP")
+    t = d.add_table(rows=12, cols=1)
+    for i in range(12):
+        t.rows[i].cells[0].text = f"valeur {i}"
+    d.save(str(p))
+    r = _inspect(p)
+    assert r["sections_ok"] is True, r
+    assert r["ok"] is True, r
+
+
 def test_word_reject_absent_project_and_placeholder(tmp_path):
     # Doc valide par ailleurs, mais vrai nom de projet ABSENT → metadata False.
     p = _valid_docx(tmp_path / "noproj.docx", project_text=runner.PLACEHOLDER_PROJECT_NAME)

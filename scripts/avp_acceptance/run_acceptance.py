@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import unicodedata
 import zipfile
 from pathlib import Path
 
@@ -44,6 +45,14 @@ WORD_SECTION_TITLES = {
     9: "Annexes",
 }
 _WORD_SECTION_RE = re.compile(r"^\s*([1-9])\.\s*(.+?)\s*$")
+
+
+def _norm_title(s: str) -> str:
+    """Normalise un intitulé pour comparaison : casse ET accents ignorés
+    (« Écarts » matche « ecarts », « Donnees d'entree » matche la table)."""
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)
+    ).casefold()
 
 
 def _assert_outside_repo(out: Path) -> None:
@@ -141,7 +150,7 @@ def inspect_word_report(
             found_titles.setdefault(int(m.group(1)), m.group(2))
     sections_present = sorted(found_titles)
     sections_ok = all(
-        n in found_titles and WORD_SECTION_TITLES[n].casefold() in found_titles[n].casefold()
+        n in found_titles and _norm_title(WORD_SECTION_TITLES[n]) in _norm_title(found_titles[n])
         for n in range(1, 10)
     )
 
