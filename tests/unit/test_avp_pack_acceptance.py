@@ -15,6 +15,7 @@ from pathlib import Path
 
 import openpyxl
 import pytest
+from docx import Document
 
 from audit_bim.audit.engine import AuditResult
 from audit_bim.audit.rules import audit_naming
@@ -328,3 +329,56 @@ def test_controle_grid_excel_cell_values(tmp_path):
     assert by_point["Zones Nommage"][3] == 1  # Name invalide
     assert by_point["Zones ObjectType"][3] == 0  # ObjectType valide (PAS confondu)
     assert by_point["ARC absence de matériau"][3] == 0  # matériau Béton présent
+
+
+# ── Acceptation du rapport Word (analyse BIM AVP) ─────────────────────────
+
+
+def _pack(tmp_path, *, project_name="PROG-ACCEPT", project_code="0546L", phase="AVP"):
+    return write_avp_i3f_report_pack(
+        _representative_result(),
+        tmp_path / "out",
+        sources=None,
+        project_name=project_name,
+        project_code=project_code,
+        phase=phase,
+        export_pdf=False,
+    )
+
+
+def _docx_text(path: Path) -> str:
+    doc = Document(str(path))
+    parts = [p.text for p in doc.paragraphs]
+    parts += [c.text for t in doc.tables for r in t.rows for c in r.cells]
+    return "\n".join(parts)
+
+
+def test_word_report_non_empty_content(tmp_path):
+    # Le rapport doit porter du contenu réel (paragraphes + tables), pas
+    # seulement des titres de sections vides.
+    pack = _pack(tmp_path)
+    doc = Document(str(pack.analyse_docx))
+    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+    table_cells = sum(len(row.cells) for t in doc.tables for row in t.rows)
+    assert len(paragraphs) >= 10, f"rapport Word quasi vide: {len(paragraphs)} paragraphes"
+    assert doc.tables, "aucune table dans le rapport Word"
+    assert table_cells >= 10, f"tables Word quasi vides: {table_cells} cellules"
+
+
+def test_word_report_has_project_and_phase_metadata(tmp_path):
+    # Métadonnées projet/phase visibles dans le rapport (données confirmées).
+    pack = _pack(tmp_path, project_name="PROG-ACCEPT", project_code="0546L", phase="AVP")
+    txt = _docx_text(pack.analyse_docx)
+    assert "PROG-ACCEPT" in txt  # nom de projet
+    assert "0546L" in txt  # code projet (ESI)
+    assert "AVP" in txt  # phase
+
+
+def test_word_report_charte_bimdata_and_no_korhus(tmp_path):
+    # Charte BIMData appliquée dans le docx, sans trace de l'ancienne charte.
+    pack = _pack(tmp_path)
+    blob = _xml_blob(pack.analyse_docx)  # docx = zip xml, même sonde que xlsx
+    assert WORDMARK.encode().upper() in blob, "wordmark BIMDATA absent du rapport Word"
+    assert BIMDATA_PRIMARY.encode().upper() in blob, f"primaire {BIMDATA_PRIMARY} absent"
+    assert BIMDATA_FONT_PRIMARY.encode().upper() in blob, f"police {BIMDATA_FONT_PRIMARY} absente"
+    assert b"KORHUS" not in blob, "ancienne charte (KORHUS) trouvée dans le rapport Word"

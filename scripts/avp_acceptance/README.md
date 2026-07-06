@@ -41,9 +41,15 @@ Sortie (exemple de forme, sans donnée client) :
     "Enveloppe":     {"rows": 484, "non_empty": true, ...},
     "Menuiseries":   {"rows": 465, "non_empty": true, ...}
   },
+  "word_report": {"n_paragraphs": 25, "n_table_cells": 56, "non_empty": true, "metadata_present": true, "wordmark": true, "primary": true, "font": true, "no_korhus": true},
   "verdict": "PASS"
 }
 ```
+
+Le **rapport Word** (`analyse BIM AVP.docx`) est également accepté : contenu non
+vide (paragraphes + tables), charte BIMData, métadonnées projet/phase présentes
+(`metadata_present` — booléen, le nom de projet n'est **pas** émis en clair), sans
+KORHUS.
 
 Code de sortie 0 si `PASS` (5 annexes non vides + charte sur les 5), 1 sinon.
 

@@ -71,6 +71,8 @@ def main(argv: list[str]) -> int:
         print("usage: python run_acceptance.py <out_dir_hors_repo> [phase]", file=sys.stderr)
         return 2
 
+    from docx import Document
+
     from audit_bim import config
     from audit_bim.audit.engine import run_audit
     from audit_bim.extraction.client import BIMDataClient
@@ -109,11 +111,12 @@ def main(argv: list[str]) -> int:
     snap = extract_snapshot(client)
     result = run_audit(snap, catalog, phase)
 
+    project_name = (snap.project or {}).get("name") or "ACCEPTANCE"
     pack = write_avp_i3f_report_pack(
         result,
         out,
         sources=None,  # chemin réel piloté par la maquette
-        project_name=(snap.project or {}).get("name") or "ACCEPTANCE",
+        project_name=project_name,
         project_code="",
         phase=phase.value,
         export_pdf=False,
@@ -140,6 +143,26 @@ def main(argv: list[str]) -> int:
         entry = {"rows": rows, "non_empty": rows > 0, **charte}
         report["annexes"][label] = entry
         ok = ok and entry["non_empty"] and all(charte.values())
+
+    # Rapport Word (analyse BIM AVP) : contenu non vide + charte + métadonnées
+    # projet/phase. On ne rend que des compteurs/booléens (le nom de projet est
+    # comparé au texte du doc mais N'est PAS émis en clair).
+    doc = Document(str(pack.analyse_docx))
+    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+    table_cells = sum(len(r.cells) for t in doc.tables for r in t.rows)
+    doc_txt = "\n".join(p.text for p in doc.paragraphs)
+    doc_txt += "\n" + "\n".join(c.text for t in doc.tables for r in t.rows for c in r.cells)
+    word_charte = _charte_flags(pack.analyse_docx, WORDMARK, BIMDATA_PRIMARY, BIMDATA_FONT_PRIMARY)
+    word_non_empty = len(paragraphs) > 0 and table_cells > 0
+    word_metadata = bool(project_name) and project_name in doc_txt and phase.value in doc_txt
+    report["word_report"] = {
+        "n_paragraphs": len(paragraphs),
+        "n_table_cells": table_cells,
+        "non_empty": word_non_empty,
+        "metadata_present": word_metadata,
+        **word_charte,
+    }
+    ok = ok and word_non_empty and word_metadata and all(word_charte.values())
 
     report["verdict"] = "PASS" if ok else "FAIL"
     # Sortie sûre : compteurs / booléens / verdict uniquement.
