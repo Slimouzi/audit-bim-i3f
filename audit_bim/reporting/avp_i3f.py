@@ -370,13 +370,24 @@ def _zone_finding_kind(f) -> str | None:
 
     Le nommage de zone produit **deux contrôles distincts** partageant le même
     thème (``NAMING_ZONE``) : le **Name** (pattern XXXXL-YYYY, présence) et
-    l'**ObjectType** (typologie dans la liste I3F, présence). On ne peut donc
-    PAS agréger par thème — on discrimine par ``error_type`` + libellés :
-    ``NAMING_NOT_IN_LIST`` et toute mention « ObjectType » ⇒ ObjectType ; le
-    reste des anomalies de nommage de zone ⇒ Name.
+    l'**ObjectType** (typologie dans la liste I3F, présence). On ne peut donc PAS
+    agréger par thème.
+
+    Discrimination **prioritaire** par le champ structuré ``field_path``
+    (``"IfcZone.ObjectType"`` / ``"IfcZone.Name"``, bim-core ≥ 0.1.1) — fiable et
+    **indépendant du libellé** du finding. Repli sur l'heuristique de wording
+    uniquement pour les findings historiques sans ``field_path``.
     """
     if f.ifc_type != "IfcZone" or f.theme != Theme.NAMING_ZONE:
         return None
+    # 1) Champ structuré (source de vérité) : un reformulage du wording des
+    #    règles ne peut plus fausser silencieusement le classement.
+    fp = (getattr(f, "field_path", None) or "").strip().lower()
+    if fp.endswith(".objecttype"):
+        return "objecttype"
+    if fp.endswith(".name"):
+        return "name"
+    # 2) Repli heuristique (findings sans field_path).
     text = f"{f.recommended_action or ''} {f.expected or ''}".lower()
     if f.error_type == ErrorType.NAMING_NOT_IN_LIST or "objecttype" in text:
         return "objecttype"

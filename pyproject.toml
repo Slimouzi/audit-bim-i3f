@@ -111,7 +111,7 @@ audit-bim-mcp = "audit_bim.mcp.__main__:main"
 # ``bim-core`` n'est pas publié sur PyPI : uv le résout depuis le dépôt Git
 # au tag figé. Bumper ce tag = bumper le contrat (et la borne de version
 # dans [project.dependencies]), puis regénérer uv.lock (``uv lock``).
-bim-core = { git = "https://github.com/Slimouzi/bim-core.git", tag = "bim-core-v0.1.0" }
+bim-core = { git = "https://github.com/Slimouzi/bim-core.git", tag = "bim-core-v0.1.1" }
 bimdata-read = { git = "https://github.com/Slimouzi/bimdata-read.git", tag = "bimdata-read-v0.1.0" }
 bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "bimdata-write-v0.1.0" }
 bim-sandbox = { git = "https://github.com/Slimouzi/bim-sandbox.git", tag = "bim-sandbox-v0.1.0" }

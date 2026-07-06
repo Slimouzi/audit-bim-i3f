@@ -49,7 +49,7 @@ python3 -m venv .venv && source .venv/bin/activate
 # du moteur d'audit) ne sont
 # PAS publiés sur PyPI : on les installe d'abord depuis leurs tags Git, sinon la
 # résolution des dépendances échoue.
-pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
+pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
 pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
 pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
 pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
@@ -65,7 +65,7 @@ pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 > le wheel :
 >
 > ```bash
-> pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.0"
+> pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
 > pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
 > pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
 > pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"

@@ -7,6 +7,17 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed
+
+- **Classification Name/ObjectType des zones fiabilisée par un champ structuré**
+  (dette résolue) — `bim-core` **0.1.1** expose un champ neutre `field_path` sur
+  `Finding` (ex. `"IfcZone.ObjectType"`). `rules/naming.py` l'émet sur les 4 sites
+  zone, et `_zone_finding_kind` s'appuie dessus **en priorité** (heuristique de
+  libellé conservée en simple repli). Un reformulage du wording des règles ne peut
+  plus fausser silencieusement la grille de contrôle AVP. Pin `bim-core` bumpé
+  `v0.1.0 → v0.1.1` (rétro-compatible : `field_path` optionnel, défaut `None` ;
+  builders/goldens de publication inchangés).
+
 ### Added
 
 - **Acceptation du rapport Word AVP** (6ᵉ livrable) — un helper unique
