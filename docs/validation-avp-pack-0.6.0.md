@@ -53,19 +53,8 @@ Grille de contrôle (valeurs vérifiées) :
 contrôle matériau lit `material_list` (forme BIMData) et distingue conformes
 (8 179) et non conformes (2 370).
 
-## Rapport Word (analyse BIM AVP)
-
-Le 6ᵉ livrable (`… Rapport analyse BIM.docx`) est accepté au même titre que les 5
-annexes xlsx :
-
-- **contenu non vide** — paragraphes réels + tables (≥ 25 paragraphes / 56 cellules
-  sur la maquette de référence) ;
-- **charte BIMData** — wordmark `BIMDATA`, primaire `#2F374A`, police `Roboto` ;
-- **métadonnées projet/phase** présentes (nom de projet + phase visibles) ;
-- **sans KORHUS**.
-
-Testé hors-ligne (`tests/unit/test_avp_pack_acceptance.py`) et vérifié par le runner
-réseau (bloc `word_report`, booléens uniquement — le nom de projet n'est pas émis).
+> **Rapport Word** : l'acceptation du 6ᵉ livrable (`… Rapport analyse BIM.docx`)
+> est postérieure au tag `v0.6.0` — voir `docs/validation-avp-word-post-0.6.0.md`.
 
 ## Dette connue (non bloquante)
 

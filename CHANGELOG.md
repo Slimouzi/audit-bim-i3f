@@ -7,6 +7,16 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added
+
+- **Acceptation du rapport Word AVP** (6ᵉ livrable) — un helper unique
+  `inspect_word_report` (partagé runner ↔ tests) vérifie : contenu non vide
+  (≥ 10 paragraphes **et** ≥ 10 cellules significatives hors `NOT_AVAILABLE`),
+  sections **1 à 9**, métadonnées projet/phase (le **vrai** nom BIMData, jamais le
+  bouchon), charte BIMData sans KORHUS. Le runner réseau échoue si le rapport Word
+  n'est pas conforme (code 0 = **5 annexes xlsx ET rapport Word**). Preuve réelle :
+  `docs/validation-avp-word-post-0.6.0.md`.
+
 ### Changed
 
 - **Release CI** : le workflow installe désormais le wheel construit dans un

@@ -10,12 +10,12 @@ de test permanente.
 
 from __future__ import annotations
 
+import importlib.util
 import zipfile
 from pathlib import Path
 
 import openpyxl
 import pytest
-from docx import Document
 
 from audit_bim.audit.engine import AuditResult
 from audit_bim.audit.rules import audit_naming
@@ -29,6 +29,7 @@ from audit_bim.reporting.avp_i3f import (
 )
 from audit_bim.reporting.bimdata_brand import WORDMARK
 from audit_bim.reporting.theming import BIMDATA_FONT_PRIMARY, BIMDATA_PRIMARY
+from audit_bim.reporting.word_report import NOT_AVAILABLE
 from audit_bim.requirements.models import BIMPhase, NamingRule, RequirementsCatalog, ZoneSpec
 
 
@@ -332,53 +333,42 @@ def test_controle_grid_excel_cell_values(tmp_path):
 
 
 # ── Acceptation du rapport Word (analyse BIM AVP) ─────────────────────────
+#
+# Un SEUL helper (``inspect_word_report`` du runner) porte les critères et les
+# seuils, partagé entre le runner réseau et ces tests. Ici : cas POSITIF sur le
+# vrai pack généré. Les cas NÉGATIFS (docx 1×1, projet absent, cellules
+# NOT_AVAILABLE, section manquante) sont dans ``test_avp_acceptance_runner.py``.
+
+_RUNNER_PATH = (
+    Path(__file__).resolve().parents[2] / "scripts" / "avp_acceptance" / "run_acceptance.py"
+)
+_spec = importlib.util.spec_from_file_location("avp_acceptance_runner_pos", _RUNNER_PATH)
+_runner = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_runner)
 
 
-def _pack(tmp_path, *, project_name="PROG-ACCEPT", project_code="0546L", phase="AVP"):
-    return write_avp_i3f_report_pack(
+def test_word_report_accepted_on_real_pack(tmp_path):
+    pack = write_avp_i3f_report_pack(
         _representative_result(),
         tmp_path / "out",
         sources=None,
-        project_name=project_name,
-        project_code=project_code,
-        phase=phase,
+        project_name="PROG-ACCEPT",
+        project_code="0546L",
+        phase="AVP",
         export_pdf=False,
     )
-
-
-def _docx_text(path: Path) -> str:
-    doc = Document(str(path))
-    parts = [p.text for p in doc.paragraphs]
-    parts += [c.text for t in doc.tables for r in t.rows for c in r.cells]
-    return "\n".join(parts)
-
-
-def test_word_report_non_empty_content(tmp_path):
-    # Le rapport doit porter du contenu réel (paragraphes + tables), pas
-    # seulement des titres de sections vides.
-    pack = _pack(tmp_path)
-    doc = Document(str(pack.analyse_docx))
-    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-    table_cells = sum(len(row.cells) for t in doc.tables for row in t.rows)
-    assert len(paragraphs) >= 10, f"rapport Word quasi vide: {len(paragraphs)} paragraphes"
-    assert doc.tables, "aucune table dans le rapport Word"
-    assert table_cells >= 10, f"tables Word quasi vides: {table_cells} cellules"
-
-
-def test_word_report_has_project_and_phase_metadata(tmp_path):
-    # Métadonnées projet/phase visibles dans le rapport (données confirmées).
-    pack = _pack(tmp_path, project_name="PROG-ACCEPT", project_code="0546L", phase="AVP")
-    txt = _docx_text(pack.analyse_docx)
-    assert "PROG-ACCEPT" in txt  # nom de projet
-    assert "0546L" in txt  # code projet (ESI)
-    assert "AVP" in txt  # phase
-
-
-def test_word_report_charte_bimdata_and_no_korhus(tmp_path):
-    # Charte BIMData appliquée dans le docx, sans trace de l'ancienne charte.
-    pack = _pack(tmp_path)
-    blob = _xml_blob(pack.analyse_docx)  # docx = zip xml, même sonde que xlsx
-    assert WORDMARK.encode().upper() in blob, "wordmark BIMDATA absent du rapport Word"
-    assert BIMDATA_PRIMARY.encode().upper() in blob, f"primaire {BIMDATA_PRIMARY} absent"
-    assert BIMDATA_FONT_PRIMARY.encode().upper() in blob, f"police {BIMDATA_FONT_PRIMARY} absente"
-    assert b"KORHUS" not in blob, "ancienne charte (KORHUS) trouvée dans le rapport Word"
+    result = _runner.inspect_word_report(
+        pack.analyse_docx,
+        expected_project_name="PROG-ACCEPT",
+        phase="AVP",
+        wordmark=WORDMARK,
+        primary=BIMDATA_PRIMARY,
+        font=BIMDATA_FONT_PRIMARY,
+        not_available=NOT_AVAILABLE,
+    )
+    assert result["ok"] is True, result
+    assert result["n_paragraphs"] >= 10
+    assert result["n_significant_cells"] >= 10
+    assert result["sections_ok"] is True
+    assert result["metadata_present"] is True
+    assert result["no_korhus"] is True

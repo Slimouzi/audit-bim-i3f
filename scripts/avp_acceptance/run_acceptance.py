@@ -16,9 +16,19 @@ Usage: python run_acceptance.py <out_dir_hors_repo> [phase]
 from __future__ import annotations
 
 import json
+import re
 import sys
 import zipfile
 from pathlib import Path
+
+# Nom de projet « bouchon » injecté pour permettre la génération quand BIMData
+# ne fournit aucun nom : il ne doit JAMAIS satisfaire le contrôle de métadonnées.
+PLACEHOLDER_PROJECT_NAME = "ACCEPTANCE"
+
+# Seuils du rapport Word (partagés runner ↔ tests via inspect_word_report).
+WORD_MIN_PARAGRAPHS = 10
+WORD_MIN_SIGNIFICANT_CELLS = 10
+_WORD_SECTION_RE = re.compile(r"^([1-9])\.")
 
 
 def _assert_outside_repo(out: Path) -> None:
@@ -66,12 +76,81 @@ def _charte_flags(path: Path, wordmark: str, primary: str, font: str) -> dict:
     }
 
 
+def inspect_word_report(
+    docx_path: Path,
+    *,
+    expected_project_name: str | None,
+    phase: str | None,
+    wordmark: str,
+    primary: str,
+    font: str,
+    not_available: str,
+    min_paragraphs: int = WORD_MIN_PARAGRAPHS,
+    min_significant_cells: int = WORD_MIN_SIGNIFICANT_CELLS,
+) -> dict:
+    """Inspecte un rapport Word AVP — **helper pur, partagé runner ↔ tests**.
+
+    Renvoie des constats (compteurs + booléens) et un ``ok`` global. Critères :
+
+    - **contenu non vide** : ``>= min_paragraphs`` paragraphes ET
+      ``>= min_significant_cells`` cellules **significatives** (non vides et
+      distinctes de ``not_available``) ;
+    - **sections 1 à 9** présentes (paragraphes commençant par ``"1."``…``"9."``) ;
+    - **métadonnées** : ``expected_project_name`` (le **vrai** nom de projet
+      BIMData, jamais le bouchon) présent dans le document, et ``phase`` présente ;
+    - **charte** BIMData (wordmark / primaire / police) sans KORHUS.
+    """
+    from docx import Document
+
+    doc = Document(str(docx_path))
+    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+
+    significant_cells = 0
+    cell_texts: list[str] = []
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                cell_texts.append(cell.text)
+                txt = cell.text.strip()
+                if txt and txt != not_available:
+                    significant_cells += 1
+
+    doc_txt = "\n".join(p.text for p in doc.paragraphs) + "\n" + "\n".join(cell_texts)
+
+    sections = sorted(
+        {int(m.group(1)) for p in paragraphs if (m := _WORD_SECTION_RE.match(p.strip()))}
+    )
+    sections_ok = set(sections) >= set(range(1, 10))
+
+    # Le bouchon ne satisfait JAMAIS le contrôle : on exige le vrai nom BIMData.
+    real_name = expected_project_name or ""
+    metadata_present = (
+        bool(real_name)
+        and real_name != PLACEHOLDER_PROJECT_NAME
+        and real_name in doc_txt
+        and bool(phase)
+        and phase in doc_txt
+    )
+
+    charte = _charte_flags(docx_path, wordmark, primary, font)
+    non_empty = len(paragraphs) >= min_paragraphs and significant_cells >= min_significant_cells
+    ok = non_empty and sections_ok and metadata_present and all(charte.values())
+    return {
+        "n_paragraphs": len(paragraphs),
+        "n_significant_cells": significant_cells,
+        "sections_present": sections,
+        "sections_ok": sections_ok,
+        "non_empty": non_empty,
+        "metadata_present": metadata_present,
+        **charte,
+        "ok": ok,
+    }
+
+
 def main(argv: list[str]) -> int:
     if len(argv) not in (2, 3):
         print("usage: python run_acceptance.py <out_dir_hors_repo> [phase]", file=sys.stderr)
         return 2
-
-    from docx import Document
 
     from audit_bim import config
     from audit_bim.audit.engine import run_audit
@@ -84,6 +163,7 @@ def main(argv: list[str]) -> int:
     )
     from audit_bim.reporting.bimdata_brand import WORDMARK
     from audit_bim.reporting.theming import BIMDATA_FONT_PRIMARY, BIMDATA_PRIMARY
+    from audit_bim.reporting.word_report import NOT_AVAILABLE
     from audit_bim.requirements.catalog import build_catalog
     from audit_bim.requirements.models import BIMPhase
 
@@ -111,12 +191,15 @@ def main(argv: list[str]) -> int:
     snap = extract_snapshot(client)
     result = run_audit(snap, catalog, phase)
 
-    project_name = (snap.project or {}).get("name") or "ACCEPTANCE"
+    # Vrai nom BIMData (peut être absent) vs nom de génération (bouchon si absent,
+    # pour que le pack se génère quand même). Le contrôle de métadonnées n'accepte
+    # QUE le vrai nom — jamais le bouchon.
+    real_project_name = (snap.project or {}).get("name")
     pack = write_avp_i3f_report_pack(
         result,
         out,
         sources=None,  # chemin réel piloté par la maquette
-        project_name=project_name,
+        project_name=real_project_name or PLACEHOLDER_PROJECT_NAME,
         project_code="",
         phase=phase.value,
         export_pdf=False,
@@ -144,25 +227,20 @@ def main(argv: list[str]) -> int:
         report["annexes"][label] = entry
         ok = ok and entry["non_empty"] and all(charte.values())
 
-    # Rapport Word (analyse BIM AVP) : contenu non vide + charte + métadonnées
-    # projet/phase. On ne rend que des compteurs/booléens (le nom de projet est
-    # comparé au texte du doc mais N'est PAS émis en clair).
-    doc = Document(str(pack.analyse_docx))
-    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-    table_cells = sum(len(r.cells) for t in doc.tables for r in t.rows)
-    doc_txt = "\n".join(p.text for p in doc.paragraphs)
-    doc_txt += "\n" + "\n".join(c.text for t in doc.tables for r in t.rows for c in r.cells)
-    word_charte = _charte_flags(pack.analyse_docx, WORDMARK, BIMDATA_PRIMARY, BIMDATA_FONT_PRIMARY)
-    word_non_empty = len(paragraphs) > 0 and table_cells > 0
-    word_metadata = bool(project_name) and project_name in doc_txt and phase.value in doc_txt
-    report["word_report"] = {
-        "n_paragraphs": len(paragraphs),
-        "n_table_cells": table_cells,
-        "non_empty": word_non_empty,
-        "metadata_present": word_metadata,
-        **word_charte,
-    }
-    ok = ok and word_non_empty and word_metadata and all(word_charte.values())
+    # Rapport Word (analyse BIM AVP) : mêmes seuils que les tests (helper partagé).
+    # Sortie = compteurs/booléens ; le vrai nom de projet est comparé au texte du
+    # doc mais N'est PAS émis en clair.
+    word = inspect_word_report(
+        pack.analyse_docx,
+        expected_project_name=real_project_name,
+        phase=phase.value,
+        wordmark=WORDMARK,
+        primary=BIMDATA_PRIMARY,
+        font=BIMDATA_FONT_PRIMARY,
+        not_available=NOT_AVAILABLE,
+    )
+    report["word_report"] = word
+    ok = ok and word["ok"]
 
     report["verdict"] = "PASS" if ok else "FAIL"
     # Sortie sûre : compteurs / booléens / verdict uniquement.

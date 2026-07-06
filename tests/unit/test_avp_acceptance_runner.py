@@ -14,6 +14,12 @@ import types
 from pathlib import Path
 
 import pytest
+from docx import Document as _Docx
+from docx.shared import RGBColor
+
+from audit_bim.reporting.bimdata_brand import WORDMARK
+from audit_bim.reporting.theming import BIMDATA_FONT_PRIMARY, BIMDATA_PRIMARY
+from audit_bim.reporting.word_report import NOT_AVAILABLE
 
 _RUNNER_PATH = (
     Path(__file__).resolve().parents[2] / "scripts" / "avp_acceptance" / "run_acceptance.py"
@@ -71,3 +77,98 @@ def test_outside_repo_refuses_path_in_repo():
 def test_outside_repo_accepts_tmp(tmp_path):
     # tmp_path (hors du dépôt) est accepté : ne doit pas lever.
     runner._assert_outside_repo(tmp_path)
+
+
+# ── inspect_word_report : cas négatifs (docx synthétiques) ────────────────
+
+
+def _brand(run):
+    run.font.name = BIMDATA_FONT_PRIMARY  # Roboto
+    run.font.color.rgb = RGBColor(0x2F, 0x37, 0x4A)  # primaire #2F374A
+
+
+def _valid_docx(
+    path, *, project_text="PROG", phase_text="AVP", sections=range(1, 10), significant_cells=12
+):
+    """Fabrique un docx qui satisfait TOUS les critères (base des cas négatifs)."""
+    d = _Docx()
+    for n in sections:
+        _brand(d.add_paragraph().add_run(f"{n}. Section {n}"))
+    for i in range(5):
+        d.add_paragraph().add_run(f"Contenu réel {i}")
+    d.add_paragraph().add_run(WORDMARK)  # wordmark BIMDATA
+    d.add_paragraph().add_run(f"Projet {project_text} — Phase {phase_text}")  # métadonnées
+    t = d.add_table(rows=max(1, significant_cells), cols=1)
+    for i in range(significant_cells):
+        t.rows[i].cells[0].text = f"valeur {i}"
+    d.save(str(path))
+    return path
+
+
+def _inspect(path, **over):
+    kwargs = {
+        "expected_project_name": "PROG",
+        "phase": "AVP",
+        "wordmark": WORDMARK,
+        "primary": BIMDATA_PRIMARY,
+        "font": BIMDATA_FONT_PRIMARY,
+        "not_available": NOT_AVAILABLE,
+    }
+    kwargs.update(over)
+    return runner.inspect_word_report(path, **kwargs)
+
+
+def test_word_valid_synthetic_passes(tmp_path):
+    # Garde-fou : le docx synthétique « valide » passe bien (sinon les cas
+    # négatifs prouveraient n'importe quoi).
+    r = _inspect(_valid_docx(tmp_path / "ok.docx"))
+    assert r["ok"] is True, r
+
+
+def test_word_reject_thin_branded_docx(tmp_path):
+    # DOCX 1×1 brandé : charte OK mais contenu maigre → rejeté.
+    p = tmp_path / "thin.docx"
+    d = _Docx()
+    _brand(d.add_paragraph().add_run(f"1. {WORDMARK}"))  # brandé + wordmark, 1 paragraphe
+    t = d.add_table(rows=1, cols=1)
+    t.rows[0].cells[0].text = "donnée"  # 1 cellule
+    d.save(str(p))
+    r = _inspect(p)
+    assert r["wordmark"] and r["primary"] and r["font"]  # bien brandé
+    assert r["non_empty"] is False
+    assert r["ok"] is False
+
+
+def test_word_reject_cells_only_not_available(tmp_path):
+    # Assez de paragraphes/sections, mais toutes les cellules = NOT_AVAILABLE.
+    p = _valid_docx(tmp_path / "na.docx", significant_cells=0)
+    d = _Docx(str(p))
+    t = d.add_table(rows=12, cols=1)
+    for i in range(12):
+        t.rows[i].cells[0].text = NOT_AVAILABLE
+    d.save(str(p))
+    r = _inspect(p)
+    assert r["n_significant_cells"] == 0
+    assert r["non_empty"] is False
+    assert r["ok"] is False
+
+
+def test_word_reject_missing_required_section(tmp_path):
+    # Sections 1..8 seulement (9 manquante) → sections_ok False.
+    p = _valid_docx(tmp_path / "missing.docx", sections=range(1, 9))
+    r = _inspect(p)
+    assert 9 not in r["sections_present"]
+    assert r["sections_ok"] is False
+    assert r["ok"] is False
+
+
+def test_word_reject_absent_project_and_placeholder(tmp_path):
+    # Doc valide par ailleurs, mais vrai nom de projet ABSENT → metadata False.
+    p = _valid_docx(tmp_path / "noproj.docx", project_text=runner.PLACEHOLDER_PROJECT_NAME)
+    r_none = _inspect(p, expected_project_name=None)
+    assert r_none["metadata_present"] is False
+    assert r_none["ok"] is False
+    # Le bouchon ne satisfait JAMAIS le gate, même présent dans le doc.
+    r_ph = _inspect(p, expected_project_name=runner.PLACEHOLDER_PROJECT_NAME)
+    assert r_ph["metadata_present"] is False
+    assert r_ph["ok"] is False
