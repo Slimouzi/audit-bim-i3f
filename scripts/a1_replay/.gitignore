@@ -1,0 +1,2 @@
+# Sécurité : ne jamais versionner de plans scellés / sorties (données client).
+*.json
