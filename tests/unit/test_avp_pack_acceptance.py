@@ -10,6 +10,7 @@ de test permanente.
 
 from __future__ import annotations
 
+import importlib.util
 import zipfile
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from audit_bim.reporting.avp_i3f import (
 )
 from audit_bim.reporting.bimdata_brand import WORDMARK
 from audit_bim.reporting.theming import BIMDATA_FONT_PRIMARY, BIMDATA_PRIMARY
+from audit_bim.reporting.word_report import NOT_AVAILABLE
 from audit_bim.requirements.models import BIMPhase, NamingRule, RequirementsCatalog, ZoneSpec
 
 
@@ -328,3 +330,45 @@ def test_controle_grid_excel_cell_values(tmp_path):
     assert by_point["Zones Nommage"][3] == 1  # Name invalide
     assert by_point["Zones ObjectType"][3] == 0  # ObjectType valide (PAS confondu)
     assert by_point["ARC absence de matériau"][3] == 0  # matériau Béton présent
+
+
+# ── Acceptation du rapport Word (analyse BIM AVP) ─────────────────────────
+#
+# Un SEUL helper (``inspect_word_report`` du runner) porte les critères et les
+# seuils, partagé entre le runner réseau et ces tests. Ici : cas POSITIF sur le
+# vrai pack généré. Les cas NÉGATIFS (docx 1×1, projet absent, cellules
+# NOT_AVAILABLE, section manquante) sont dans ``test_avp_acceptance_runner.py``.
+
+_RUNNER_PATH = (
+    Path(__file__).resolve().parents[2] / "scripts" / "avp_acceptance" / "run_acceptance.py"
+)
+_spec = importlib.util.spec_from_file_location("avp_acceptance_runner_pos", _RUNNER_PATH)
+_runner = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_runner)
+
+
+def test_word_report_accepted_on_real_pack(tmp_path):
+    pack = write_avp_i3f_report_pack(
+        _representative_result(),
+        tmp_path / "out",
+        sources=None,
+        project_name="PROG-ACCEPT",
+        project_code="0546L",
+        phase="AVP",
+        export_pdf=False,
+    )
+    result = _runner.inspect_word_report(
+        pack.analyse_docx,
+        expected_project_name="PROG-ACCEPT",
+        phase="AVP",
+        wordmark=WORDMARK,
+        primary=BIMDATA_PRIMARY,
+        font=BIMDATA_FONT_PRIMARY,
+        not_available=NOT_AVAILABLE,
+    )
+    assert result["ok"] is True, result
+    assert result["n_paragraphs"] >= 10
+    assert result["n_significant_cells"] >= 10
+    assert result["sections_ok"] is True
+    assert result["metadata_present"] is True
+    assert result["no_korhus"] is True

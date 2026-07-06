@@ -53,6 +53,9 @@ Grille de contrôle (valeurs vérifiées) :
 contrôle matériau lit `material_list` (forme BIMData) et distingue conformes
 (8 179) et non conformes (2 370).
 
+> **Rapport Word** : l'acceptation du 6ᵉ livrable (`… Rapport analyse BIM.docx`)
+> est postérieure au tag `v0.6.0` — voir `docs/validation-avp-word-post-0.6.0.md`.
+
 ## Dette connue (non bloquante)
 
 La classification d'un finding de nommage de zone en `Name` vs `ObjectType`

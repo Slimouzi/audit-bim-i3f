@@ -41,11 +41,20 @@ Sortie (exemple de forme, sans donnée client) :
     "Enveloppe":     {"rows": 484, "non_empty": true, ...},
     "Menuiseries":   {"rows": 465, "non_empty": true, ...}
   },
+  "word_report": {"n_paragraphs": 25, "n_table_cells": 56, "non_empty": true, "metadata_present": true, "wordmark": true, "primary": true, "font": true, "no_korhus": true},
   "verdict": "PASS"
 }
 ```
 
-Code de sortie 0 si `PASS` (5 annexes non vides + charte sur les 5), 1 sinon.
+Le **rapport Word** (`analyse BIM AVP.docx`) est également accepté (helper unique
+`inspect_word_report`, mêmes seuils que les tests) : contenu non vide (**≥ 10
+paragraphes ET ≥ 10 cellules significatives** hors `NOT_AVAILABLE`), **sections 1 à
+9**, charte BIMData, métadonnées projet/phase présentes (`metadata_present` —
+booléen ; le **vrai** nom de projet est comparé au texte du doc mais **pas** émis,
+et le bouchon `ACCEPTANCE` ne satisfait **jamais** le contrôle), sans KORHUS.
+
+**Code de sortie 0** si `PASS`, c.-à-d. **les 5 annexes xlsx non vides + charte, ET
+le rapport Word conforme** ; 1 sinon.
 
 `Contrôle` est mesuré par un **compteur propre** (`_count_controle_rows`) : il ne
 compte que les **points de contrôle** sous la grille (hors bandeau / entête projet
