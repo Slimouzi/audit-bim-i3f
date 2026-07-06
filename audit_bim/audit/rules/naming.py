@@ -210,6 +210,7 @@ def audit_naming(
                     actual=None,
                     ref_cch="Chap 6.3.2.1",
                     recommended_action="Renseigner IfcZone/Name.",
+                    field_path="IfcZone.Name",
                 )
             )
         elif is_dwelling and (
@@ -233,6 +234,7 @@ def audit_naming(
                     actual=str(nm),
                     ref_cch="Chap 6.3.2.1",
                     recommended_action="Renommer la zone selon le format I3F.",
+                    field_path="IfcZone.Name",
                 )
             )
 
@@ -249,6 +251,7 @@ def audit_naming(
                     actual=None,
                     ref_cch="Chap 6.3.2",
                     recommended_action="Renseigner IfcZone/ObjectType.",
+                    field_path="IfcZone.ObjectType",
                 )
             )
         elif allowed_zone_types and str(ot).strip() not in allowed_zone_types:
@@ -264,6 +267,7 @@ def audit_naming(
                     actual=str(ot),
                     ref_cch="Chap 6.3.2",
                     recommended_action="Aligner le ObjectType de la zone sur la liste I3F.",
+                    field_path="IfcZone.ObjectType",
                 )
             )
 
