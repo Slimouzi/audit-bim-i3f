@@ -7,6 +7,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added
+
+- **Replay A1 industrialisé** (`scripts/a1_replay/run_replay.py`) — rejoue la
+  publication BCF / Smart Views (`prepare → review → apply`) avec un verdict
+  machine, symétrique de l'acceptation AVP. **Dry-run par défaut** (aucune
+  écriture) ; `--write` manuel **uniquement** sur le modèle jetable
+  (`REPLAY_WRITE_MODEL_ID`). Helpers purs partagés `assert_write_target` /
+  `inspect_plan`, garde-fou négatif rejoué (`confirm=False` → refus), compte
+  déterministe (1 topic + 1 Smart View). CI hors-ligne : les **4 refus** testés
+  (`tests/unit/test_a1_replay_runner.py`). Dry-run réel **PASS** sur Dieppe.
+  Scope : `docs/scope-a1-replay.md`.
+
 ### Changed
 
 - **Classification Name/ObjectType des zones fiabilisée par un champ structuré**
