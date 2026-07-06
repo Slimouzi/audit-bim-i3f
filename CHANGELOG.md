@@ -36,6 +36,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   publier la GitHub Release — un wheel qui ne s'installe/importe pas bloque la
   release.
 
+### Fixed
+
+- **Runner d'acceptation — match des intitulés de sections Word réellement
+  insensible aux accents** : le contrôle promettait « casse/accents » mais
+  n'appliquait que `casefold()` (casse seule). Normalisation NFKD (suppression
+  des diacritiques) + casse via `_norm_title`, testée
+  (`test_word_accepts_unaccented_titles`). Relevé par l'audit de clôture du
+  jalon : `docs/audit-avp-acceptance-instruct-field-path.md` (qui porte aussi
+  l'instruction `field_path` — exécutée via `bim-core-v0.1.1` + #73 — et le
+  registre de dette ouvert : retrait de l'override uv, wording « immuable »,
+  CI bim-core).
+
 ## [0.6.0] - 2026-07-06
 
 ### Added
