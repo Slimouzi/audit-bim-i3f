@@ -7,6 +7,52 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-05
+
+### Added
+
+- **Acceptation automatisée du pack AVP** — le pack de livrables AVP I3F est
+  désormais accepté automatiquement, à deux niveaux :
+  - **test CI hors-ligne** (`tests/unit/test_avp_pack_acceptance.py`) : sur un
+    snapshot représentatif, les **5 annexes xlsx** sont non vides, habillées de
+    la **charte BIMData** (wordmark `BIMDATA`, primaire `#2F374A`, police
+    `Roboto`), sans l'ancienne charte KORHUS ; exactitude métier de la grille de
+    contrôle vérifiée **jusqu'aux valeurs de cellules Excel** ;
+  - **runner réseau réel** (`scripts/avp_acceptance/run_acceptance.py`,
+    read-only) : verdict PASS/FAIL sur une vraie maquette ; gardes testées
+    (document I3F absent / catalogue vide / écriture hors dépôt).
+
+### Changed
+
+- **QA gate anti-livrable vide étendue à la 5ᵉ annexe (« Contrôle »)** — la
+  génération du pack refuse (`AvpQaError`) si la grille de contrôle ne porte
+  aucun point de contrôle réel (comptés **sous** son titre, hors entête / légende
+  / `NOT_AVAILABLE`, via un compteur dédié `_count_controle_rows`). Auparavant
+  seules 4 annexes étaient gardées.
+- **Grille de contrôle générée depuis l'`AuditResult`** quand aucune source I3F
+  « Contrôle » n'est fournie (points de contrôle réels : nommage zones/pièces,
+  ObjectType, matériaux, avec conformité mesurée).
+
+### Fixed
+
+- **Contrôles Zone « Nommage » et « ObjectType » séparés** — ils étaient agrégés
+  par thème (`NAMING_ZONE`), déclarant une zone au Name invalide non conforme
+  dans les deux contrôles. Ils sont désormais comptés sur des ensembles de
+  findings disjoints.
+- **Lecture des matériaux** — le contrôle « absence de matériau » lisait la clé
+  `materials` alors que `bimdata-read` produit `material_list`
+  (`[{"material": {"name": …}}]`), déclarant tous les éléments sans matériau. Il
+  lit désormais `material_list` (repli `materials`) en exigeant un vrai nom, et
+  calcule `conforme` / `conforme_ratio`.
+
+### Notes
+
+- Acceptation réseau réelle **PASS** sur `250613_MN_BAT.ifc` (voir
+  `docs/validation-avp-pack-0.6.0.md`). Aucune donnée client versionnée.
+- **Dette connue (non bloquante)** : la classification d'un finding de nommage de
+  zone en Name vs ObjectType s'appuie partiellement sur le texte du finding →
+  prévoir à terme un champ structuré `control_id` / `field_path` sur `Finding`.
+
 ## [0.5.2] - 2026-07-05
 
 **Remplace v0.5.1** : le wheel/sdist v0.5.1 est **antérieur** à l'adoption du
