@@ -7,7 +7,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-07-05
+### Changed
+
+- **Release CI** : le workflow installe désormais le wheel construit dans un
+  **venv vierge** (préinstall des 7 packages tagués + `pip install <wheel>`),
+  vérifie `pip check`, importe `audit_bim` et exécute `audit-bim --help` avant de
+  publier la GitHub Release — un wheel qui ne s'installe/importe pas bloque la
+  release.
+
+## [0.6.0] - 2026-07-06
 
 ### Added
 
