@@ -179,3 +179,16 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]  # asserts OK in tests
 "examples/*" = ["F401", "E402"]  # imports/exemples démo
+
+[tool.uv]
+# Les packages first-party transitifs (bimdata-read/write, bim-query,
+# bim-publication, bim-audit-engine) épinglent encore ``bim-core-v0.1.0`` dans
+# LEUR ``[tool.uv.sources]`` (uv honore les sources des git-deps). Sans override,
+# uv verrait deux tags Git en conflit pour ``bim-core`` (v0.1.0 vs v0.1.1) et
+# échouerait à résoudre. ``bim-core-v0.1.1`` étant **rétro-compatible** (ajoute
+# seulement ``Finding.field_path`` optionnel), on force l'ensemble du graphe sur
+# v0.1.1 — au lieu de re-taguer les 5 packages transitifs. À retirer une fois
+# ces packages bumpés sur bim-core-v0.1.1.
+override-dependencies = [
+    "bim-core @ git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1",
+]
