@@ -44,6 +44,7 @@ from docx.shared import Cm, Pt, RGBColor
 from ..audit.engine import AuditResult
 from ..audit.findings import ErrorType, Theme
 from ..extraction.model_data import ModelSnapshot
+from ..requirements._openpyxl_compat import patch_openpyxl
 from .avp_snapshot import (
     build_sources_from_snapshot,
     count_envelope_walls,
@@ -62,6 +63,11 @@ from .theming import (
 )
 from .word_report import NOT_AVAILABLE, _add_heading, _hex_to_rgb, _kpi_table, _shade_cell
 from .xlsx_annex import _build_formats, write_safe
+
+# Les annexes AVP fournies par la MOA peuvent porter les mêmes CustomFilter
+# invalides que les fichiers I3F — patch appliqué explicitement (plus d'effet
+# de bord d'import depuis que les parseurs requirements sont paresseux).
+patch_openpyxl()
 
 # Convention de nommage documentaire I3F, **générée à partir de données
 # projet confirmées** :

@@ -15,11 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import openpyxl
-
 from ..requirements._openpyxl_compat import patch_openpyxl
-
-patch_openpyxl()
 
 SHEET_NAME = "Classifications suggérées"
 
@@ -44,6 +40,11 @@ def read_classifications_from_xlsx(xlsx_path: str | Path) -> list[dict]:
     if not path.exists():
         raise FileNotFoundError(f"Fichier introuvable : {path}")
 
+    # Import paresseux : openpyxl n'est payé qu'à la lecture effective,
+    # pas au chargement du serveur (voir data_spec_parser._iter_rows).
+    import openpyxl
+
+    patch_openpyxl()
     wb = openpyxl.load_workbook(path, data_only=True)
     try:
         if SHEET_NAME not in wb.sheetnames:

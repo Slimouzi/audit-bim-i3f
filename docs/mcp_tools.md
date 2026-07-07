@@ -1,6 +1,6 @@
 # Tools MCP — référence
 
-Le serveur `audit-bim-i3f` expose **40 tools MCP** répartis en 6 catégories.
+Le serveur `audit-bim-i3f` expose **49 tools MCP** répartis en 6 catégories.
 La table ci-dessous est la **source de vérité** pour la documentation
 utilisateur et les contrôles de migration.
 
@@ -24,6 +24,7 @@ utilisateur et les contrôles de migration.
 | `get_object_detail` | actif | R | — | aucun |
 | `list_classification_suggestions` | actif | R | — | aucun |
 | `query_findings` | actif (historique) | R | — | aucun |
+| `show_filtered_objects_in_viewer` | actif | R | — | aucun (instruction viewer, aucune écriture) |
 
 ### Requête tabulaire sémantique sur la maquette (lecture seule)
 
@@ -46,6 +47,7 @@ section *Interroger la maquette*.
 | `apply_bcf_topics` | actif | W | **oui** | écrasement Smart Views ou doublons BCF si plan obsolète |
 | `prepare_smart_views_plan` | actif | R+disque | — | aucun |
 | `apply_smart_views_plan` | actif | W | **oui** | doublons Smart Views si plan obsolète |
+| `prepare_smart_view_from_filter_plan` | actif | R+disque | — | aucun (plan scellé depuis un filtre) |
 | `prepare_classification_update_plan` | actif | R+disque | — | aucun |
 | `apply_classification_update_plan` | actif | W | **oui** | écrasement classifs IFC existantes (signalé en `risks`) |
 
@@ -90,6 +92,8 @@ section *Interroger la maquette*.
 |---|---|---|---|
 | `generate_xlsx_annex` | actif | R+disque | sandbox `AUDIT_OUTPUT_DIR/` |
 | `generate_word_report` | actif | R+disque | sandbox `AUDIT_OUTPUT_DIR/` |
+| `generate_avp_i3f_pack` | actif | R+disque | pack AVP (5 annexes + Word), sandbox `AUDIT_OUTPUT_DIR/` |
+| `import_preliminary_findings` | actif | R (entrées sandbox) | importe des findings externes (clash/surfaces) dans la session |
 
 ### DOE et enrichissement — pattern prepare/apply
 

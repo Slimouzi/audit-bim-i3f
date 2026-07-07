@@ -26,6 +26,10 @@ from typing import Any
 
 import openpyxl
 
+from ..requirements._openpyxl_compat import patch_openpyxl
+
+patch_openpyxl()
+
 # Jetons signalant une ligne de synthèse / note à écarter d'une table.
 _SUMMARY_TOKENS = (
     "nombre de types",
@@ -81,11 +85,6 @@ class MenuiseriesSource:
     table: SheetTable | None = None
     sheet_title: str | None = None  # nom d'onglet source (proximité I3F)
     nombre_types: int | None = None
-
-
-@dataclass
-class TabularSource:
-    table: SheetTable | None = None
 
 
 @dataclass

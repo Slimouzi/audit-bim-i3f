@@ -53,28 +53,18 @@ BIMDATA_SUCCESS = "00AF50"  # vert
 BIMDATA_FONT_PRIMARY = "Roboto"
 BIMDATA_FONT_FALLBACK = "Arial"
 
-# ── Alias dépréciés (rétro-compat) ───────────────────────────────────
-# Anciennes chartes (Korhus.ai, I3F). Conservés le temps de migrer les
-# intégrations externes ; ils résolvent vers les tokens BIMData.
+# ── Alias dépréciés (rétro-compat, fenêtre de migration) ─────────────
+# Anciennes chartes (Korhus.ai, I3F) résolues vers les tokens BIMData.
+# Réduits en audit v0.8 aux 6 alias encore référencés (les 12 autres
+# n'avaient plus aucun consommateur, tests compris) ; retrait complet
+# planifié à la prochaine version majeure.
 KORHUS_PRIMARY = BIMDATA_PRIMARY
 KORHUS_SECONDARY = BIMDATA_SECONDARY
-KORHUS_TERTIARY = BIMDATA_TERTIARY
-KORHUS_WHITE = BIMDATA_WHITE
-KORHUS_GRANITE = BIMDATA_GRANITE
-KORHUS_GRANITE_LIGHT = BIMDATA_GRANITE_LIGHT
-KORHUS_SILVER_DARK = BIMDATA_SILVER_DARK
-KORHUS_SILVER_LIGHT = BIMDATA_SILVER_LIGHT
-KORHUS_BLUE_NEUTRAL_LIGHT = BIMDATA_BLUE_NEUTRAL_LIGHT
-KORHUS_BLACK = BIMDATA_BLACK
 KORHUS_FONT_PRIMARY = BIMDATA_FONT_PRIMARY
-KORHUS_FONT_FALLBACK = BIMDATA_FONT_FALLBACK
 
 I3F_BLUE = BIMDATA_PRIMARY
 I3F_BLUE_LIGHT = BIMDATA_BLUE_NEUTRAL_LIGHT
 I3F_GREY = BIMDATA_GRANITE
-I3F_GREY_LIGHT = BIMDATA_SILVER_DARK
-WHITE = BIMDATA_WHITE
-BLACK = BIMDATA_BLACK
 
 # Palette feux tricolores standard (single source of truth — voir aussi
 # audit_bim.audit.findings.severity_color qui ré-exporte ces valeurs).

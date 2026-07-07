@@ -705,7 +705,9 @@ audit_bim/
 │   └── theming.py            # palette / styles I3F
 ├── smartview/builder.py      # Payloads Smart Views BIMData
 └── mcp/
-    ├── server.py             # FastMCP + 10 tools
+    ├── server.py             # FastMCP — tools session / audit / reporting
+    ├── tools_actions.py      # Tools d'écriture (prepare → apply)
+    ├── tools_query.py        # Tools de lecture / requête
     └── prompts.py            # Persona AMO BIM I3F
 ```
 

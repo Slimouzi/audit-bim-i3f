@@ -26,7 +26,6 @@ Conception
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -638,8 +637,3 @@ __all__ = [
     "build_report_context",
     "merge_user_context",
 ]
-
-
-# Helpers exposés pour réutilisation côté tests / debug
-def _iter_non_empty(values: Iterable) -> list:
-    return [v for v in values if v not in (None, "", [], {})]
