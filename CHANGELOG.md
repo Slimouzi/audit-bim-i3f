@@ -7,6 +7,21 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (audit profond 2ᵉ passe — Lot 1, famille « nommage »)
+
+- **E4 — `IfcSite` sans `Name` désormais signalé.** La branche « nom manquant »
+  n'existait que pour Building/Storey/Zone/Space ; un site sans codification (la
+  clé de l'arbre I3F) passait silencieusement. Émet maintenant `NAMING_MISSING`
+  (`field_path=IfcSite.Name`, HIGH). **Changement de comptage** (nouveau vrai manquant).
+- **E5 — nommage insensible aux accents.** `_check_storey_name` / `_check_room_name`
+  et les parseurs d'étages (`naming_spec_parser`, `pdf_parser`) comparaient sans
+  replier les diacritiques (`.upper()` seul) → `1ER ÉTAGE` ≠ `1ER ETAGE`,
+  `DÉGAGEMENT` ≠ `DEGAGEMENT` → faux `NAMING_NOT_IN_LIST` (ou contrôle désactivé).
+  Nouveau helper `domain/text.fold_upper` (repli NFKD centralisé), appliqué **des
+  deux côtés** de la comparaison ; libellé d'origine conservé pour l'affichage.
+  **Changement de comptage** (moins de faux positifs). Nouveau
+  `tests/unit/test_naming_e4_e5.py`.
+
 ### Fixed (audit profond 2ᵉ passe — Lot 1 « le moteur dit vrai »)
 
 - **C1 — faux positif « quantité manquante » sur toute pièce conforme.**

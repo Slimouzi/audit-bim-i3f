@@ -23,6 +23,7 @@ try:
 except Exception:  # pragma: no cover
     PdfReader = None  # type: ignore
 
+from ..domain.text import fold_accents
 from .models import RoomSpec, StoreyName, ZoneSpec
 
 VERSION_RE = re.compile(r"Version\s*(\d+(?:[.,]\d+)?)", re.IGNORECASE)
@@ -83,7 +84,9 @@ def parse_pdf(pdf_path: str | Path) -> dict:
         s = line.strip().upper()
         if not s:
             continue
-        if STOREY_RE.fullmatch(s) and s not in storey_seen:
+        # Match insensible aux accents (« 1ER ÉTAGE » rejeté sinon), libellé
+        # d'origine conservé pour l'affichage.
+        if STOREY_RE.fullmatch(fold_accents(s)) and s not in storey_seen:
             storey_seen.append(s)
     result["storey_names"] = [StoreyName(name=n) for n in storey_seen]
 

@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..domain.text import fold_accents
 from ._openpyxl_compat import patch_openpyxl
 from .models import NamingRule, RoomSpec, StoreyName, ZoneSpec
 
@@ -73,12 +74,16 @@ def _extract_storey_names(ws) -> list[StoreyName]:
             if not isinstance(cell, str):
                 continue
             for line in cell.splitlines():
-                line = line.strip().upper()
-                if storey_re.fullmatch(line):
-                    if line not in seen:
-                        seen.append(line)
-                elif line in canonical and line not in seen:
-                    seen.append(line)
+                raw = line.strip().upper()
+                # Match **insensible aux accents** (« 1ER ÉTAGE » sinon rejeté par
+                # la regex non accentuée) ; on conserve le libellé d'origine pour
+                # l'affichage — la comparaison d'audit re-normalise via fold_upper.
+                folded = fold_accents(raw)
+                if storey_re.fullmatch(folded):
+                    if raw not in seen:
+                        seen.append(raw)
+                elif folded in canonical and raw not in seen:
+                    seen.append(raw)
     out = [
         StoreyName(
             name=n,

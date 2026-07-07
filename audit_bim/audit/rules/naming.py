@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ...domain.text import fold_upper
 from ...extraction.model_data import ModelSnapshot
 from ...extraction.normalizer import get_attribute
 from ...requirements.models import RequirementsCatalog
@@ -11,10 +12,15 @@ from ..findings import ErrorType, Finding, Severity, Theme
 
 
 def _check_storey_name(name: str | None, allowed: set[str]) -> bool:
-    """Tolère les suffixes numériques (TOITURE 02, ENTRESOL 03, etc.)."""
+    """Tolère les suffixes numériques (TOITURE 02, ENTRESOL 03, etc.).
+
+    Comparaison **insensible aux accents** : ``allowed`` doit être construit via
+    :func:`fold_upper` (cf. ``audit_naming``) et ``name`` l'est ici — sinon
+    ``1ER ÉTAGE`` ≠ ``1ER ETAGE`` produit un faux ``NAMING_NOT_IN_LIST``.
+    """
     if not name:
         return False
-    n = name.strip().upper()
+    n = fold_upper(name)
     if n in allowed:
         return True
     # Tolérance suffixes
@@ -25,10 +31,12 @@ def _check_storey_name(name: str | None, allowed: set[str]) -> bool:
 
 
 def _check_room_name(name: str | None, allowed: set[str]) -> bool:
-    """Tolère « CHAMBRE 01 » (base + suffixe numérique optionnel)."""
+    """Tolère « CHAMBRE 01 » (base + suffixe numérique optionnel).
+
+    Insensible aux accents (cf. :func:`_check_storey_name`)."""
     if not name:
         return False
-    n = name.strip().upper()
+    n = fold_upper(name)
     if n in allowed:
         return True
     base = re.sub(r"\s+\d{1,3}$", "", n)
@@ -73,7 +81,26 @@ def audit_naming(
     rule = catalog.naming_rule_for("IfcSite", "Name")
     for site in snap.of_class("IfcSite"):
         nm = get_attribute(site, "Name") or site.get("name")
-        if rule and rule.pattern and nm and not re.fullmatch(rule.pattern, str(nm)):
+        if not nm:
+            # La codification du site (ex: 1802L) est la clé de l'arbre I3F :
+            # un Name absent doit être signalé comme les autres niveaux
+            # (Building/Storey/Zone/Space l'étaient déjà, pas le Site).
+            findings.append(
+                Finding(
+                    theme=Theme.NAMING_SITE_BAT_ETAGE,
+                    severity=Severity.HIGH,
+                    error_type=ErrorType.NAMING_MISSING,
+                    element_uuid=site.get("uuid"),
+                    ifc_type="IfcSite",
+                    expected="Codification du site (ex: 1802L, 1802P)",
+                    actual=None,
+                    ref_cch=rule.ref_cch if rule else "Chap 6.3.1",
+                    recommended_action="Renseigner IfcSite/Name selon la codification 3F.",
+                    field_path="IfcSite.Name",
+                )
+            )
+            continue
+        if rule and rule.pattern and not re.fullmatch(rule.pattern, str(nm)):
             findings.append(
                 Finding(
                     theme=Theme.NAMING_SITE_BAT_ETAGE,
@@ -145,7 +172,7 @@ def audit_naming(
 
     # ── IfcBuildingStorey (Name vs liste fermée) ────────────────────────────
     rule = catalog.naming_rule_for("IfcBuildingStorey", "Name")
-    allowed_storeys = {s.name.upper() for s in catalog.storey_names}
+    allowed_storeys = {fold_upper(s.name) for s in catalog.storey_names}
     for st in snap.of_class("IfcBuildingStorey"):
         nm = get_attribute(st, "Name") or st.get("name")
         if not nm:
@@ -284,7 +311,7 @@ def audit_naming(
     # le contrôle de contenu, mais le mauvais emplacement est signalé en LOW
     # (au lieu du HIGH « manquant »).
     rule_space = catalog.naming_rule_for("IfcSpace", "LongName")
-    allowed_rooms = {r.name.upper().strip() for r in catalog.room_specs}
+    allowed_rooms = {fold_upper(r.name) for r in catalog.room_specs}
     for sp in snap.of_class("IfcSpace"):
         ln = get_attribute(sp, "LongName") or sp.get("longname")
         from_name_fallback = False
