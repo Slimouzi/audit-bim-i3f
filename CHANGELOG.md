@@ -7,6 +7,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (audit profond 2ᵉ passe — Lot 1 « le moteur dit vrai »)
+
+- **C1 — faux positif « quantité manquante » sur toute pièce conforme.**
+  `audit_spatial` lisait la surface via `resolve_value(sp, "BaseQuantities", "NetFloorArea")` :
+  un locateur sans `/` ni préfixe `Pset` ne matchait aucune étape de routage et renvoyait
+  toujours `None`, faisant émettre `SPATIAL_MISSING_QUANTITY` sur **chaque** `IfcSpace`
+  possédant pourtant sa surface en `BaseQuantities`. Corrigé en passant par le locateur
+  composite `BaseQuantities/NetFloorArea` (route vers `get_quantity_with_fallback`, repli
+  ArchiCAD inclus). **Changement de comptage** : les rapports perdent ces faux positifs du
+  thème « Quantités » ; le finding légitime (pièce réellement sans quantité) est conservé.
+  Nouveau `tests/unit/test_spatial_quantity.py` (cas positif *et* négatif).
+
 ### Changed (refactor PR4 — factorisation)
 
 - **Dédup / factorisation** (`docs/instruct-refactor-pr-series.md` §PR4), goldens +
