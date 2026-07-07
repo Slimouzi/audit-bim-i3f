@@ -153,6 +153,28 @@ def get_property(element: dict, pset_name: str, property_name: str) -> Any | Non
     return None
 
 
+def material_names(element: dict) -> list[str]:
+    """Noms de matériaux d'un élément.
+
+    L'association matériau n'est **pas** un attribut plat : ``bimdata-read`` l'inline
+    en ``material_list`` (``[{"material": {"name": …}}]``, repli ``materials``). Sans
+    cet accès dédié, un locateur ``IfcMaterial`` ne matche rien dans
+    :func:`resolve_value` → 100 % de faux ``PROPERTY_MISSING`` (E3). Même forme que
+    les helpers de ``reporting`` (``avp_i3f._material_name``)."""
+    out: list[str] = []
+    for key in ("material_list", "materials"):
+        for item in element.get(key) or []:
+            if isinstance(item, str):
+                nm = item
+            elif isinstance(item, dict):
+                nm = (item.get("material") or {}).get("name") or item.get("name")
+            else:
+                nm = None
+            if nm and nm not in out:
+                out.append(nm)
+    return out
+
+
 def has_classification(element: dict) -> bool:
     return bool(element.get("classifications"))
 
@@ -179,6 +201,20 @@ def resolve_value(element: dict, pset_or_attribute: str | None, property_name: s
     """
     src = (pset_or_attribute or "").strip()
     src_lower = src.lower()
+
+    # 0a. Locateur « IfcXxx » désignant un attribut natif (IfcName, IfcDescription…) :
+    #     le préfixe de classe est un abus fréquent des annexes (V3.7). Sans
+    #     normalisation, aucune étape ne matche → 100 % de faux PROPERTY_MISSING (E3).
+    if src_lower.startswith("ifc") and src_lower[3:] in NATIVE_IFC_ATTRIBUTES:
+        src = src[3:]
+        src_lower = src.lower()
+
+    # 0b. Matériau : association inlinée par bimdata-read (material_list), pas un
+    #     attribut plat. Résolu à part (E3) — présent → nom(s) ; absent → None
+    #     (audit_properties émet alors un PROPERTY_MISSING légitime, pas un faux).
+    if src_lower in ("ifcmaterial", "material", "materiau", "materiaux"):
+        names = material_names(element)
+        return ", ".join(names) if names else None
 
     # 1. Cas attribut natif (avec repli LongName → Name : certains outils
     #    auteurs remplissent Name là où le CCH attend LongName)
