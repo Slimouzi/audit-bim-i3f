@@ -42,10 +42,6 @@ from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml import OxmlElement
@@ -217,12 +213,24 @@ def _add_heading(doc: Document, text: str, level: int = 1):
     return h
 
 
+def _plt():
+    """Import paresseux de matplotlib (~330 ms) — payé uniquement à la
+    génération d'un rapport Word, pas au démarrage du serveur MCP/CLI."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    return plt
+
+
 def _pie_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -> io.BytesIO:
     """Camembert avec regroupement des tranches < 2 % en « Autres » et légende externe.
 
     Les labels en bordure se chevauchent dès qu'on a plusieurs tranches < 1 % ;
     on bascule donc sur une légende latérale pour rester lisible.
     """
+    plt = _plt()
     fig, ax = plt.subplots(figsize=(7.0, 4.5), dpi=140)
     total = sum(values.values())
     if total == 0:
@@ -286,6 +294,7 @@ def _pie_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -
 
 
 def _bar_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -> io.BytesIO:
+    plt = _plt()
     fig, ax = plt.subplots(figsize=(6.5, 3.5), dpi=140)
     labels = list(values.keys())
     sizes = list(values.values())
@@ -687,14 +696,6 @@ def write_word_report(
 def _para_intro(doc: Document, text: str) -> None:
     """Paragraphe d'introduction (Intense Quote) pour situer une section."""
     doc.add_paragraph(text, style="Intense Quote")
-
-
-def _para_or_na(doc: Document, value: str | None) -> None:
-    """Insère ``value`` si fourni, sinon la mention NOT_AVAILABLE."""
-    if value and value.strip():
-        doc.add_paragraph(value)
-    else:
-        doc.add_paragraph(NOT_AVAILABLE)
 
 
 def _kv_or_na(
@@ -1294,56 +1295,3 @@ def _recommendations_by_priority(result: AuditResult) -> dict[str, list[str]]:
             "prévoir une revue conjointe MOA / MOE avant la phase suivante."
         )
     return buckets
-
-
-def _generate_recommendations(result: AuditResult) -> list[str]:
-    """Recommandations stratégiques (haut niveau), dérivées des findings agrégés.
-
-    Conservé pour compatibilité (réutilisé par d'éventuels appelants /
-    tests) ; la section 8 du rapport utilise désormais
-    :func:`_recommendations_by_priority`.
-    """
-    recs: list[str] = []
-    by_type = result.count_by_error_type()
-    n_class_missing = by_type.get("classification_missing", 0)
-    n_naming = sum(
-        by_type.get(t, 0)
-        for t in (
-            "naming_missing",
-            "naming_invalid_format",
-            "naming_not_in_list",
-            "naming_too_long",
-        )
-    )
-    n_prop_missing = by_type.get("property_missing", 0)
-    n_quantity = by_type.get("spatial_missing_quantity", 0)
-
-    if n_naming:
-        recs.append(
-            f"Reprendre le nommage de {n_naming} éléments — aligner sur les "
-            "listes fermées du chapitre 6.3 du CCH (étages, types de zones, "
-            "noms de pièces) avant la livraison suivante."
-        )
-    if n_class_missing:
-        recs.append(
-            f"Compléter la classification IFC sur {n_class_missing} composants "
-            "(UniFormat / Omniclass / table interne 3F) — pré-requis "
-            "indispensable pour l'exploitation DOE/GMAO."
-        )
-    if n_prop_missing:
-        recs.append(
-            f"Renseigner les {n_prop_missing} propriétés manquantes par rapport "
-            f"au cahier des données pour la phase {result.phase.value} "
-            "(Pset_SpaceCommon, Pset_3F, attributs natifs, surfaces…)."
-        )
-    if n_quantity:
-        recs.append(
-            f"Compléter les quantités (NetFloorArea / BaseQuantities) sur "
-            f"{n_quantity} pièces afin de permettre les contrôles SHAB / SU."
-        )
-    if result.conformity_rate() < 0.7:
-        recs.append(
-            "Ré-itérer un audit après reprise — l'écart au CCH est important : "
-            "prévoir une revue conjointe MOA / MOE avant la prochaine phase."
-        )
-    return recs

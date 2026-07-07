@@ -28,7 +28,6 @@ Conception
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -241,9 +240,3 @@ def _reset_journal_for_tests() -> None:
 # Variable interne lisible par les tests (pas dans __all__).
 __all_internal__ = (_reset_journal_for_tests, _journal)
 del __all_internal__  # marque inutilisé pour ruff
-
-
-# Utilitaire env exporté (test-friendly)
-def journal_path_from_env() -> Path:
-    """Chemin canonique du journal — utilitaire de test."""
-    return Path(os.environ.get("AUDIT_OUTPUT_DIR", "./out")) / JOURNAL_SUBDIR / JOURNAL_FILENAME

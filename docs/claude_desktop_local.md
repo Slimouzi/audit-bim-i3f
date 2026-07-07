@@ -14,6 +14,10 @@ python3 -m venv .venv
 .venv/bin/audit-bim-mcp --help   # vérification
 ```
 
+> Alternative : `scripts/mcp-stdio.sh` fournit un lanceur stdio déterministe
+> (mêmes garanties, chemin unique) utilisable comme `command` dans les
+> configs MCP.
+
 L'extra `[ocr]` ajoute `pytesseract`, `pdf2image`, `Pillow` pour les
 DOE PDF scannés. Si tu n'en as pas besoin :
 

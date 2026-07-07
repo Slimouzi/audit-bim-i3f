@@ -28,22 +28,18 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-import openpyxl
-
 from ..audit.ifc_hierarchy import normalize_catalog_class
 from ._openpyxl_compat import patch_openpyxl
 from .models import BIMPhase, PropertySpec
 
-patch_openpyxl()
-
-# Index de colonnes (0-based) — robustes au schéma observé V3.7
+# Index de colonnes (0-based) — robustes au schéma observé V3.7.
+# (C = définition et G..M = phases sont résolues dynamiquement, cf.
+# ``_required_phases`` — pas de constante dédiée.)
 COL_THEME = 0
 COL_OBJET = 1
-COL_DEFINITION = 2
 COL_IFC_CLASS = 3
 COL_PROPERTY = 4
 COL_PSET = 5
-COL_PHASES = list(range(6, 13))  # G..M
 COL_COMMENT = 13
 COL_USAGE_3F = 14
 
@@ -58,6 +54,11 @@ KIND_HEADERS = {
 
 
 def _iter_rows(xlsx_path: Path) -> Iterator[tuple]:
+    # Import paresseux (~200 ms) : openpyxl n'est payé qu'au parsing effectif,
+    # pas au démarrage du serveur MCP/CLI.
+    import openpyxl
+
+    patch_openpyxl()
     # Mode non read_only : certains fichiers I3F ont des AutoFilter custom que
     # le parseur streaming d'openpyxl refuse de charger.
     wb = openpyxl.load_workbook(xlsx_path, read_only=False, data_only=True)

@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-
-import openpyxl
+from typing import TYPE_CHECKING
 
 from ._openpyxl_compat import patch_openpyxl
 from .models import NamingRule, RoomSpec, StoreyName, ZoneSpec
 
-patch_openpyxl()
+if TYPE_CHECKING:
+    import openpyxl
 
 # Patterns I3F codifiés (CCH chap 6.3.1)
 SITE_NAME_PATTERN = r"^\d{4}[LP]$"  # 1802L (logements) | 1802P (parkings)
@@ -33,6 +33,10 @@ ZONE_LOGEMENT_NAME_PATTERN = r"^\d{4}[LP]-\d{3,4}$"  # 1802L-1101
 
 
 def _open(xlsx_path: Path) -> openpyxl.Workbook:
+    # Import paresseux : voir data_spec_parser._iter_rows.
+    import openpyxl
+
+    patch_openpyxl()
     # Mode non read_only : voir data_spec_parser._iter_rows pour la raison.
     return openpyxl.load_workbook(xlsx_path, read_only=False, data_only=True)
 

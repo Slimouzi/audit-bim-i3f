@@ -7,6 +7,36 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed (audit technique CTO)
+
+- **Démarrage serveur/CLI allégé** : `matplotlib` (~330 ms) et `openpyxl`
+  (~200 ms) ne sont plus importés qu'à l'usage (génération Word / parsing
+  xlsx), plus au chargement du module. Le patch `patch_openpyxl` est appliqué
+  explicitement par chaque consommateur (`avp_i3f`, `avp_sources`) au lieu de
+  reposer sur un effet de bord d'import.
+- **Matcher DOE** : la liste des noms candidats (invariante) est construite une
+  fois hors de la boucle des enregistrements.
+- **README** : arbre `mcp/` corrigé (le « FastMCP + 10 tools » datait d'avant
+  `tools_actions`/`tools_query`) ; `docs/mcp_tools.md` re-synchronisé (49 tools,
+  ajout des 4 manquants : `generate_avp_i3f_pack`, `import_preliminary_findings`,
+  `prepare_smart_view_from_filter_plan`, `show_filtered_objects_in_viewer`).
+
+### Removed (audit technique CTO — code mort vérifié sans référence)
+
+- **`requirements.txt`** : dérive dangereuse vs `pyproject.toml`
+  (`pypdf>=4.0` alors que le projet impose `>=6.9.1` pour couverture CVE ;
+  `fastmcp>=0.4` vs `>=3.0`). Aucun consommateur (la CI exporte depuis
+  `uv.lock`) — `pyproject.toml` + `uv.lock` font foi.
+- **`audit_bim/reporting/korhus_brand.py`** : shim de compat sans plus aucun
+  import interne ni externe connu depuis la migration charte BIMData (v0.4.x).
+- Helpers privés morts : `word_report._para_or_na`,
+  `word_report._generate_recommendations` (supersédé par
+  `_recommendations_by_priority`), `context._iter_non_empty`,
+  `write_journal.journal_path_from_env`, dataclass `avp_sources.TabularSource`,
+  constantes `data_spec_parser.COL_DEFINITION`/`COL_PHASES`, et 12 des 18 alias
+  de charte dépréciés de `theming.py` (aucune référence, tests compris).
+- `.gitignore` durci (`*.key`, `*.pem`, `.env.*`).
+
 ## [0.8.0] - 2026-07-07
 
 Jalon : **`field_path` généralisé** aux findings non-zone (grammaire gelée + verrou

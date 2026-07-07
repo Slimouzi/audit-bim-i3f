@@ -190,6 +190,8 @@ def match_doe_records(
     loc_index = build_localization_index(snap)
 
     matches: list[Match] = []
+    # Invariant sur tous les records — construit une seule fois hors boucle.
+    choices = [n for n, _ in name_index]
     for rec in records:
         # 1. GUID exact
         if rec.uuid_hint and rec.uuid_hint in by_uuid:
@@ -246,7 +248,6 @@ def match_doe_records(
 
         # 3. Nom fuzzy
         if rec.name_hint and name_index:
-            choices = [n for n, _ in name_index]
             best = process.extract(
                 rec.name_hint,
                 choices,
