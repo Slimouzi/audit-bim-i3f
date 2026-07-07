@@ -7,6 +7,16 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (audit profond 2ᵉ passe — Lot 1, validation des valeurs)
+
+- **FireRating / AcousticRating sont des codes, pas des numériques.** La clé
+  générique `rating` (sous-chaîne de `firerating` / `acousticrating`) dans
+  `_NUMERIC_POSITIVE_KEYS` faisait passer `EI30`, `REI 60`, `38 dB` par la
+  validation numérique → faux `PROPERTY_TYPE_INVALID`. Nouveau
+  `_RATING_STRING_KEYS` traité **avant** le bloc numérique (accepte toute chaîne
+  non vide). **Changement de comptage** (moins de faux positifs). Tests dans
+  `tests/unit/test_audit_validators.py::TestFireAcousticRatingAreCodes`.
+
 ### Changed (refactor PR4 — factorisation)
 
 - **Dédup / factorisation** (`docs/instruct-refactor-pr-series.md` §PR4), goldens +
