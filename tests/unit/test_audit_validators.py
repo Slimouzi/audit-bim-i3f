@@ -110,6 +110,35 @@ class TestCoordinates:
         assert "non numérique" in result
 
 
+class TestFireAcousticRatingAreCodes:
+    """Régression audit profond 2ᵉ passe (Medium moteur) : FireRating/AcousticRating
+    sont des CODES, pas des numériques — la clé générique « rating » les faisait
+    passer par la validation numérique → faux PROPERTY_TYPE_INVALID."""
+
+    @pytest.mark.parametrize(
+        "prop,value",
+        [
+            ("FireRating", "EI30"),
+            ("FireRating", "REI 60"),
+            ("AcousticRating", "38 dB"),
+            ("AcousticRating", "DnTA 53"),
+        ],
+    )
+    def test_rating_codes_accepted(self, prop, value):
+        assert v(value, property_name=prop) is None
+
+    def test_rating_code_via_pset_prefix(self):
+        # Le nom porteur peut venir du Pset (Pset_WallCommon.FireRating).
+        assert v("EI60", property_name="FireRating", pset_or_attribute="Pset_WallCommon") is None
+
+    def test_empty_rating_still_flagged(self):
+        assert v("   ", property_name="FireRating") is not None
+
+    def test_generic_numeric_rating_still_numeric(self):
+        # Une clé « rating » générique non feu/acoustique reste numérique.
+        assert v("abc", property_name="EnergyRating") is not None
+
+
 class TestPassthrough:
     """Les propriétés sans heuristique applicable doivent passer."""
 

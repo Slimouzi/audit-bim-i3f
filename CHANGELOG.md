@@ -21,6 +21,52 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   **légitime**. **Changement de comptage** (moins de faux positifs). Nouveau
   `tests/unit/test_locators_e3.py`.
 
+### Fixed (audit profond 2ᵉ passe — Lot 1, validation des valeurs)
+
+- **FireRating / AcousticRating sont des codes, pas des numériques.** La clé
+  générique `rating` (sous-chaîne de `firerating` / `acousticrating`) dans
+  `_NUMERIC_POSITIVE_KEYS` faisait passer `EI30`, `REI 60`, `38 dB` par la
+  validation numérique → faux `PROPERTY_TYPE_INVALID`. Nouveau
+  `_RATING_STRING_KEYS` traité **avant** le bloc numérique (accepte toute chaîne
+  non vide). **Changement de comptage** (moins de faux positifs). Tests dans
+  `tests/unit/test_audit_validators.py::TestFireAcousticRatingAreCodes`.
+
+### Fixed (audit profond 2ᵉ passe — Lot 1, famille « nommage »)
+
+- **E4 — `IfcSite` sans `Name` désormais signalé.** La branche « nom manquant »
+  n'existait que pour Building/Storey/Zone/Space ; un site sans codification (la
+  clé de l'arbre I3F) passait silencieusement. Émet maintenant `NAMING_MISSING`
+  (`field_path=IfcSite.Name`, HIGH). **Changement de comptage** (nouveau vrai manquant).
+- **E5 — nommage insensible aux accents.** `_check_storey_name` / `_check_room_name`
+  et les parseurs d'étages (`naming_spec_parser`, `pdf_parser`) comparaient sans
+  replier les diacritiques (`.upper()` seul) → `1ER ÉTAGE` ≠ `1ER ETAGE`,
+  `DÉGAGEMENT` ≠ `DEGAGEMENT` → faux `NAMING_NOT_IN_LIST` (ou contrôle désactivé).
+  Nouveau helper `domain/text.fold_upper` (repli NFKD centralisé), appliqué **des
+  deux côtés** de la comparaison ; libellé d'origine conservé pour l'affichage.
+  **Changement de comptage** (moins de faux positifs). Nouveau
+  `tests/unit/test_naming_e4_e5.py`.
+
+### Fixed (audit profond 2ᵉ passe — Lot 1 « le moteur dit vrai »)
+
+- **C1 — faux positif « quantité manquante » sur toute pièce conforme.**
+  `audit_spatial` lisait la surface via `resolve_value(sp, "BaseQuantities", "NetFloorArea")` :
+  un locateur sans `/` ni préfixe `Pset` ne matchait aucune étape de routage et renvoyait
+  toujours `None`, faisant émettre `SPATIAL_MISSING_QUANTITY` sur **chaque** `IfcSpace`
+  possédant pourtant sa surface en `BaseQuantities`. Corrigé en passant par le locateur
+  composite `BaseQuantities/NetFloorArea` (route vers `get_quantity_with_fallback`, repli
+  ArchiCAD inclus). **Changement de comptage** : les rapports perdent ces faux positifs du
+  thème « Quantités » ; le finding légitime (pièce réellement sans quantité) est conservé.
+  Nouveau `tests/unit/test_spatial_quantity.py` (cas positif *et* négatif).
+- **E1 — les exigences `kind="quantity"` du format 2026 sont enfin auditées.**
+  `audit_properties` filtrait `kind == "property"` : les quantités (`BaseQuantities`,
+  toutes classes — murs, dalles, pièces…) n'étaient **jamais** vérifiées. Elles le sont
+  désormais (thème « Quantités », `SPATIAL_MISSING_QUANTITY`, sévérité MEDIUM).
+  Réconciliation « spatial cède à properties » : le contrôle IfcSpace câblé de
+  `audit_spatial` devient un **repli** actif uniquement quand le catalogue n'a **pas**
+  d'exigence quantité sur `IfcSpace` (ancien format V3.x) → pas de double comptage.
+  **Changement de comptage** (plus de vrais manquants 2026). Nouveau
+  `tests/unit/test_quantity_audit_e1.py`.
+
 ### Changed (refactor PR4 — factorisation)
 
 - **Dédup / factorisation** (`docs/instruct-refactor-pr-series.md` §PR4), goldens +
