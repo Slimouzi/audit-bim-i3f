@@ -97,6 +97,7 @@ def audit_spatial(
                         ifc_type="IfcSpace",
                         name=str(nm) if nm else None,
                         expected="NetFloorArea (BaseQuantities) en m²",
+                        field_path="IfcSpace.BaseQuantities.NetFloorArea",
                         actual=None,
                         ref_cch="Chap 6.2",
                         recommended_action=(
@@ -131,6 +132,7 @@ def audit_spatial(
                     actual={"latitude": lat, "longitude": lon},
                     ref_cch="Chap 6.2",
                     recommended_action="Renseigner les coordonnées géographiques du site.",
+                    field_path="IfcSite.RefLatitude",
                 )
             )
 

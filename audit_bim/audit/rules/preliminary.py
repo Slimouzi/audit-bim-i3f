@@ -39,6 +39,10 @@ _SEV_MAP = {
 # (audit préliminaire) et l'outil ifc-geometry qui l'a produit, plus le
 # nom du fichier JSON quand il est connu.
 _PROVENANCE = "Audit préliminaire géométrique — MCP ifc-geometry"
+#: Préfixe **structuré** de provenance apposé dans ``ref_cch`` sur tout finding
+#: importé (audit préliminaire externe). Marqueur stable, indépendant du nom de la
+#: règle/module — sert de discriminant « importé vs émis par une règle ».
+PROVENANCE_PREFIX = _PROVENANCE
 _SOURCE_TOOLS: dict[str, str] = {
     "inventory": "extract_space_inventory",
     "space_clash": "run_space_clash_audit",
@@ -46,6 +50,18 @@ _SOURCE_TOOLS: dict[str, str] = {
     "boundaries": "check_space_boundaries",
     "openings": "check_opening_correspondence",
 }
+
+
+def is_imported_finding(finding) -> bool:
+    """Vrai si le finding provient d'un **import préliminaire** (marqueur structuré
+    de provenance dans ``ref_cch``), et non d'une règle d'audit du moteur.
+
+    Discriminant **par contenu** (préfixe de provenance), pas par nom de règle :
+    stable même si les modules sont renommés. Utilisé par le verrou ``field_path``
+    pour exclure les findings importés (dont le ``field_path`` est celui de l'import).
+    """
+    ref = getattr(finding, "ref_cch", None)
+    return bool(ref) and str(ref).startswith(PROVENANCE_PREFIX)
 
 
 def _stamp(
