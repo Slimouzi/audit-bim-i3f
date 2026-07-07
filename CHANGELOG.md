@@ -9,6 +9,16 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Added
 
+- **Replay A1 — purge automatique (`create → verify → purge`)** — `bimdata-write`
+  bumpé à **v0.1.1** (`delete_bcf_topic` / `delete_smart_view`, transport `DELETE`
+  authentifié). Le `--write` du runner **supprime les objets qu'il vient de créer**
+  après les avoir prouvés (3 niveaux), puis une **re-lecture indépendante** confirme
+  qu'il ne reste `0` objet au préfixe daté de ce run → `--write` **déterministe en
+  un seul run**, sans nettoyage manuel. Sélection **bornée au préfixe daté** (helper
+  pur `select_purge_guids`, testé hors réseau) ; `--keep` conserve les objets pour
+  l'inspection visuelle périodique 5b ; une purge incomplète bascule le verdict en
+  `FAIL`. Fait évoluer la décision A du scope (auto-delete, autrefois hors v1).
+
 - **Replay A1 — validation `--write` réelle + étape 8** — `bimdata-read` bumpé à
   **v0.1.2** (`list_bcf_topics`/`list_smart_views`, filtrage `?format` côté
   serveur) ; le `--write` du runner vérifie l'écriture à **3 niveaux** (rapport

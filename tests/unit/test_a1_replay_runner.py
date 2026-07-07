@@ -196,3 +196,27 @@ def test_verify_published_none_found():
     topics = [{"title": "I3F Audit — Y"}, {"title": None}]
     r = runner.verify_published(topics, title_prefix=PFX, expected_count=1)
     assert r["n_published"] == 0 and r["count_ok"] is False
+
+
+# ── Purge (étape 10) : sélection PURE des guids au préfixe de CE run ───────────
+def test_select_purge_guids_prefix_only():
+    topics = [
+        {"title": PFX + "Nommage", "guid": "g1"},
+        {"title": "I3F Audit — autre run", "guid": "OTHER"},  # hors préfixe : épargné
+        {"title": PFX + "Autre", "guid": "g2"},
+    ]
+    assert runner.select_purge_guids(topics, title_prefix=PFX) == ["g1", "g2"]
+
+
+def test_select_purge_guids_id_fallback_and_skips_guidless():
+    topics = [
+        {"title": PFX + "A", "id": "i1"},  # repli sur `id`
+        {"title": PFX + "B"},  # ni guid ni id : ignoré (pas de suppression aveugle)
+        {"title": None, "guid": "nope"},  # titre vide : jamais sélectionné
+    ]
+    assert runner.select_purge_guids(topics, title_prefix=PFX) == ["i1"]
+
+
+def test_select_purge_guids_empty():
+    assert runner.select_purge_guids([], title_prefix=PFX) == []
+    assert runner.select_purge_guids(None, title_prefix=PFX) == []

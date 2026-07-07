@@ -138,7 +138,7 @@ requires-dist = [
     { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.0" },
     { name = "bim-sandbox", git = "https://github.com/Slimouzi/bim-sandbox.git?tag=bim-sandbox-v0.1.0" },
     { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.2" },
-    { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.0" },
+    { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.1" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
     { name = "fastmcp", specifier = ">=3.0,<4" },
     { name = "matplotlib", specifier = ">=3.8,<4" },
@@ -247,8 +247,8 @@ dependencies = [
 
 [[package]]
 name = "bimdata-write"
-version = "0.1.0"
-source = { git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.0#fe4c3d1c0765832ecf967d740667ff902a48a04a" }
+version = "0.1.1"
+source = { git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.1#1ba402eb9d9d2c8a863f0529db7ec0eaae4c2371" }
 dependencies = [
     { name = "bimdata-read" },
 ]

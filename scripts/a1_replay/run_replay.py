@@ -124,6 +124,21 @@ def verify_published(topics, *, title_prefix: str, expected_count: int) -> dict:
     return {"n_published": n, "count_ok": n == expected_count}
 
 
+def select_purge_guids(topics, *, title_prefix: str) -> list[str]:
+    """Sélection **pure** des ``guid`` à purger : parmi les topics/views RELUS,
+    ceux au **préfixe daté de ce run** (``title_prefix``). Testable hors réseau
+    (topics = liste de dicts à clés ``title``/``guid``). Clé BCF 2.1 = ``guid``
+    (repli ``id`` par prudence)."""
+    guids: list[str] = []
+    for t in topics or []:
+        t = t or {}
+        if str(t.get("title") or "").startswith(title_prefix):
+            g = t.get("guid") or t.get("id")
+            if g:
+                guids.append(str(g))
+    return guids
+
+
 def _plan_report(review: dict, expected_count: int) -> dict:
     count_ok = review["n_items"] == expected_count
     return {
@@ -135,10 +150,14 @@ def _plan_report(review: dict, expected_count: int) -> dict:
 
 
 def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
-    args = [a for a in argv[1:] if a != "--write"]
+    args = [a for a in argv[1:] if a not in ("--write", "--keep")]
     write = "--write" in argv
+    keep = "--keep" in argv  # ne pas purger (inspection visuelle périodique 5b)
     if not args:
-        print("usage: python run_replay.py <out_dir_hors_repo> [--write] [phase]", file=sys.stderr)
+        print(
+            "usage: python run_replay.py <out_dir_hors_repo> [--write] [--keep] [phase]",
+            file=sys.stderr,
+        )
         return 2
 
     import os
@@ -290,12 +309,10 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     #    0.1.1) les objets réellement créés et compter ceux au préfixe daté de CE
     #    run. C'est cette re-lecture qui ramène le hand-off 5b (vérif visuelle) à
     #    un contrôle **périodique** au lieu d'une étape obligatoire de chaque run.
-    api_bcf = verify_published(
-        client.list_bcf_topics(), title_prefix=prefix, expected_count=EXPECTED_BCF_TOPICS
-    )
-    api_sv = verify_published(
-        client.list_smart_views(), title_prefix=prefix, expected_count=EXPECTED_SMART_VIEWS
-    )
+    topics_bcf = client.list_bcf_topics()
+    topics_sv = client.list_smart_views()
+    api_bcf = verify_published(topics_bcf, title_prefix=prefix, expected_count=EXPECTED_BCF_TOPICS)
+    api_sv = verify_published(topics_sv, title_prefix=prefix, expected_count=EXPECTED_SMART_VIEWS)
     report["api_verify"] = {"bcf": api_bcf, "smart_views": api_sv}
 
     write_ok = (
@@ -308,6 +325,40 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
         and api_bcf["count_ok"]
         and api_sv["count_ok"]
     )
+
+    # 10. Purge — supprimer les objets créés par CE run (préfixe daté) pour laisser
+    #     la maquette jetable dans un état déterministe (re-run same-day propre).
+    #     `--keep` saute la purge (inspection visuelle périodique 5b). La purge
+    #     s'appuie sur les MÊMES listes déjà relues à l'étape 8, puis re-vérifie
+    #     indépendamment qu'il ne reste plus rien au préfixe (compte attendu = 0).
+    if keep:
+        report["purge"] = {"skipped": True}
+        purge_ok = True
+    else:
+        bcf_guids = select_purge_guids(topics_bcf, title_prefix=prefix)
+        sv_guids = select_purge_guids(topics_sv, title_prefix=prefix)
+        for g in bcf_guids:
+            client.delete_bcf_topic(g)
+        for g in sv_guids:
+            client.delete_smart_view(g)
+        after_bcf = verify_published(
+            client.list_bcf_topics(), title_prefix=prefix, expected_count=0
+        )
+        after_sv = verify_published(
+            client.list_smart_views(), title_prefix=prefix, expected_count=0
+        )
+        purge_ok = after_bcf["count_ok"] and after_sv["count_ok"]
+        report["purge"] = {
+            "deleted_bcf": len(bcf_guids),
+            "deleted_smart_views": len(sv_guids),
+            "bcf_clear": after_bcf["count_ok"],
+            "smart_views_clear": after_sv["count_ok"],
+            "ok": purge_ok,
+        }
+
+    # Verdict --write : écriture prouvée (3 niveaux) ET état laissé déterministe
+    # (purge réussie, ou explicitement conservé via --keep).
+    write_ok = write_ok and purge_ok
     report["verdict"] = "PASS" if write_ok else "FAIL"
     print(json.dumps(report, ensure_ascii=False, indent=2))
     print("VERDICT:", report["verdict"])
