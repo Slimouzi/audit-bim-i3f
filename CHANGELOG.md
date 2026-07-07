@@ -7,7 +7,17 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-07-07
+### Changed
+
+- **Overrides uv retirés (dette cross-repo soldée)** — les 5 packages first-party
+  transitifs ont été alignés sous **nouveaux tags immuables** pinnant `bim-core
+  v0.1.1` : `bim-query v0.1.1`, `bim-publication v0.1.1`, `bimdata-read v0.1.4`,
+  `bim-audit-engine v0.1.2` (+ correction du wording `result.py` « immuable »),
+  `bimdata-write v0.1.2` (+ `bimdata-read v0.1.4`). audit-bim ré-épingle les 5 et
+  **supprime les deux `override-dependencies`** (`bim-core` + `bimdata-read`) :
+  `uv lock` résout désormais le graphe **sans forçage**. Vérifié : `uv lock
+  --check` propre, **balayage d'intégrité des 7 tags** (rev du lock == tag distant
+  peelé, réflexe post-incident tag déplacé), suite 1084.
 
 Jalon : **replay A1 industrialisé** (publication BCF / Smart Views `prepare → review
 → apply` avec verdict machine + `--write` réel prouvé et auto-purgé sur maquette
