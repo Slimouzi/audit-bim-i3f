@@ -54,7 +54,7 @@ jobs:
         # alors déjà satisfaite lors de l'install du package.
         run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
       - name: Install bimdata-read (tagged read core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.1"
       - name: Install bimdata-write (tagged write core)
         run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
       - name: Install bim-sandbox (tagged shared sandbox)
@@ -149,7 +149,7 @@ jobs:
       - name: Install bim-core (tagged contract lib)
         run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
       - name: Install bimdata-read (tagged read core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.0"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.1"
       - name: Install bimdata-write (tagged write core)
         run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
       - name: Install bim-sandbox (tagged shared sandbox)
