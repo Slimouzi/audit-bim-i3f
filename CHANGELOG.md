@@ -7,6 +7,20 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (audit profond 2ᵉ passe — Lot 1, locateurs E3)
+
+- **Locateurs `IfcName` / `IfcDescription` normalisés.** Le préfixe de classe (abus
+  fréquent des annexes V3.7) empêchait tout matching dans `resolve_value` → 100 % de
+  faux `PROPERTY_MISSING`. `IfcXxx` désignant un attribut natif est désormais réduit
+  à `Xxx`.
+- **Locateur `IfcMaterial` résolu depuis l'association.** Le matériau IFC n'est pas
+  un attribut plat : bimdata-read l'inline en `material_list`
+  (`[{"material": {"name": …}}]`). `resolve_value` ne le lisait pas → 100 % de faux
+  `PROPERTY_MISSING`. Nouveau helper `normalizer.material_names` (même forme que les
+  helpers `reporting`) ; matériau présent → résolu, absent → `PROPERTY_MISSING`
+  **légitime**. **Changement de comptage** (moins de faux positifs). Nouveau
+  `tests/unit/test_locators_e3.py`.
+
 ### Changed (refactor PR4 — factorisation)
 
 - **Dédup / factorisation** (`docs/instruct-refactor-pr-series.md` §PR4), goldens +
