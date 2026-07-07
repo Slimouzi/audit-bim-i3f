@@ -57,18 +57,39 @@ ici, en revue.
 | `CLASSIFICATION_MISSING` | aucune référence de classification présente — rien à localiser par `<IfcClass>.…`. |
 | `CLASSIFICATION_INVALID` | défaut sur la **référence de classification** (système/notation), pas un attribut ni un pset. |
 
-`object_id` + `error_type` suffisent à situer ces trois défauts. Les findings
-**importés** (`preliminary.py`, provenance externe) sont **hors périmètre** du verrou
-(leur `field_path` est celui de l'import, éventuellement `None`).
+`object_id` + `error_type` suffisent à situer ces trois défauts.
+
+**Exemption structurelle complémentaire — findings de couverture (décision CTO).**
+Un finding **sans objet** (`element_uuid is None`) est un défaut de **couverture /
+cardinalité** (ex. « 0 instance de la classe requise ») : il n'y a **pas d'objet** donc
+pas de champ à localiser → `field_path=None` toléré, indépendamment de l'`error_type`.
+Nécessaire car `PROPERTY_MISSING` est **surchargé** : (a) propriété absente sur une
+instance (→ chemin `<IfcClass>.<Pset>.<Prop>`) **et** (b) classe requise sans aucune
+instance (couverture, sans objet). On ne peut pas mettre `PROPERTY_MISSING` en liste
+blanche (cela exempterait le cas (a)) → l'exemption se fait sur le **fait structurel
+« aucun objet »**, pas sur l'`error_type`. Ne crée **aucune** faille : un finding
+**porteur d'un objet** (`element_uuid` présent) doit toujours satisfaire la grammaire
+**ou** la liste blanche par `error_type`.
+
+Les findings **importés** (`preliminary.py`, provenance externe) sont **hors périmètre**
+du verrou, exclus via un **marqueur structuré de provenance** (`is_imported_finding` —
+préfixe stable dans `ref_cch`), **pas** un nom de règle/module.
 
 ## 4. Test de verrou générique (lock)
 
-Un test unique, indépendant des règles, qui exécute un audit de référence et vérifie
-pour **chaque** finding :
+Un test unique, indépendant des règles, qui exécute un audit de référence (modèle
+volontairement non conforme, plusieurs phases) et vérifie pour **chaque** finding **non
+importé** :
 
-1. soit `field_path is None` **et** `error_type` ∈ liste blanche d'exemption (§3) ;
+1. soit `field_path is None` **et** (`element_uuid is None` — couverture, aucun objet —
+   **ou** `error_type` ∈ liste blanche d'exemption §3) ;
 2. soit `field_path` respecte la grammaire (§1) : `re.fullmatch` sur
-   `^Ifc[A-Za-z0-9]+(\.[A-Za-z0-9_]+){1,2}$`, premier segment = classe IFC de l'objet.
+   `^Ifc[A-Za-z0-9]+(\.[A-Za-z0-9_]+){1,2}$`, **et** premier segment == classe IFC
+   **réelle** de l'objet du finding (`ifc_type`) — *note B*.
+
+Fichier : `tests/unit/test_field_path_lock.py` (bout-en-bout sur `run_audit` +
+propriétés unitaires de la règle : grammaire acceptée/rejetée, note B, exemptions,
+exclusion des importés).
 
 Objectif : rendre **impossible** l'ajout d'une règle qui émet un `field_path` mal formé
 ou un `None` non exempté sans faire échouer la CI.

@@ -45,6 +45,7 @@ def audit_lists(
                     ifc_type="IfcZone",
                     expected=f"Présence d'une zone '{z}' (Partie Commune)",
                     actual="absent",
+                    field_path="IfcZone.ObjectType",
                     ref_cch="Chap 6.3.2.2",
                     recommended_action=(
                         f"Vérifier si une zone '{z}' doit être modélisée "

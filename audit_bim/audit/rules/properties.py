@@ -22,6 +22,22 @@ def _is_empty(value) -> bool:
     return False
 
 
+def _property_field_path(ifc_class: str, spec) -> str:
+    """``field_path`` structuré d'un défaut de propriété : ``<IfcClass>.<Pset>.<Prop>``
+    (chemin composite ``Pset/Prop``) ou ``<IfcClass>.<Attribut>`` (attribut natif).
+
+    Dérivé du **locateur technique** ``pset_or_attribute`` (Pset / attribut natif /
+    chemin composite ``Pset/Prop``), jamais du **libellé humain** ``property_name``
+    qui peut porter espaces/accents — cf. grammaire gelée (docs/scope-field-path.md).
+    """
+    locator = (spec.pset_or_attribute or spec.property_name or "").strip()
+    for sep in ("/", "."):
+        if sep in locator:
+            pset, prop = locator.split(sep, 1)
+            return f"{ifc_class}.{pset.strip()}.{prop.strip()}"
+    return f"{ifc_class}.{locator}"
+
+
 def audit_properties(
     snap: ModelSnapshot,
     catalog: RequirementsCatalog,
@@ -97,6 +113,7 @@ def audit_properties(
                                 f"Renseigner {spec.property_name} sur "
                                 f"{actual_class} (phase {phase.value})."
                             ),
+                            field_path=_property_field_path(actual_class, spec),
                         )
                     )
                     continue
@@ -127,6 +144,7 @@ def audit_properties(
                             recommended_action=(
                                 f"Corriger {spec.property_name} sur {actual_class} — {reason}."
                             ),
+                            field_path=_property_field_path(actual_class, spec),
                         )
                     )
     return findings

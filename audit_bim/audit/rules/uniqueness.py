@@ -146,6 +146,7 @@ def audit_uniqueness(
                         ),
                         actual=None,
                         ref_cch="Chap 6.2 — équipements identifiables",
+                        field_path=f"{ifc_class}.Pset_{ifc_class[3:]}Common.Tag",
                         recommended_action=(
                             f"Renseigner Pset_{ifc_class[3:]}Common.Tag (ou Mark) "
                             "pour identification GMAO."
@@ -170,6 +171,7 @@ def audit_uniqueness(
                             name=get_attribute(el, "Name") or el.get("name"),
                             expected=(f"Identifiant unique parmi les {ifc_class}"),
                             actual=f"{ident!r} réutilisé {counts[ident]} fois",
+                            field_path=f"{ifc_class}.Pset_{ifc_class[3:]}Common.Tag",
                             ref_cch="Chap 6.2",
                             recommended_action=(
                                 f"Renommer ou suffixer le Tag « {ident} » pour le rendre unique."

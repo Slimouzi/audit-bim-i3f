@@ -62,6 +62,7 @@ def audit_naming(
                     ifc_type="IfcProject",
                     name=project_name,
                     expected=f"≤ {rule.max_length} caractères",
+                    field_path="IfcProject.LongName",
                     actual=f"{len(project_name)} caractères",
                     ref_cch=rule.ref_cch,
                     recommended_action="Raccourcir le LongName du projet.",
@@ -82,6 +83,7 @@ def audit_naming(
                     ifc_type="IfcSite",
                     name=nm,
                     expected=f"Pattern {rule.pattern} (ex: 1802L, 1802P)",
+                    field_path="IfcSite.Name",
                     actual=nm,
                     ref_cch=rule.ref_cch,
                     recommended_action="Renommer le site selon la codification 3F.",
@@ -104,6 +106,7 @@ def audit_naming(
                     actual=None,
                     ref_cch=rule.ref_cch if rule else "Chap 6.3.1",
                     recommended_action="Renseigner IfcBuilding/Name.",
+                    field_path="IfcBuilding.Name",
                 )
             )
             continue
@@ -117,6 +120,7 @@ def audit_naming(
                     ifc_type="IfcBuilding",
                     name=nm,
                     expected=f"Pattern {rule.pattern} (ex: 1802L-A)",
+                    field_path="IfcBuilding.Name",
                     actual=nm,
                     ref_cch=rule.ref_cch,
                     recommended_action="Renommer le bâtiment.",
@@ -133,6 +137,7 @@ def audit_naming(
                     name=nm,
                     expected=f"≤ {rule.max_length} car.",
                     actual=f"{len(str(nm))} car.",
+                    field_path="IfcBuilding.Name",
                     ref_cch=rule.ref_cch,
                     recommended_action="Raccourcir le nom du bâtiment.",
                 )
@@ -155,6 +160,7 @@ def audit_naming(
                     actual=None,
                     ref_cch=rule.ref_cch if rule else "Chap 6.3.1",
                     recommended_action="Renseigner IfcBuildingStorey/Name.",
+                    field_path="IfcBuildingStorey.Name",
                 )
             )
             continue
@@ -171,6 +177,7 @@ def audit_naming(
                     actual=str(nm),
                     ref_cch=rule.ref_cch if rule else "Chap 6.3.1",
                     recommended_action="Aligner le nom de l'étage sur la liste du CCH.",
+                    field_path="IfcBuildingStorey.Name",
                 )
             )
 
@@ -296,6 +303,7 @@ def audit_naming(
                     actual=None,
                     ref_cch=rule_space.ref_cch if rule_space else "Chap 6.3.2",
                     recommended_action="Renseigner IfcSpace/LongName.",
+                    field_path="IfcSpace.LongName",
                 )
             )
             continue
@@ -310,6 +318,7 @@ def audit_naming(
                     name=str(ln).strip(),
                     expected="Nom de pièce porté par IfcSpace/LongName",
                     actual=f"trouvé dans IfcSpace/Name : '{str(ln).strip()}' (LongName vide)",
+                    field_path="IfcSpace.LongName",
                     ref_cch=rule_space.ref_cch if rule_space else "Chap 6.3.2",
                     recommended_action=(
                         "Remapper l'export (Name → LongName) — la donnée existe "
@@ -331,6 +340,7 @@ def audit_naming(
                     actual=ln_str,
                     ref_cch=rule_space.ref_cch,
                     recommended_action="Passer le LongName en majuscules.",
+                    field_path="IfcSpace.LongName",
                 )
             )
         if allowed_rooms and not _check_room_name(ln_str, allowed_rooms):
@@ -346,6 +356,7 @@ def audit_naming(
                     actual=ln_str,
                     ref_cch="Chap 6.3.2",
                     recommended_action="Renommer la pièce avec un libellé du CCH.",
+                    field_path="IfcSpace.LongName",
                 )
             )
 

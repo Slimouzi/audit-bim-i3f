@@ -7,6 +7,21 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added
+
+- **`field_path` généralisé aux findings non-zone** — le champ structuré
+  `Finding.field_path` (jusqu'ici émis sur les seules zones) est désormais émis par
+  **6 familles** de règles (`naming`, `lists`, `uniqueness`, `properties`, `spatial`)
+  selon une **grammaire gelée** : `<IfcClass>.<Attribut>` / `<IfcClass>.<Pset>.<Prop>` /
+  `<IfcClass>.<Qto>.<Quantity>` (dérivé du **locateur technique**, jamais du libellé
+  humain). Les défauts sans champ IFC unique restent `None` : classification + orphelin
+  spatial (liste blanche par `error_type`), et findings de **couverture** (sans objet,
+  `element_uuid is None`). Un **verrou générique** (`tests/unit/test_field_path_lock.py`)
+  rend impossible l'ajout d'une règle émettant un `field_path` mal formé, un premier
+  segment ≠ classe IFC réelle de l'objet, ou un `None` injustifié. Findings importés
+  exclus par **marqueur structuré de provenance** (`is_imported_finding`). Émission
+  seule : **aucun** consommateur spéculatif. Scope gelé : `docs/scope-field-path.md`.
+
 ### Changed
 
 - **Overrides uv retirés (dette cross-repo soldée)** — les 5 packages first-party
