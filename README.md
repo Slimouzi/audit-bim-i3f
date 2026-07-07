@@ -51,7 +51,7 @@ python3 -m venv .venv && source .venv/bin/activate
 # résolution des dépendances échoue.
 pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
 pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.2"
-pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
+pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.1"
 pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
 pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.0"
 pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.0"
@@ -67,7 +67,7 @@ pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 > ```bash
 > pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
 > pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.2"
-> pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
+> pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.1"
 > pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
 > pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.0"
 > pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.0"

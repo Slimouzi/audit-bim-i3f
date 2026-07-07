@@ -56,7 +56,7 @@ jobs:
       - name: Install bimdata-read (tagged read core)
         run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.2"
       - name: Install bimdata-write (tagged write core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.1"
       - name: Install bim-sandbox (tagged shared sandbox)
         run: pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
       - name: Install bim-query (tagged read-only query layer)
@@ -151,7 +151,7 @@ jobs:
       - name: Install bimdata-read (tagged read core)
         run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.2"
       - name: Install bimdata-write (tagged write core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.0"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.1"
       - name: Install bim-sandbox (tagged shared sandbox)
         run: pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
       - name: Install bim-query (tagged read-only query layer)

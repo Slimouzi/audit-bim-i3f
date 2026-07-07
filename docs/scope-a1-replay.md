@@ -84,6 +84,16 @@ interdit de toucher `bim-publication`/builders. **Recommandation v1** :
 Auto-suppression API = **suivi ultérieur borné** (nécessiterait une méthode
 `delete_*` dans `bimdata-write` — hors scope v1).
 
+> **Résolution (décision CTO, post-scope).** Le « suivi ultérieur borné » a été
+> réalisé : `bimdata-write v0.1.1` ajoute `delete_bcf_topic` / `delete_smart_view`
+> (transport `DELETE` authentifié, aucune logique métier ; `bim-publication`
+> intouché). Le runner **purge désormais automatiquement** les objets qu'il crée
+> après les avoir prouvés (create → verify 3 niveaux → purge → re-lecture `0`),
+> pour un `--write` **déterministe en un seul run**. La sélection reste **bornée
+> au préfixe daté de CE run** (helper pur `select_purge_guids`). `--keep` conserve
+> les objets pour l'**inspection visuelle périodique 5b**. La procédure de purge
+> manuelle du README reste le **repli** si la purge auto échoue.
+
 **B. Fréquence.**
 **Recommandation** : **dry-run planifiable** (read-only, aucune écriture, PASS
 prouvable — candidat CI-cron sur le vrai modèle) ; **`--write` manuel/à la

@@ -10,7 +10,8 @@ Scope gelé : `docs/scope-a1-replay.md`. Protocole de référence :
 - **Dry-run par défaut** (aucune écriture). `--write` **uniquement** manuel.
 - L'écriture réelle n'est autorisée que sur le **modèle jetable** désigné par
   `REPLAY_WRITE_MODEL_ID` — toute autre cible → refus **avant** tout `apply`.
-- Contrôle d'identité : le modèle actif doit contenir `DIEPPE` (sinon refus).
+- Contrôle d'identité par **nom exact** : le modèle actif doit être
+  `DIEPPE-7427L-BATA-ARCHI-APD.ifc` (sinon refus).
 - Les plans scellés + sorties restent **hors du dépôt** (refus si dans le repo).
 - stdout = **compteurs / booléens / verdict** uniquement (aucune donnée client).
 
@@ -21,7 +22,7 @@ un **diff d'une ligne** revu :
 
 | | Valeur |
 |---|---|
-| Modèle jetable | Dieppe `1674450` (identité `DIEPPE`) |
+| Modèle jetable | Dieppe `1674450` (nom exact `DIEPPE-7427L-BATA-ARCHI-APD.ifc`) |
 | Filtre | `error_types=[naming_invalid_format]`, `include_overview=false` |
 | `EXPECTED_BCF_TOPICS` | **1** |
 | `EXPECTED_SMART_VIEWS` | **1** |
@@ -30,36 +31,42 @@ un **diff d'une ligne** revu :
 ## Usage
 
 ```bash
-# Cibler la maquette jetable Dieppe (identité DIEPPE) via l'env :
+# Cibler la maquette jetable Dieppe (nom exact contrôlé) via l'env :
 export BIMDATA_MODEL_ID=1674450
 
 # 1) Dry-run (read-only, planifiable) — prépare + revue + compte, sans écrire :
 python scripts/a1_replay/run_replay.py /tmp/a1-replay
 
-# 2) Write (manuel) — écrit sur le modèle jetable désigné :
+# 2) Write (manuel) — écrit sur le modèle jetable, vérifie, PUIS purge :
 export REPLAY_WRITE_MODEL_ID=1674450   # garde cible jetable
 python scripts/a1_replay/run_replay.py /tmp/a1-replay --write
+
+# 2 bis) Write SANS purge — conserve les objets pour l'inspection visuelle 5b :
+python scripts/a1_replay/run_replay.py /tmp/a1-replay --write --keep
 ```
 
 Code de sortie 0 si `PASS`. Le dry-run PASS ne prouve pas l'écriture ; le `--write`
-PASS exige `succeeded == attendu` et `failed == 0` des deux côtés.
+PASS exige `succeeded == attendu` et `failed == 0` des deux côtés **et** une purge
+réussie (ou `--keep`).
 
-## Procédure de purge (décision A — pas d'auto-delete en v1)
+## Purge automatique (create → verify → purge, un seul run)
 
-`bimdata-write` n'expose pas de méthode de suppression et `bim-publication` est
-intouchable → **pas d'auto-delete en v1**. Les objets créés portent le préfixe
-daté `REPLAY-BIM-PUBLICATION-YYYYMMDD — `. **Purge manuelle** sur le modèle
-jetable :
+Depuis `bimdata-write ≥ 0.1.1` (`delete_bcf_topic` / `delete_smart_view`), le
+`--write` **purge les objets qu'il vient de créer** — l'écriture est d'abord
+prouvée aux 3 niveaux ci-dessous, puis les topics/views au **préfixe daté de ce
+run** sont supprimés et une **re-lecture indépendante** confirme qu'il n'en reste
+`0`. Résultat : un `--write` **déterministe en un seul run**, sans nettoyage
+manuel, la maquette jetable revenant à son état initial.
 
-1. Ouvrir le viewer BIMData du modèle jetable (Dieppe `1674450`).
-2. Panneau **BCF Issues** : filtrer/supprimer les topics dont le titre commence
-   par `REPLAY-BIM-PUBLICATION-` ; panneau **Smart Views** : idem pour les vues.
-3. Vérifier qu'aucun objet préfixé ne subsiste (le prochain dry-run doit rester
-   déterministe).
-
-> **Suivi ultérieur borné** : ajouter des méthodes `delete_*` dans `bimdata-write`
-> (le transport authentifié gère déjà `DELETE`, cf. `docs/scope-bimdata-write.md`)
-> pour automatiser cette purge — hors scope v1.
+- Sélection **bornée au préfixe daté de CE run** (`REPLAY-BIM-PUBLICATION-YYYYMMDD — `) :
+  jamais de suppression d'un objet hors préfixe (helper pur `select_purge_guids`,
+  testé hors réseau).
+- `--keep` **saute la purge** : à utiliser pour l'**inspection visuelle
+  périodique 5b** (les objets restent dans le viewer). Le prochain `--write`
+  same-day sans `--keep` les nettoiera (sinon le compte au préfixe daté serait `2`
+  → `FAIL`).
+- Une purge qui échoue (re-lecture ≠ `0`) bascule le verdict en `FAIL` : l'état
+  n'est plus déterministe, on le dit plutôt que de laisser des résidus.
 
 ## Vérification post-apply (3 niveaux)
 
