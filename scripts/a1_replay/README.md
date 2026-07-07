@@ -61,14 +61,16 @@ jetable :
 > (le transport authentifié gère déjà `DELETE`, cf. `docs/scope-bimdata-write.md`)
 > pour automatiser cette purge — hors scope v1.
 
-## Vérification post-apply (état v1)
+## Vérification post-apply (3 niveaux)
 
-Le `--write` vérifie `succeeded == attendu` + `failed == 0` (rapport d'apply +
-`audit_trail`). La **relecture indépendante par l'API** (lister les topics/views
-créés pour re-vérifier compte + préfixe + cible) exige un **endpoint de liste
-absent de `bimdata-read`** — prérequis borné à ajouter (cf. scope §4). Tant qu'il
-n'existe pas, le hand-off 5b (vérif visuelle viewer) reste recommandé après un
-`--write`.
+Le `--write` vérifie, **indépendamment**, à trois niveaux :
+
+1. **rapport d'apply** — `succeeded == attendu` + `failed == 0` ;
+2. **journal** (`audit_trail`) — entrée de ce run par régime, compteurs conformes ;
+3. **re-lecture par l'API** (`bimdata-read ≥ 0.1.1`, `list_bcf_topics` /
+   `list_smart_views`) — compte des objets au **préfixe daté de ce run** ==
+   attendu. C'est ce 3ᵉ niveau qui ramène le hand-off **5b** (vérif visuelle
+   viewer) d'étape obligatoire à **contrôle périodique**.
 
 ## Tests
 

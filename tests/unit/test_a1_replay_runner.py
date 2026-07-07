@@ -175,3 +175,24 @@ def test_journal_confirms_missing_entry():
         )
         is False
     )
+
+
+# ── Re-lecture API indépendante (étape 8) — helper pur ─────────────────────
+
+
+def test_verify_published_match():
+    topics = [{"title": PFX + "Nommage"}, {"title": "I3F Audit — autre run"}]
+    r = runner.verify_published(topics, title_prefix=PFX, expected_count=1)
+    assert r["n_published"] == 1 and r["count_ok"] is True
+
+
+def test_verify_published_wrong_count():
+    topics = [{"title": PFX + "A"}, {"title": PFX + "B"}]  # 2 au préfixe du run
+    r = runner.verify_published(topics, title_prefix=PFX, expected_count=1)
+    assert r["n_published"] == 2 and r["count_ok"] is False
+
+
+def test_verify_published_none_found():
+    topics = [{"title": "I3F Audit — Y"}, {"title": None}]
+    r = runner.verify_published(topics, title_prefix=PFX, expected_count=1)
+    assert r["n_published"] == 0 and r["count_ok"] is False

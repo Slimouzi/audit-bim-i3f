@@ -115,6 +115,15 @@ def journal_confirms(entries, *, action: str, plan_id: str, expected_succeeded: 
     )
 
 
+def verify_published(topics, *, title_prefix: str, expected_count: int) -> dict:
+    """Re-lecture **indépendante** (étape 8) : parmi les topics/views RELUS via
+    l'API, compter ceux au **préfixe daté de ce run** (``title_prefix``) et
+    vérifier ``== expected_count``. Pur, testable hors réseau (topics = liste de
+    dicts à clé ``title``). Sortie = compteurs/booléens (aucune donnée client)."""
+    n = sum(1 for t in topics if str((t or {}).get("title") or "").startswith(title_prefix))
+    return {"n_published": n, "count_ok": n == expected_count}
+
+
 def _plan_report(review: dict, expected_count: int) -> dict:
     count_ok = review["n_items"] == expected_count
     return {
@@ -277,10 +286,18 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     )
     report["journal"] = {"bcf": journal_bcf, "smart_views": journal_sv}
 
-    # 8. Vérification post-apply : compte appliqué == attendu (rapport d'apply ET
-    #    journal). NOTE : la relecture INDÉPENDANTE via l'API (list topics/views)
-    #    nécessite un endpoint de liste absent de bimdata-read — prérequis borné
-    #    (cf. scope §4). Tant qu'il manque, 5b reste recommandé après un --write.
+    # 8. Vérification post-apply INDÉPENDANTE : relire via l'API (bimdata-read ≥
+    #    0.1.1) les objets réellement créés et compter ceux au préfixe daté de CE
+    #    run. C'est cette re-lecture qui ramène le hand-off 5b (vérif visuelle) à
+    #    un contrôle **périodique** au lieu d'une étape obligatoire de chaque run.
+    api_bcf = verify_published(
+        client.list_bcf_topics(), title_prefix=prefix, expected_count=EXPECTED_BCF_TOPICS
+    )
+    api_sv = verify_published(
+        client.list_smart_views(), title_prefix=prefix, expected_count=EXPECTED_SMART_VIEWS
+    )
+    report["api_verify"] = {"bcf": api_bcf, "smart_views": api_sv}
+
     write_ok = (
         bcf_res.succeeded == EXPECTED_BCF_TOPICS
         and bcf_res.failed == 0
@@ -288,6 +305,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
         and sv_res.failed == 0
         and journal_bcf
         and journal_sv
+        and api_bcf["count_ok"]
+        and api_sv["count_ok"]
     )
     report["verdict"] = "PASS" if write_ok else "FAIL"
     print(json.dumps(report, ensure_ascii=False, indent=2))
