@@ -11,6 +11,7 @@ Exécution (écriture BIMData, exige ``confirm=True``) :
 - ``apply_bcf_topics``
 - ``apply_smart_views_plan``
 - ``apply_classification_update_plan``
+- ``apply_classifications_from_xlsx`` (lit un xlsx → plan scellé → apply)
 
 Workflow :
 - ``list_write_plans`` — liste les plans sous ``AUDIT_OUTPUT_DIR/plans/``.
@@ -43,9 +44,10 @@ from ..actions import (
     save_plan,
 )
 from ..actions import list_plans as _list_plans
-from ..classifier import apply_classifications, read_classifications_from_xlsx
+from ..classifier import read_classifications_from_xlsx
 from ..doe import match_doe_records, parse_doe, summarize_matches
 from ..domain.filters import FindingFilter, SuggestionFilter, SuggestionStatus
+from ..domain.write_plan import WritePlan, WritePlanKind
 from ..safe_paths import safe_input_path
 from ..security.write_journal import get_journal
 from .app import mcp
@@ -533,10 +535,10 @@ def audit_trail(limit: int = 20) -> dict:
 @mcp.tool()
 def apply_classifications_from_xlsx(
     xlsx_path: str,
-    dry_run: bool = True,
+    confirm: bool = False,
 ) -> dict:
     """Applique les classifications **validées par l'auditeur** dans un XLSX
-    d'audit potentiellement modifié.
+    d'audit — via le contrat commun **prepare → review → apply** (PR3 §3c).
 
     L'auditeur télécharge l'annexe ``audit_*_annexes.xlsx`` (générée par
     ``generate_xlsx_annex`` / ``full_audit``), édite l'onglet
@@ -546,20 +548,66 @@ def apply_classifications_from_xlsx(
     - modifier le code → on applique le code corrigé (ex: ``B2010`` → ``C1010``) ;
     - effacer la cellule → ligne ignorée (refus de la suggestion).
 
+    Le xlsx est lu (sandbox), un **plan scellé** ``WritePlan`` est construit, puis :
+
+    - ``confirm=False`` (défaut) → **l'appel EST le dry-run** : renvoie le résumé du
+      plan (``refused: true``), **aucune écriture** ;
+    - ``confirm=True`` → ``validate_target`` + apply + journal (comme les autres
+      ``apply_*``).
+
     Args:
-        xlsx_path: chemin absolu vers l'annexe XLSX éventuellement modifiée.
-        dry_run: si ``True`` (défaut), simule sans appel POST.
+        xlsx_path: chemin vers l'annexe XLSX éventuellement modifiée.
+        confirm: ``True`` pour appliquer réellement. Sans confirm = revue du plan.
 
     Returns:
-        Résumé identique à ``apply_suggested_classifications``, avec en plus
-        ``n_items_read_from_xlsx`` pour traçabilité.
+        Sans confirm : le plan (``plan_id``, ``summary``, ``risks``) + refus standard,
+        avec ``n_items_read_from_xlsx`` / ``xlsx_path``. Avec confirm : l'``ActionResult``
+        (``succeeded``/``failed``…) enrichi de ``n_items_read_from_xlsx`` / ``xlsx_path``.
     """
-    _State.ensure_client()
-    if not dry_run:
-        ensure_writes_allowed("apply_classifications_from_xlsx")
     safe_xlsx = safe_input_path(xlsx_path, allowed_extensions={".xlsx", ".xlsm"})
     items = read_classifications_from_xlsx(str(safe_xlsx))
-    result = apply_classifications(_State.client, items, dry_run=dry_run)
-    result["n_items_read_from_xlsx"] = len(items)
-    result["xlsx_path"] = str(safe_xlsx)
-    return result
+    target = current_target()
+    plan = WritePlan(
+        kind=WritePlanKind.CLASSIFICATION_UPDATE,
+        target=target,
+        summary={"n_classifications": len(items), "source": "xlsx"},
+        items=[
+            {
+                "element_uuid": it["uuid"],
+                "code": it["code"],
+                "label": it.get("label") or it["code"],
+                "system": it.get("system") or "UniFormat II",
+            }
+            for it in items
+        ],
+        risks=(["Aucune classification lue dans le xlsx."] if not items else []),
+    )
+    plan_path = save_plan(plan)
+
+    if not confirm:
+        # L'appel SANS confirm EST le dry-run : résumé du plan scellé, aucune écriture.
+        out = refused_without_confirm("apply_classifications_from_xlsx")
+        out["plan"] = {
+            "plan_id": plan.plan_id,
+            "summary": plan.summary,
+            "risks": plan.risks,
+            "path": str(plan_path),
+        }
+        out["n_items_read_from_xlsx"] = len(items)
+        out["xlsx_path"] = str(safe_xlsx)
+        return out
+
+    _State.ensure_client()
+    ensure_writes_allowed("apply_classifications_from_xlsx")
+    try:
+        loaded = load_plan(plan_path)
+    except (FileNotFoundError, PlanIntegrityError) as exc:
+        return {"refused": True, "action": "apply_classifications_from_xlsx", "reason": str(exc)}
+    try:
+        result = apply_classification_update(loaded, _State.client, actual_target=target)
+    except PlanTargetMismatchError as exc:
+        return {"refused": True, "action": "apply_classifications_from_xlsx", "reason": str(exc)}
+    out = result.model_dump(mode="json")
+    out["n_items_read_from_xlsx"] = len(items)
+    out["xlsx_path"] = str(safe_xlsx)
+    return out

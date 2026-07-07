@@ -19,21 +19,24 @@ Trois axes :
 
    - transport ≠ stdio ET ``AUDIT_BIM_REQUIRE_API_KEY=true`` (ou
      ``AUDIT_BIM_ENV=production``) ET la clé n'est pas définie ;
-   - transport ≠ stdio ET (clé service définie OU mode prod/require)
-     ET ``AUDIT_INPUT_DIR`` n'est pas défini, sauf opt-out explicite
-     ``AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true`` ;
+   - **tout transport réseau** ET ``AUDIT_INPUT_DIR`` n'est pas défini,
+     sauf opt-out explicite ``AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true``
+     (PR3 §3b — indépendant de la présence d'une clé) ;
    - host = ``0.0.0.0`` sans ``AUDIT_BIM_ENV=production``.
 
 3. **Politique d'écriture** : ``AUDIT_BIM_ALLOW_WRITES`` gouverne tous
-   les tools mutatifs BIMData. Défaut **secure-by-transport** :
+   les tools mutatifs BIMData. Défaut **secure-by-transport, fail-closed**
+   (PR3 §3a) :
 
-   - ``true`` en stdio (mono-client local, AMO BIM interactif) ;
-   - ``false`` en transport réseau (HTTP / SSE / streamable-http) tant
-     que le déploiement n'a pas explicitement autorisé l'écriture
-     distante via ``AUDIT_BIM_ALLOW_WRITES=true``.
+   - ``true`` uniquement pour un transport **local déclaré** (``stdio`` /
+     ``script`` : ``__main__``, ``cli.py``, runners, fixture de tests) ;
+   - ``false`` en transport réseau (HTTP / SSE / streamable-http) **et pour
+     un transport non déclaré** (``None`` : montage ASGI custom,
+     ``fastmcp run``) tant que ``AUDIT_BIM_ALLOW_WRITES=true`` n'est pas
+     explicitement posé.
 
-   :func:`ensure_writes_allowed` est appelée par chaque tool mutatif
-   avant tout side-effect distant.
+   Le flag explicite gagne toujours. :func:`ensure_writes_allowed` est
+   appelée par chaque tool mutatif avant tout side-effect distant.
 """
 
 from __future__ import annotations
@@ -53,17 +56,26 @@ ALLOW_UNBOUNDED_INPUTS_ENV = "AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS"
 ALLOW_ACCESS_TOKEN_PARAM_ENV = "AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM"
 
 # Transport configuré au démarrage (cf. :func:`set_runtime_transport`).
-# ``None`` = stdio par défaut (tests, scripts, imports directs hors
-# ``__main__``) — comportement permissif identique à un MCP local.
+# ``None`` = **non déclaré** ⇒ traité comme **réseau (fail-closed)** : un montage
+# ASGI custom ou ``fastmcp run`` qui n'appelle pas ``set_runtime_transport`` n'obtient
+# PAS les défauts permissifs locaux. Les entrypoints locaux **légitimes** (``__main__``
+# stdio, ``cli.py``, runners de ``scripts/``, fixture de tests) se déclarent
+# explicitement via ``set_runtime_transport`` (``"stdio"`` ou ``"script"``).
 _RUNTIME_TRANSPORT: str | None = None
+
+# Transports **locaux** (IPC, pas d'exposition réseau) : défauts permissifs.
+_LOCAL_TRANSPORTS = ("stdio", "script")
+# Transports **réseau** exposables : défauts fail-closed.
+_NETWORK_TRANSPORTS = ("http", "sse", "streamable-http")
 
 
 def set_runtime_transport(transport: str) -> None:
-    """Mémorise le transport choisi au démarrage du serveur.
+    """Mémorise le transport choisi au démarrage.
 
-    Appelé par ``audit_bim.mcp.__main__`` avant ``mcp.run`` pour que
-    :func:`is_write_allowed` puisse appliquer son défaut
-    *secure-by-transport*.
+    Appelé par ``audit_bim.mcp.__main__`` avant ``mcp.run`` (transport réel :
+    ``stdio``/``http``/…) **et** par les entrypoints locaux (``cli.py``, runners,
+    fixture de tests) avec ``"script"`` / ``"stdio"`` pour se **déclarer locaux** —
+    sans quoi ils hériteraient du défaut réseau fail-closed (``None``).
     """
     global _RUNTIME_TRANSPORT
     _RUNTIME_TRANSPORT = transport
@@ -71,7 +83,13 @@ def set_runtime_transport(transport: str) -> None:
 
 def _is_network_transport() -> bool:
     """``True`` si le runtime tourne sur un transport réseau exposable."""
-    return _RUNTIME_TRANSPORT in ("http", "sse", "streamable-http")
+    return _RUNTIME_TRANSPORT in _NETWORK_TRANSPORTS
+
+
+def _is_local_transport() -> bool:
+    """``True`` **uniquement** pour un transport local **explicitement déclaré**
+    (``stdio``/``script``). ``None`` (non déclaré) → ``False`` : fail-closed."""
+    return _RUNTIME_TRANSPORT in _LOCAL_TRANSPORTS
 
 
 # ── Politique : prod vs dev ──────────────────────────────────────────────
@@ -97,21 +115,22 @@ def is_write_allowed() -> bool:
     Logique :
 
     - ``AUDIT_BIM_ALLOW_WRITES`` défini → on respecte la valeur
-      explicite (``true`` / ``false``).
+      explicite (``true`` / ``false``). **Précédence inchangée : le flag
+      explicite gagne toujours.**
     - Variable non définie :
 
-      - transport ``stdio`` (ou inconnu, ex. tests / scripts directs)
-        → ``True`` (mode AMO BIM interactif local).
-      - transport réseau (``http`` / ``sse`` / ``streamable-http``)
-        → ``False`` *par défaut* — un déploiement HTTP doit
-        explicitement choisir ``AUDIT_BIM_ALLOW_WRITES=true`` pour
-        autoriser les push BIMData.
+      - transport **local déclaré** (``stdio`` / ``script`` : ``__main__``,
+        cli, runners, tests) → ``True`` (mode AMO BIM interactif local).
+      - transport réseau (``http`` / ``sse`` / ``streamable-http``) **ou
+        non déclaré** (``None`` : montage ASGI custom, ``fastmcp run``)
+        → ``False`` *par défaut* (**fail-closed**) — un déploiement doit
+        explicitement choisir ``AUDIT_BIM_ALLOW_WRITES=true``.
     """
     raw = os.getenv(ALLOW_WRITES_ENV)
     if raw is not None:
         return _is_truthy(raw)
-    # Défaut secure-by-transport
-    return not _is_network_transport()
+    # Défaut secure-by-transport : local déclaré uniquement (None = fail-closed).
+    return _is_local_transport()
 
 
 class WritesDisabledError(PermissionError):
@@ -134,20 +153,20 @@ def is_access_token_param_allowed() -> bool:
       explicite (``true`` / ``false``).
     - Variable non définie :
 
-      - transport ``stdio`` (ou inconnu : tests, scripts directs) →
-        ``True`` — un token passé en argument circule seulement par
-        IPC local.
-      - transport réseau (``http`` / ``sse`` / ``streamable-http``)
-        → ``False`` *par défaut*. Les paramètres MCP transitent dans
-        des frames JSON-RPC visibles côté logs client, agent traces,
-        reverse-proxy. Le serveur doit utiliser sa propre auth (env
-        ``BIMDATA_API_KEY`` / client_credentials, ou injection
-        d'identité par le proxy).
+      - transport **local déclaré** (``stdio`` / ``script`` : tests,
+        scripts directs) → ``True`` — un token passé en argument circule
+        seulement par IPC local.
+      - transport réseau (``http`` / ``sse`` / ``streamable-http``) **ou
+        non déclaré** (``None``) → ``False`` *par défaut* (**fail-closed**).
+        Les paramètres MCP transitent dans des frames JSON-RPC visibles
+        côté logs client, agent traces, reverse-proxy. Le serveur doit
+        utiliser sa propre auth (env ``BIMDATA_API_KEY`` /
+        client_credentials, ou injection d'identité par le proxy).
     """
     raw = os.getenv(ALLOW_ACCESS_TOKEN_PARAM_ENV)
     if raw is not None:
         return _is_truthy(raw)
-    return not _is_network_transport()
+    return _is_local_transport()
 
 
 def ensure_access_token_param_allowed() -> None:
@@ -223,30 +242,24 @@ def assert_startup_config(*, transport: str, host: str | None = None) -> None:
             "mais AUDIT_BIM_API_KEY n'est pas défini — refus de démarrer."
         )
 
-    # ``AUDIT_INPUT_DIR`` devient obligatoire dès qu'on expose un
-    # transport réseau **et** qu'une clé service est définie (ce qui
-    # est le mode "déploiement protégé" typique, derrière reverse-proxy).
-    # Sans racine définie, ``safe_input_path`` accepte tout fichier
-    # local existant — zone trop implicite pour un MCP exposé.
+    # ``AUDIT_INPUT_DIR`` est obligatoire pour **tout transport réseau**
+    # (durcissement F4). On atteint ce point uniquement en réseau (le
+    # ``stdio`` a retourné plus haut). Sans racine définie,
+    # ``safe_input_path`` accepte tout fichier local existant — zone trop
+    # implicite pour un MCP exposé, indépendamment de la présence d'une clé.
     #
     # Opt-out explicite : ``AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true`` (à
-    # n'activer qu'en connaissance de cause pour les déploiements qui
-    # ont d'autres garde-fous filesystem côté infra — chroot, conteneur
+    # n'activer qu'en connaissance de cause pour les déploiements qui ont
+    # d'autres garde-fous filesystem côté infra — chroot, conteneur
     # restreint, AppArmor).
-    needs_input_dir = is_api_key_required() or os.getenv(API_KEY_ENV)
-    if (
-        needs_input_dir
-        and not os.getenv("AUDIT_INPUT_DIR")
-        and not _is_truthy(os.getenv(ALLOW_UNBOUNDED_INPUTS_ENV))
-    ):
+    if not os.getenv("AUDIT_INPUT_DIR") and not _is_truthy(os.getenv(ALLOW_UNBOUNDED_INPUTS_ENV)):
         raise RuntimeError(
-            "Transport réseau protégé par AUDIT_BIM_API_KEY mais "
-            "AUDIT_INPUT_DIR n'est pas défini — refus de démarrer. Tout "
-            "fichier local lisible par le processus serait sinon ouvrable "
-            "par un client MCP distant. Définir AUDIT_INPUT_DIR sur un "
-            "dossier dédié aux documents auditables (DOE, CCH, annexes), "
-            "ou opter explicitement pour le mode permissif via "
-            "AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true (déconseillé sans "
+            f"Transport réseau ({transport}) mais AUDIT_INPUT_DIR n'est pas "
+            "défini — refus de démarrer. Tout fichier local lisible par le "
+            "processus serait sinon ouvrable par un client MCP distant. Définir "
+            "AUDIT_INPUT_DIR sur un dossier dédié aux documents auditables "
+            "(DOE, CCH, annexes), ou opter explicitement pour le mode permissif "
+            "via AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true (déconseillé sans "
             "garde-fou filesystem côté infra)."
         )
 

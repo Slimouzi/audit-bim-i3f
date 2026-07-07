@@ -7,6 +7,27 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Security (refactor PR3 — durcissement transport)
+
+- **Défaut secure-by-transport passé en fail-closed** (`docs/instruct-refactor-pr-series.md`
+  §PR3). **3 changements de comportement, tous listés** : (3a) un transport **non
+  déclaré** (`None` : montage ASGI custom, `fastmcp run`) est désormais traité comme
+  **réseau** → écritures **et** `access_token` en paramètre **refusés** par défaut
+  (au lieu de permissifs). Les entrypoints locaux légitimes se **déclarent
+  explicitement** (`__main__` stdio ; `cli.py` + les 3 runners de `scripts/` en mode
+  `"script"` ; fixture de tests autouse). Précédence `AUDIT_BIM_ALLOW_WRITES`
+  inchangée (le flag explicite gagne toujours). (3b) `AUDIT_INPUT_DIR` devient
+  **obligatoire pour tout transport réseau** (refus de démarrer), indépendamment de la
+  clé service — seul opt-out `AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true`. (3c)
+  `apply_classifications_from_xlsx` **reconstruit sur le contrat prepare→apply** :
+  lecture xlsx (sandbox) → **plan scellé** → refus sans `confirm=True` → `validate_target`
+  → apply → journal ; le paramètre `dry_run` **disparaît** (l'appel sans `confirm` EST
+  le dry-run). (3d) `.env.example` complété des 9 variables de sécurité, `SECURITY.md`
+  mis à jour (tableau transport → posture). Tests : transport `None` → refus
+  écritures/token ; mode `script` → autorisé ; HTTP sans `AUDIT_INPUT_DIR` → refus
+  démarrage ; xlsx-apply sans `confirm` → `refused` ; xlsx-apply complet → entrée
+  journal. Dry-run A1 rejoué vert (runners en mode `script`).
+
 ### Changed (refactor PR2 — mcp/app.py + éclatement de server.py)
 
 - **Enregistrement explicite des tools + éclatement de `server.py`**

@@ -42,6 +42,9 @@ def main(argv: list[str]) -> int:
 
     # Imports tardifs : ne charger audit_bim qu'après la validation des args.
     from audit_bim.extraction.client import BIMDataClient
+    from audit_bim.mcp.security import set_runtime_transport
+
+    set_runtime_transport("script")  # PR3 §3a — entrypoint local (writes/token permis)
     from audit_bim.extraction.model_data import extract_snapshot
     from audit_bim.requirements.catalog import build_catalog
 

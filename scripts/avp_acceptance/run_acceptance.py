@@ -185,6 +185,9 @@ def main(argv: list[str]) -> int:
         return 2
 
     from audit_bim import config
+    from audit_bim.mcp.security import set_runtime_transport
+
+    set_runtime_transport("script")  # PR3 §3a — entrypoint local (writes/token permis)
     from audit_bim.audit.engine import run_audit
     from audit_bim.extraction.client import BIMDataClient
     from audit_bim.extraction.model_data import extract_snapshot

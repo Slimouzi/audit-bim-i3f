@@ -163,6 +163,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     import os
 
     from audit_bim import config
+    from audit_bim.mcp.security import set_runtime_transport
+
+    set_runtime_transport("script")  # PR3 §3a — entrypoint local (writes/token permis)
     from audit_bim.actions.bcf_planner import apply_bcf, prepare_bcf
     from audit_bim.actions.plans import load_plan, save_plan
     from audit_bim.actions.smartview_planner import apply_smart_views, prepare_smart_views

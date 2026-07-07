@@ -21,6 +21,20 @@ from audit_bim.requirements.models import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _declare_local_runtime_transport():
+    """PR3 §3a — déclare le mode **local** (stdio) pour chaque test. Sans ça, le
+    nouveau défaut fail-closed (transport non déclaré = réseau) exigerait
+    ``AUDIT_BIM_ALLOW_WRITES=true`` partout. Les tests de transport surchargent
+    explicitement dans leur corps ; l'état est restauré ensuite."""
+    from audit_bim.mcp import security
+
+    prev = security._RUNTIME_TRANSPORT
+    security.set_runtime_transport("stdio")
+    yield
+    security._RUNTIME_TRANSPORT = prev
+
+
 @pytest.fixture
 def storey_names() -> list[StoreyName]:
     """Liste fermée I3F des noms d'étages admis (échantillon minimal)."""

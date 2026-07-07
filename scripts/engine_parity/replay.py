@@ -42,6 +42,9 @@ def main(argv: list[str]) -> int:
     from bim_core.model_snapshot import ModelSnapshot
 
     from audit_bim.audit.engine import AuditResult, run_audit
+    from audit_bim.mcp.security import set_runtime_transport
+
+    set_runtime_transport("script")  # PR3 §3a — entrypoint local (writes/token permis)
     from audit_bim.requirements.models import BIMPhase, RequirementsCatalog
 
     art = Path(argv[1])
