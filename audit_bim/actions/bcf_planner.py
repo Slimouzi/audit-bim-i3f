@@ -17,8 +17,7 @@ from ..domain.filters import FindingFilter
 from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
 from ..security.redaction import redact_secrets
-from ..security.write_journal import get_journal
-from .plans import validate_target
+from ._apply_runtime import ApplyOutcome, run_apply
 
 logger = logging.getLogger("audit_bim.actions.bcf")
 
@@ -80,50 +79,36 @@ def apply_bcf(
         des tokens — le client ne retourne pas de bearer dans ses
         exceptions standard).
     """
-    if plan.kind != WritePlanKind.BCF_TOPICS:
-        raise ValueError(f"Plan de kind={plan.kind!r}, attendu={WritePlanKind.BCF_TOPICS!r}.")
 
-    if actual_target is None:
-        actual_target = {
-            "cloud_id": client.cloud_id,
-            "project_id": client.project_id,
-            "model_id": client.model_id,
-        }
-    validate_target(plan, actual_target=actual_target)
+    def _execute(plan: WritePlan, client: BIMDataClient) -> ApplyOutcome:
+        succeeded = 0
+        failed = 0
+        impacted_titles: list[str] = []
+        errors: list[dict[str, str]] = []
+        for payload in plan.items:
+            title = payload.get("title", "?")
+            try:
+                client.create_bcf_full_topic(payload)
+                succeeded += 1
+                impacted_titles.append(title)
+            except Exception as exc:  # noqa: BLE001 (on capture tout pour journaliser)
+                failed += 1
+                # Redaction systématique : un message HTTP peut embarquer une
+                # URL signée ou un en-tête Authorization.
+                errors.append({"title": str(title), "message": redact_secrets(str(exc))})
+        return ApplyOutcome(
+            succeeded,
+            failed,
+            impacted_titles,
+            result_errors=errors,
+            extra={"errors_sample": errors[:5]},
+        )
 
-    succeeded = 0
-    failed = 0
-    impacted_titles: list[str] = []
-    errors: list[dict[str, str]] = []
-
-    for payload in plan.items:
-        title = payload.get("title", "?")
-        try:
-            client.create_bcf_full_topic(payload)
-            succeeded += 1
-            impacted_titles.append(title)
-        except Exception as exc:  # noqa: BLE001 (on capture tout pour journaliser)
-            failed += 1
-            # Redaction systématique : un message HTTP peut embarquer une
-            # URL signée ou un en-tête Authorization.
-            errors.append({"title": str(title), "message": redact_secrets(str(exc))})
-
-    get_journal().record(
+    return run_apply(
+        plan,
+        client,
+        expected_kind=WritePlanKind.BCF_TOPICS,
         action="apply_bcf_topics",
-        plan_id=plan.plan_id,
-        plan_kind=plan.kind.value,
-        target=plan.target,
-        succeeded=succeeded,
-        failed=failed,
-        impacted_uuids=impacted_titles,
-        extra={"errors_sample": errors[:5]},
-    )
-
-    return ActionResult(
-        plan_id=plan.plan_id,
-        kind=plan.kind,
-        succeeded=succeeded,
-        failed=failed,
-        impacted_uuids=impacted_titles,
-        errors=errors,
+        actual_target=actual_target,
+        executor=_execute,
     )

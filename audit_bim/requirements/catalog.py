@@ -15,28 +15,63 @@ from .models import RequirementsCatalog
 from .naming_spec_parser import parse_naming_spec
 from .pdf_parser import parse_pdf
 
+# Cache module-level de ``build_catalog`` (PR4 §4c). Keyé sur les **chemins
+# résolus + (mtime_ns, taille)** des 3 sources : un fichier modifié → clé
+# différente → re-parse automatique. Pas de TTL, pas d'env de désactivation :
+# le keying suffit. Un fichier fourni mais **absent** → pas de cache (le
+# comportement d'erreur/partiel reste inchangé). Le flux courant « preview puis
+# audit » économise ainsi un second parse complet (PDF + 2 xlsx).
+_CATALOG_CACHE: dict[tuple, RequirementsCatalog] = {}
+
+
+def clear_catalog_cache() -> None:
+    """Vide le cache de ``build_catalog`` (fixture de tests / outil de debug)."""
+    _CATALOG_CACHE.clear()
+
+
+def _source_key(path: str | Path | None) -> tuple[str, int, int] | None:
+    """``(chemin résolu, mtime_ns, taille)`` d'une source, ou ``None`` si absente."""
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        return None
+    st = p.stat()
+    return (str(p.resolve()), st.st_mtime_ns, st.st_size)
+
 
 def build_catalog(
     cch_pdf: str | Path | None = None,
     data_spec_xlsx: str | Path | None = None,
     naming_spec_xlsx: str | Path | None = None,
 ) -> RequirementsCatalog:
-    """Construit un catalogue à partir des documents disponibles.
+    """Construit (ou **réutilise depuis le cache**) un catalogue à partir des
+    documents disponibles.
 
-    Tous les arguments sont optionnels : un catalogue partiel est produit avec
-    ce qui peut être lu. Le minimum exploitable est *un* des trois documents.
-
-    Args:
-        cch_pdf: Cahier des charges principal (PDF). Source de la version du CCH
-            et fallback pour les listes manquantes.
-        data_spec_xlsx: Annexe « Spécification des données ». Source autoritaire
-            des PropertySpec (objets × phases BIM).
-        naming_spec_xlsx: Annexe « Nommage ». Source autoritaire des règles de
-            nommage et listes fermées (étages, zones, pièces).
-
-    Returns:
-        Catalogue agrégé.
+    Mémoïsé sur ``(chemin résolu, mtime, taille)`` des 3 sources — deux appels aux
+    **mêmes** sources non modifiées renvoient le **même objet** (identité) ; toute
+    modification d'un fichier force une reconstruction. Un fichier fourni mais
+    absent désactive le cache (comportement inchangé).
     """
+    provided = [x for x in (cch_pdf, data_spec_xlsx, naming_spec_xlsx) if x]
+    if provided and all(Path(x).exists() for x in provided):
+        key = (_source_key(cch_pdf), _source_key(data_spec_xlsx), _source_key(naming_spec_xlsx))
+        cached = _CATALOG_CACHE.get(key)
+        if cached is not None:
+            return cached
+        catalog = _build_catalog_uncached(cch_pdf, data_spec_xlsx, naming_spec_xlsx)
+        _CATALOG_CACHE[key] = catalog
+        return catalog
+    # Aucune source, ou une source fournie manquante → pas de cache.
+    return _build_catalog_uncached(cch_pdf, data_spec_xlsx, naming_spec_xlsx)
+
+
+def _build_catalog_uncached(
+    cch_pdf: str | Path | None = None,
+    data_spec_xlsx: str | Path | None = None,
+    naming_spec_xlsx: str | Path | None = None,
+) -> RequirementsCatalog:
+    """Construction effective (sans cache) — cf. :func:`build_catalog`."""
     catalog = RequirementsCatalog()
 
     if data_spec_xlsx and Path(data_spec_xlsx).exists():

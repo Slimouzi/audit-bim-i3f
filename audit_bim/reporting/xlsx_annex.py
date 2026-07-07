@@ -22,7 +22,7 @@ import xlsxwriter
 
 from ..audit.engine import AuditResult
 from ..audit.findings import ErrorType, Severity
-from ..classifier import suggest_for_findings
+from ..classifier import suggest_for_findings, suggestions_map
 from .theming import (
     BIMDATA_BLUE_NEUTRAL_LIGHT,
     BIMDATA_FONT_PRIMARY,
@@ -426,17 +426,7 @@ def _build_suggestions_map(result: AuditResult) -> dict:
 
     On garde la suggestion *de plus haute confiance* uniquement (top 1).
     """
-    suggestions = suggest_for_findings(
-        result.findings, result.snapshot, min_confidence=0.4, top_n=1
-    )
-    out: dict[str, dict] = {}
-    for item in suggestions:
-        uuid = item.get("element_uuid")
-        sugs = item.get("suggestions") or []
-        if not uuid or not sugs:
-            continue
-        out[uuid] = sugs[0]
-    return out
+    return suggestions_map(result.findings, result.snapshot)
 
 
 def _write_classification_suggestions(wb, result: AuditResult, fmts: dict):

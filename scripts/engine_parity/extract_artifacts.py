@@ -22,19 +22,6 @@ import sys
 from pathlib import Path
 
 
-def _assert_outside_repo(out: Path) -> None:
-    """Refuse d'écrire des données client dans l'arbre du dépôt."""
-    root = Path(__file__).resolve()
-    while root != root.parent and not (root / ".git").exists():
-        root = root.parent
-    out = out.resolve()
-    if out == root or root in out.parents:
-        raise SystemExit(
-            f"REFUS : {out} est dans le dépôt {root}. Les artefacts contiennent "
-            f"des données client — écris-les HORS du repo (ex. /tmp/engine-parity)."
-        )
-
-
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: python extract_artifacts.py <out_dir_hors_repo>", file=sys.stderr)
@@ -49,7 +36,9 @@ def main(argv: list[str]) -> int:
     from audit_bim.requirements.catalog import build_catalog
 
     out = Path(argv[1])
-    _assert_outside_repo(out)
+    from audit_bim.security.guards import assert_outside_repo
+
+    assert_outside_repo(out, context="engine-parity")
     out.mkdir(parents=True, exist_ok=True)
 
     # Documents MOA : chemins via l'environnement (config), pas de valeur en dur.

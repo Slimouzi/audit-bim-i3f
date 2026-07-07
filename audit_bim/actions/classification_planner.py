@@ -28,8 +28,7 @@ from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
 from ..query.filtering import suggestion_matches
 from ..security.redaction import redact_secrets
-from ..security.write_journal import get_journal
-from .plans import validate_target
+from ._apply_runtime import ApplyOutcome, run_apply
 
 logger = logging.getLogger("audit_bim.actions.classification")
 
@@ -139,75 +138,58 @@ def apply_classification_update(
     Returns:
         :class:`ActionResult`.
     """
-    if plan.kind != WritePlanKind.CLASSIFICATION_UPDATE:
-        raise ValueError(
-            f"Plan de kind={plan.kind!r}, attendu={WritePlanKind.CLASSIFICATION_UPDATE!r}."
+
+    def _execute(plan: WritePlan, client: BIMDataClient) -> ApplyOutcome:
+        # Mappe les items vers la signature attendue par apply_classifications.
+        api_items = [
+            {
+                "uuid": it["element_uuid"],
+                "code": it["code"],
+                "label": it.get("label") or it["code"],
+                "system": it.get("system") or "uniformat",
+            }
+            for it in plan.items
+        ]
+
+        api_result = apply_classifications(client, api_items, dry_run=False)
+
+        # ``apply_classifications`` expose désormais ``linked_uuids`` /
+        # ``failed_uuids`` — on ne bascule en APPLIED que ceux réellement
+        # liés (cf. revue CTO : éviter de marquer APPLIED un UUID dont la
+        # création de classification a échoué mais qui était dans le plan).
+        linked_uuids: list[str] = list(api_result.get("linked_uuids") or [])
+        failed_uuids: list[str] = list(api_result.get("failed_uuids") or [])
+
+        # Met à jour le store : seuls les UUIDs réellement liés passent en
+        # APPLIED. Les autres conservent leur statut (ACCEPTED en général)
+        # pour permettre un rerun ciblé.
+        if store is not None:
+            for uid in linked_uuids:
+                store.update_status(uid, SuggestionStatus.APPLIED)
+
+        # Scrub des erreurs avant journal/retour MCP : un message HTTP peut
+        # contenir une URL signée ou un en-tête Authorization.
+        scrubbed_errors = [redact_secrets(str(e)) for e in (api_result.get("errors") or [])]
+
+        return ApplyOutcome(
+            len(linked_uuids),
+            len(failed_uuids),
+            linked_uuids,
+            result_errors=[{"uuid": "?", "message": msg} for msg in scrubbed_errors],
+            extra={
+                "n_classifications_created": api_result.get("n_classifications_created"),
+                "n_classifications_reused": api_result.get("n_classifications_reused"),
+                "link_failed": api_result.get("link_failed"),
+                "failed_uuids_count": len(failed_uuids),
+                "errors_sample": scrubbed_errors[:5],
+            },
         )
 
-    if actual_target is None:
-        actual_target = {
-            "cloud_id": client.cloud_id,
-            "project_id": client.project_id,
-            "model_id": client.model_id,
-        }
-    validate_target(plan, actual_target=actual_target)
-
-    # Mappe les items vers la signature attendue par apply_classifications.
-    api_items = [
-        {
-            "uuid": it["element_uuid"],
-            "code": it["code"],
-            "label": it.get("label") or it["code"],
-            "system": it.get("system") or "uniformat",
-        }
-        for it in plan.items
-    ]
-
-    api_result = apply_classifications(client, api_items, dry_run=False)
-
-    # ``apply_classifications`` expose désormais ``linked_uuids`` /
-    # ``failed_uuids`` — on ne bascule en APPLIED que ceux réellement
-    # liés (cf. revue CTO : éviter de marquer APPLIED un UUID dont la
-    # création de classification a échoué mais qui était dans le plan).
-    linked_uuids: list[str] = list(api_result.get("linked_uuids") or [])
-    failed_uuids: list[str] = list(api_result.get("failed_uuids") or [])
-
-    succeeded = len(linked_uuids)
-    failed = len(failed_uuids)
-
-    # Met à jour le store : seuls les UUIDs réellement liés passent en
-    # APPLIED. Les autres conservent leur statut (ACCEPTED en général)
-    # pour permettre un rerun ciblé.
-    if store is not None:
-        for uid in linked_uuids:
-            store.update_status(uid, SuggestionStatus.APPLIED)
-
-    # Scrub des erreurs avant journal/retour MCP : un message HTTP peut
-    # contenir une URL signée ou un en-tête Authorization.
-    scrubbed_errors = [redact_secrets(str(e)) for e in (api_result.get("errors") or [])]
-
-    get_journal().record(
+    return run_apply(
+        plan,
+        client,
+        expected_kind=WritePlanKind.CLASSIFICATION_UPDATE,
         action="apply_classification_update",
-        plan_id=plan.plan_id,
-        plan_kind=plan.kind.value,
-        target=plan.target,
-        succeeded=succeeded,
-        failed=failed,
-        impacted_uuids=linked_uuids,
-        extra={
-            "n_classifications_created": api_result.get("n_classifications_created"),
-            "n_classifications_reused": api_result.get("n_classifications_reused"),
-            "link_failed": api_result.get("link_failed"),
-            "failed_uuids_count": len(failed_uuids),
-            "errors_sample": scrubbed_errors[:5],
-        },
-    )
-
-    return ActionResult(
-        plan_id=plan.plan_id,
-        kind=plan.kind,
-        succeeded=succeeded,
-        failed=failed,
-        impacted_uuids=linked_uuids,
-        errors=[{"uuid": "?", "message": msg} for msg in scrubbed_errors],
+        actual_target=actual_target,
+        executor=_execute,
     )

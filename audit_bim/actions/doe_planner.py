@@ -33,8 +33,7 @@ from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot
 from ..security.redaction import redact_secrets
-from ..security.write_journal import get_journal
-from .plans import validate_target
+from ._apply_runtime import ApplyOutcome, run_apply
 
 logger = logging.getLogger("audit_bim.actions.doe")
 
@@ -245,69 +244,56 @@ def apply_doe_enrichment(
     Returns:
         :class:`ActionResult` (succeeded / failed / errors / impacted_uuids).
     """
-    if plan.kind != WritePlanKind.DOE_ENRICHMENT:
-        raise ValueError(f"Plan de kind={plan.kind!r}, attendu={WritePlanKind.DOE_ENRICHMENT!r}.")
 
-    if actual_target is None:
-        actual_target = {
-            "cloud_id": client.cloud_id,
-            "project_id": client.project_id,
-            "model_id": client.model_id,
-        }
-    validate_target(plan, actual_target=actual_target)
+    def _execute(plan: WritePlan, client: BIMDataClient) -> ApplyOutcome:
+        succeeded = 0
+        failed = 0
+        impacted_uuids: list[str] = []
+        errors: list[dict[str, str]] = []
+        seen_uuids: set[str] = set()
+        for item in plan.items:
+            element_uuid = item.get("element_uuid")
+            pset_name = item.get("pset_name")
+            payload = item.get("payload") or {}
+            if not element_uuid or not payload:
+                continue
+            try:
+                client.write_element_propertyset(element_uuid, payload)
+                succeeded += 1
+                if element_uuid not in seen_uuids:
+                    seen_uuids.add(element_uuid)
+                    impacted_uuids.append(element_uuid)
+            except Exception as exc:  # noqa: BLE001 (capture pour journal)
+                failed += 1
+                errors.append(
+                    {
+                        "element_uuid": str(element_uuid),
+                        "pset": str(pset_name),
+                        "message": redact_secrets(str(exc)),
+                    }
+                )
+        return ApplyOutcome(
+            succeeded,
+            failed,
+            impacted_uuids,
+            result_errors=[
+                {"uuid": e.get("element_uuid", "?"), "message": e.get("message", "")}
+                for e in errors
+            ],
+            extra={
+                "n_psets_pushed": succeeded,
+                "n_psets_failed": failed,
+                "on_conflict": (plan.summary or {}).get("on_conflict"),
+                "source": (plan.summary or {}).get("source"),
+                "errors_sample": errors[:5],
+            },
+        )
 
-    succeeded = 0
-    failed = 0
-    impacted_uuids: list[str] = []
-    errors: list[dict[str, str]] = []
-    seen_uuids: set[str] = set()
-
-    for item in plan.items:
-        element_uuid = item.get("element_uuid")
-        pset_name = item.get("pset_name")
-        payload = item.get("payload") or {}
-        if not element_uuid or not payload:
-            continue
-        try:
-            client.write_element_propertyset(element_uuid, payload)
-            succeeded += 1
-            if element_uuid not in seen_uuids:
-                seen_uuids.add(element_uuid)
-                impacted_uuids.append(element_uuid)
-        except Exception as exc:  # noqa: BLE001 (capture pour journal)
-            failed += 1
-            errors.append(
-                {
-                    "element_uuid": str(element_uuid),
-                    "pset": str(pset_name),
-                    "message": redact_secrets(str(exc)),
-                }
-            )
-
-    get_journal().record(
+    return run_apply(
+        plan,
+        client,
+        expected_kind=WritePlanKind.DOE_ENRICHMENT,
         action="apply_doe_enrichment",
-        plan_id=plan.plan_id,
-        plan_kind=plan.kind.value,
-        target=plan.target,
-        succeeded=succeeded,
-        failed=failed,
-        impacted_uuids=impacted_uuids,
-        extra={
-            "n_psets_pushed": succeeded,
-            "n_psets_failed": failed,
-            "on_conflict": (plan.summary or {}).get("on_conflict"),
-            "source": (plan.summary or {}).get("source"),
-            "errors_sample": errors[:5],
-        },
-    )
-
-    return ActionResult(
-        plan_id=plan.plan_id,
-        kind=plan.kind,
-        succeeded=succeeded,
-        failed=failed,
-        impacted_uuids=impacted_uuids,
-        errors=[
-            {"uuid": e.get("element_uuid", "?"), "message": e.get("message", "")} for e in errors
-        ],
+        actual_target=actual_target,
+        executor=_execute,
     )

@@ -40,18 +40,6 @@ def expected_prefix(date_yyyymmdd: str) -> str:
     return f"{PREFIX_BASE}{date_yyyymmdd} — "
 
 
-def _assert_outside_repo(out: Path) -> None:
-    root = Path(__file__).resolve()
-    while root != root.parent and not (root / ".git").exists():
-        root = root.parent
-    out = out.resolve()
-    if out == root or root in out.parents:
-        raise SystemExit(
-            f"REFUS : {out} est dans le dépôt {root}. Les plans/sorties peuvent porter "
-            f"des données client — écris-les HORS du repo (ex. /tmp/a1-replay)."
-        )
-
-
 def assert_write_target(effective_target: dict, allowed_model_id: str | None) -> None:
     """Garde **cible jetable** (helper pur) : l'écriture n'est autorisée QUE sur le
     modèle de validation désigné par ``REPLAY_WRITE_MODEL_ID``. Toute autre cible →
@@ -182,7 +170,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     from audit_bim.security.write_journal import get_journal
 
     out = Path(args[0])
-    _assert_outside_repo(out)
+    from audit_bim.security.guards import assert_outside_repo
+
+    assert_outside_repo(out, context="a1-replay")
     out.mkdir(parents=True, exist_ok=True)
     os.environ["AUDIT_OUTPUT_DIR"] = str(out)  # plans scellés écrits hors repo
     phase = BIMPhase(args[1]) if len(args) > 1 else BIMPhase.AVP
@@ -208,16 +198,14 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
         "data_spec_xlsx": config.I3F_DATA_SPEC_XLSX,
         "naming_spec_xlsx": config.I3F_NAMING_SPEC_XLSX,
     }
-    _missing = [n for n, p in _docs.items() if not p or not Path(p).exists()]
-    if _missing:
-        raise SystemExit(f"REFUS : documents I3F absents {_missing} — contrôle CCH impossible.")
     catalog = build_catalog(
         cch_pdf=config.I3F_CCH_PDF,
         data_spec_xlsx=config.I3F_DATA_SPEC_XLSX,
         naming_spec_xlsx=config.I3F_NAMING_SPEC_XLSX,
     )
-    if not catalog.properties or not catalog.naming_rules:
-        raise SystemExit("REFUS : catalogue CCH vide — replay non fiable.")
+    from audit_bim.security.guards import assert_catalog_usable
+
+    assert_catalog_usable(_docs, catalog)
     result = run_audit(snap, catalog, phase)
 
     # 4. Préparation — plans scellés (aucune écriture). Filtre + préfixe figés.
