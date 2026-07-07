@@ -9,6 +9,14 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Added
 
+- **Replay A1 — validation `--write` réelle + étape 8** — `bimdata-read` bumpé à
+  **v0.1.2** (`list_bcf_topics`/`list_smart_views`, filtrage `?format` côté
+  serveur) ; le `--write` du runner vérifie l'écriture à **3 niveaux** (rapport
+  d'apply + journal + re-lecture API indépendante). Validation réelle sur Dieppe
+  **PASS** (1 BCF + 1 Smart View), qui a attrapé et fait corriger un vrai écart de
+  lecture des Smart Views. La re-lecture indépendante ramène le hand-off 5b à un
+  **contrôle périodique**. Voir `docs/validation-a1-replay.md`.
+
 - **Replay A1 industrialisé** (`scripts/a1_replay/run_replay.py`) — rejoue la
   publication BCF / Smart Views (`prepare → review → apply`) avec un verdict
   machine, symétrique de l'acceptation AVP. **Dry-run par défaut** (aucune
