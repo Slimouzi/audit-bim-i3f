@@ -35,7 +35,7 @@ from pathlib import Path
 
 import openpyxl
 
-from ..audit.ifc_hierarchy import normalize_catalog_class
+from ..domain.ifc_taxonomy import normalize_catalog_class
 from ._openpyxl_compat import patch_openpyxl
 from .models import BIMPhase, PropertySpec
 

@@ -7,7 +7,19 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
-### Changed (audit technique CTO)
+### Changed (refactor PR1 — cycles de couche)
+
+- **3 cycles d'import cassés** (`docs/instruct-refactor-pr-series.md` §PR1) : (1a)
+  `SEVERITY_COLORS` (palette feux tricolores, convention métier) déménage de
+  `reporting/theming` vers `audit/findings`, à côté de l'enum `Severity` — `theming`
+  la **ré-exporte** (import descendant légal) : `word_report`/`xlsx_annex`/`avp_i3f`
+  inchangés, tokens de charte `BIMDATA_*` intouchés ; (1b) `audit/ifc_hierarchy.py`
+  déménage vers `domain/ifc_taxonomy.py` (taxonomie IFC, pas de l'audit — pas de shim) ;
+  (1c) `ProjectAddress` déménage vers `domain/address.py`, `doe` l'importe depuis
+  `domain` (plus depuis `enrichment`) → `enrichment → doe` redevient unidirectionnel,
+  l'import paresseux « éviter le cycle » promu en import normal. **Verrou
+  architectural** `tests/unit/test_architecture.py` (ast) fige les règles de couches.
+  Additif : goldens de parité publication inchangés.
 
 - **Démarrage serveur/CLI allégé** : `matplotlib` (~330 ms) et `openpyxl`
   (~200 ms) ne sont plus importés qu'à l'usage (génération Word / parsing

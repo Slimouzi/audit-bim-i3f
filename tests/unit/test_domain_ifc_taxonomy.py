@@ -1,8 +1,8 @@
-"""Tests du module ``audit_bim.audit.ifc_hierarchy``."""
+"""Tests du module ``audit_bim.domain.ifc_taxonomy``."""
 
 from __future__ import annotations
 
-from audit_bim.audit.ifc_hierarchy import IFC_SUBCLASSES, expand_class, normalize_catalog_class
+from audit_bim.domain.ifc_taxonomy import IFC_SUBCLASSES, expand_class, normalize_catalog_class
 
 
 class TestExpandClass:
