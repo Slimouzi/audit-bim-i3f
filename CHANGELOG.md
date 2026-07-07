@@ -22,6 +22,27 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   **Changement de comptage** (moins de faux positifs). Nouveau
   `tests/unit/test_naming_e4_e5.py`.
 
+### Fixed (audit profond 2ᵉ passe — Lot 1 « le moteur dit vrai »)
+
+- **C1 — faux positif « quantité manquante » sur toute pièce conforme.**
+  `audit_spatial` lisait la surface via `resolve_value(sp, "BaseQuantities", "NetFloorArea")` :
+  un locateur sans `/` ni préfixe `Pset` ne matchait aucune étape de routage et renvoyait
+  toujours `None`, faisant émettre `SPATIAL_MISSING_QUANTITY` sur **chaque** `IfcSpace`
+  possédant pourtant sa surface en `BaseQuantities`. Corrigé en passant par le locateur
+  composite `BaseQuantities/NetFloorArea` (route vers `get_quantity_with_fallback`, repli
+  ArchiCAD inclus). **Changement de comptage** : les rapports perdent ces faux positifs du
+  thème « Quantités » ; le finding légitime (pièce réellement sans quantité) est conservé.
+  Nouveau `tests/unit/test_spatial_quantity.py` (cas positif *et* négatif).
+- **E1 — les exigences `kind="quantity"` du format 2026 sont enfin auditées.**
+  `audit_properties` filtrait `kind == "property"` : les quantités (`BaseQuantities`,
+  toutes classes — murs, dalles, pièces…) n'étaient **jamais** vérifiées. Elles le sont
+  désormais (thème « Quantités », `SPATIAL_MISSING_QUANTITY`, sévérité MEDIUM).
+  Réconciliation « spatial cède à properties » : le contrôle IfcSpace câblé de
+  `audit_spatial` devient un **repli** actif uniquement quand le catalogue n'a **pas**
+  d'exigence quantité sur `IfcSpace` (ancien format V3.x) → pas de double comptage.
+  **Changement de comptage** (plus de vrais manquants 2026). Nouveau
+  `tests/unit/test_quantity_audit_e1.py`.
+
 ### Changed (refactor PR4 — factorisation)
 
 - **Dédup / factorisation** (`docs/instruct-refactor-pr-series.md` §PR4), goldens +

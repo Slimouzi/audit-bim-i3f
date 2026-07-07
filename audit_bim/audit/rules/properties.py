@@ -9,9 +9,31 @@ from ...requirements.models import BIMPhase, RequirementsCatalog
 from ..findings import ErrorType, Finding, Severity, Theme
 from ..validators import validate_property_value
 
+# Genres de spec audités par présence/valeur ici. ``document`` est traité
+# ailleurs (rappel global, pas par élément).
+_AUDITED_KINDS = ("property", "quantity")
+
 
 def _severity_for(spec_kind: str) -> Severity:
-    return Severity.MEDIUM if spec_kind == "property" else Severity.LOW
+    return Severity.MEDIUM if spec_kind in ("property", "quantity") else Severity.LOW
+
+
+def _missing_meta(spec_kind: str) -> tuple[Theme, Severity, ErrorType]:
+    """(thème, sévérité, error_type) d'une **absence** selon le genre de spec.
+
+    Les quantités (BaseQuantities, format 2026) sont regroupées dans le thème
+    « Quantités » avec ``SPATIAL_MISSING_QUANTITY`` — même sémantique que le repli
+    câblé de ``audit_spatial`` — pour une lecture homogène des livrables (E1)."""
+    if spec_kind == "quantity":
+        return Theme.QUANTITY, Severity.MEDIUM, ErrorType.SPATIAL_MISSING_QUANTITY
+    return Theme.PROPERTY_MISSING, _severity_for(spec_kind), ErrorType.PROPERTY_MISSING
+
+
+def _invalid_meta(spec_kind: str) -> tuple[Theme, Severity]:
+    """(thème, sévérité) d'une **valeur incohérente** selon le genre de spec."""
+    if spec_kind == "quantity":
+        return Theme.QUANTITY, Severity.MEDIUM
+    return Theme.PROPERTY_INVALID, _severity_for(spec_kind)
 
 
 def _is_empty(value) -> bool:
@@ -51,9 +73,15 @@ def audit_properties(
     """
     findings: list[Finding] = []
 
-    # Classes IFC pour lesquelles le CCH exige des propriétés à cette phase
+    # Classes IFC pour lesquelles le CCH exige des propriétés OU des quantités à
+    # cette phase (E1 : les exigences kind="quantity" du format 2026 étaient
+    # auparavant ignorées — surfaces/quantités jamais auditées).
     ifc_classes = sorted(
-        {p.ifc_class for p in catalog.properties if p.required_at(phase) and p.kind == "property"}
+        {
+            p.ifc_class
+            for p in catalog.properties
+            if p.required_at(phase) and p.kind in _AUDITED_KINDS
+        }
     )
 
     for ifc_class in ifc_classes:
@@ -90,16 +118,17 @@ def audit_properties(
             uuid = el.get("uuid")
             nm = get_attribute(el, "Name") or el.get("name")
             for spec in specs:
-                if spec.kind != "property":
+                if spec.kind not in _AUDITED_KINDS:
                     continue
                 value = resolve_value(el, spec.pset_or_attribute, spec.property_name)
                 via = f" (exigence définie sur {ifc_class})" if actual_class != ifc_class else ""
                 if _is_empty(value):
+                    miss_theme, miss_sev, miss_err = _missing_meta(spec.kind)
                     findings.append(
                         Finding(
-                            theme=Theme.PROPERTY_MISSING,
-                            severity=_severity_for(spec.kind),
-                            error_type=ErrorType.PROPERTY_MISSING,
+                            theme=miss_theme,
+                            severity=miss_sev,
+                            error_type=miss_err,
                             element_uuid=uuid,
                             ifc_type=actual_class,
                             name=nm,
@@ -127,10 +156,11 @@ def audit_properties(
                     comment=spec.comment,
                 )
                 if reason:
+                    inv_theme, inv_sev = _invalid_meta(spec.kind)
                     findings.append(
                         Finding(
-                            theme=Theme.PROPERTY_INVALID,
-                            severity=_severity_for(spec.kind),
+                            theme=inv_theme,
+                            severity=inv_sev,
                             error_type=ErrorType.PROPERTY_TYPE_INVALID,
                             element_uuid=uuid,
                             ifc_type=actual_class,
