@@ -21,6 +21,7 @@ from docx import Document
 from audit_bim.audit.engine import AuditResult
 from audit_bim.audit.findings import ErrorType, Finding, Severity, Theme
 from audit_bim.extraction.model_data import ModelSnapshot
+from audit_bim.mcp import phase
 from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.reporting.context import (
@@ -353,26 +354,26 @@ class TestEnrichedSectionsStillPresent:
 
 class TestPhaseHelpers:
     def test_map_phase_valid_passthrough(self):
-        assert mcp_server._map_phase("AVP") == "AVP"
-        assert mcp_server._map_phase("avp") == "AVP"
+        assert phase._map_phase("AVP") == "AVP"
+        assert phase._map_phase("avp") == "AVP"
 
     def test_map_phase_loi_mop_aliases(self):
-        assert mcp_server._map_phase("APD") == "AVP"
-        assert mcp_server._map_phase("ACT") == "EXE"
-        assert mcp_server._map_phase("VISA") == "EXE"
-        assert mcp_server._map_phase("DET") == "EXE"
+        assert phase._map_phase("APD") == "AVP"
+        assert phase._map_phase("ACT") == "EXE"
+        assert phase._map_phase("VISA") == "EXE"
+        assert phase._map_phase("DET") == "EXE"
 
     def test_map_phase_unknown_returns_none(self):
-        assert mcp_server._map_phase("ZZZ") is None
-        assert mcp_server._map_phase("") is None
-        assert mcp_server._map_phase(None) is None
+        assert phase._map_phase("ZZZ") is None
+        assert phase._map_phase("") is None
+        assert phase._map_phase(None) is None
 
 
 class TestPhaseValidationDialogue:
     def test_single_phase_question_with_reading_aid(self):
         """Une seule question de phase, avec l'aide loi MOP embarquée
         (pas de second champ)."""
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address="X",
             project_phase=None,
             auditor_name="Stan",
@@ -389,7 +390,7 @@ class TestPhaseValidationDialogue:
         assert "GESTION" in aid
 
     def test_recognized_detected_phase_asks_confirmation(self):
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address="X",
             project_phase="AVP",
             auditor_name="Stan",
@@ -404,7 +405,7 @@ class TestPhaseValidationDialogue:
         assert "Confirmez-vous" in q["question"]
 
     def test_unrecognized_phase_proposes_mapping(self):
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address="X",
             project_phase="AVP",
             auditor_name="Stan",
@@ -419,7 +420,7 @@ class TestPhaseValidationDialogue:
 
     def test_explicit_valid_phase_no_confirmation(self):
         """Phase valide + pas de demande de confirmation → pas de question."""
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",
@@ -431,7 +432,7 @@ class TestPhaseValidationDialogue:
     def test_no_duplicate_phase_field(self):
         """Une seule clé de phase dans les questions (pas de doublon
         loi MOP / phase BIM)."""
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address=None,
             project_phase=None,
             auditor_name=None,
@@ -481,7 +482,7 @@ class TestValidateAuditContextSuggestions:
     """Tests unitaires directs de ``_validate_audit_context`` (R4)."""
 
     def test_address_question_carries_suggested_value(self):
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address=None,
             project_phase="PRO",
             auditor_name="Stan",
@@ -494,7 +495,7 @@ class TestValidateAuditContextSuggestions:
         assert "12 rue de la Paix" in q["question"]
 
     def test_address_question_without_suggestion_has_no_suggested_value(self):
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address=None,
             project_phase="PRO",
             auditor_name="Stan",
@@ -506,7 +507,7 @@ class TestValidateAuditContextSuggestions:
     def test_description_not_required_by_default(self):
         """Sans ``require_description`` (cold start / pas de snapshot),
         la description absente ne bloque pas."""
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",
@@ -516,7 +517,7 @@ class TestValidateAuditContextSuggestions:
         assert res is None
 
     def test_description_required_and_missing_is_asked(self):
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",
@@ -530,7 +531,7 @@ class TestValidateAuditContextSuggestions:
         assert "suggested_value" not in q
 
     def test_description_question_carries_suggestion(self):
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",
@@ -543,7 +544,7 @@ class TestValidateAuditContextSuggestions:
         assert q.get("suggested_value") == "Résidence 24 logements"
 
     def test_description_satisfied_when_provided(self):
-        res = mcp_server._validate_audit_context(
+        res = phase._validate_audit_context(
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",

@@ -117,7 +117,7 @@ class TestEnrichWithPublicDataSandbox:
         # interne est le chemin RÉSOLU absolu.
         _isolated_session.snapshot = object()
         doe = _make_xlsx("doe.xlsx")
-        with patch("audit_bim.mcp.server._enrich_with_public_data") as mock_enrich:
+        with patch("audit_bim.mcp.tools_audit._enrich_with_public_data") as mock_enrich:
             from audit_bim.enrichment.models import (
                 EnrichmentReport,
                 GeocodingResult,
@@ -137,7 +137,7 @@ class TestEnrichWithPublicDataSandbox:
     def test_none_doe_path_passes_through(self, _isolated_session):
         # doe_path=None → on ne valide rien, on laisse à None
         _isolated_session.snapshot = object()
-        with patch("audit_bim.mcp.server._enrich_with_public_data") as mock_enrich:
+        with patch("audit_bim.mcp.tools_audit._enrich_with_public_data") as mock_enrich:
             from audit_bim.enrichment.models import (
                 EnrichmentReport,
                 GeocodingResult,
