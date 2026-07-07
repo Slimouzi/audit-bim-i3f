@@ -112,12 +112,12 @@ audit-bim-mcp = "audit_bim.mcp.__main__:main"
 # au tag figé. Bumper ce tag = bumper le contrat (et la borne de version
 # dans [project.dependencies]), puis regénérer uv.lock (``uv lock``).
 bim-core = { git = "https://github.com/Slimouzi/bim-core.git", tag = "bim-core-v0.1.1" }
-bimdata-read = { git = "https://github.com/Slimouzi/bimdata-read.git", tag = "bimdata-read-v0.1.3" }
-bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "bimdata-write-v0.1.1" }
+bimdata-read = { git = "https://github.com/Slimouzi/bimdata-read.git", tag = "bimdata-read-v0.1.4" }
+bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "bimdata-write-v0.1.2" }
 bim-sandbox = { git = "https://github.com/Slimouzi/bim-sandbox.git", tag = "bim-sandbox-v0.1.0" }
-bim-query = { git = "https://github.com/Slimouzi/bim-query.git", tag = "bim-query-v0.1.0" }
-bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag = "bim-publication-v0.1.0" }
-bim-audit-engine = { git = "https://github.com/Slimouzi/bim-audit-engine.git", tag = "bim-audit-engine-v0.1.1" }
+bim-query = { git = "https://github.com/Slimouzi/bim-query.git", tag = "bim-query-v0.1.1" }
+bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag = "bim-publication-v0.1.1" }
+bim-audit-engine = { git = "https://github.com/Slimouzi/bim-audit-engine.git", tag = "bim-audit-engine-v0.1.2" }
 
 [tool.setuptools.packages.find]
 include = ["audit_bim*"]
@@ -180,26 +180,3 @@ ignore = [
 "tests/*" = ["B011"]  # asserts OK in tests
 "examples/*" = ["F401", "E402"]  # imports/exemples démo
 
-[tool.uv]
-# Les packages first-party transitifs (bimdata-read/write, bim-query,
-# bim-publication, bim-audit-engine) épinglent encore ``bim-core-v0.1.0`` dans
-# LEUR ``[tool.uv.sources]`` (uv honore les sources des git-deps). Sans override,
-# uv verrait deux tags Git en conflit pour ``bim-core`` (v0.1.0 vs v0.1.1) et
-# échouerait à résoudre. ``bim-core-v0.1.1`` étant **rétro-compatible** (ajoute
-# seulement ``Finding.field_path`` optionnel), on force l'ensemble du graphe sur
-# v0.1.1 — au lieu de re-taguer les 5 packages transitifs.
-#
-# DETTE SUIVIE (sortie) : bumper le pin ``bim-core`` des 5 packages transitifs à
-# LEUR PROCHAINE RELEASE NATURELLE (pas de train dédié), puis RETIRER cet override.
-# ATTENTION : un override est global et brutal — il masquerait aussi un futur
-# conflit LÉGITIME sur ``bim-core``. Tant qu'il existe, **chaque bump de bim-core
-# impose de re-vérifier à la main la compatibilité de tout le graphe**.
-override-dependencies = [
-    "bim-core @ git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1",
-    # Idem bim-core : les transitifs (bimdata-write, bim-query, bim-publication)
-    # épinglent bimdata-read-v0.1.0 ; on force v0.1.3 (additif read-only :
-    # list_bcf_topics/list_smart_views, filtrage ?format côté serveur) pour la
-    # re-lecture indépendante (étape 8) du replay A1. NB : v0.1.2 est proscrite
-    # (tag déplacé après publication ; cf. README bimdata-read « Versions »).
-    "bimdata-read @ git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.3",
-]
