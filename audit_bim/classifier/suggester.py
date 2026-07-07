@@ -408,3 +408,24 @@ def suggest_for_findings(
             }
         )
     return out
+
+
+def suggestions_map(
+    findings, snapshot, *, min_confidence: float = 0.4, top_n: int = 1
+) -> dict[str, dict]:
+    """``{element_uuid: meilleure suggestion}`` pour **décorer les livrables**.
+
+    Dédup (PR4 §4d) de ``word_report._suggestions_map`` ≡
+    ``xlsx_annex._build_suggestions_map`` : appelle :func:`suggest_for_findings`
+    (défauts ``min_confidence=0.4``, ``top_n=1``) et ne garde que la suggestion de
+    plus haute confiance par élément.
+    """
+    out: dict[str, dict] = {}
+    for item in suggest_for_findings(
+        findings, snapshot, min_confidence=min_confidence, top_n=top_n
+    ):
+        uuid = item.get("element_uuid")
+        sugs = item.get("suggestions") or []
+        if uuid and sugs:
+            out[uuid] = sugs[0]
+    return out

@@ -12,6 +12,7 @@ from .suggester import (
     accepted_codes_for,
     suggest,
     suggest_for_findings,
+    suggestions_map,
 )
 from .systems import SYSTEMS, ClassificationSystem, get_system, translate
 from .xlsx_reader import read_classifications_from_xlsx
@@ -34,5 +35,6 @@ __all__ = [
     "read_classifications_from_xlsx",
     "suggest",
     "suggest_for_findings",
+    "suggestions_map",
     "translate",
 ]

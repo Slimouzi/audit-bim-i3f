@@ -50,7 +50,7 @@ from docx.shared import Cm, Pt, RGBColor
 
 from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity, Theme
-from ..classifier import suggest_for_findings
+from ..classifier import suggestions_map
 from .bimdata_brand import WORDMARK, find_logo
 from .context import ReportProjectContext, build_report_context
 from .theming import (
@@ -1230,14 +1230,7 @@ def _write_section_annexes(
 
 def _suggestions_map(result: AuditResult) -> dict[str, dict]:
     """Suggestions de classification (1 par élément) pour le thème dédié."""
-    sug_list = suggest_for_findings(result.findings, result.snapshot, min_confidence=0.4, top_n=1)
-    out: dict[str, dict] = {}
-    for item in sug_list:
-        u = item.get("element_uuid")
-        sugs = item.get("suggestions") or []
-        if u and sugs:
-            out[u] = sugs[0]
-    return out
+    return suggestions_map(result.findings, result.snapshot)
 
 
 # Indices correctifs par thème, réutilisés pour générer les recommandations

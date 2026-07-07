@@ -35,6 +35,17 @@ def _declare_local_runtime_transport():
     security._RUNTIME_TRANSPORT = prev
 
 
+@pytest.fixture(autouse=True)
+def _clear_catalog_cache():
+    """PR4 §4c — vide le cache mémoïsé de ``build_catalog`` entre chaque test pour
+    éviter toute pollution croisée (le cache renvoie le **même** objet)."""
+    from audit_bim.requirements.catalog import clear_catalog_cache
+
+    clear_catalog_cache()
+    yield
+    clear_catalog_cache()
+
+
 @pytest.fixture
 def storey_names() -> list[StoreyName]:
     """Liste fermée I3F des noms d'étages admis (échantillon minimal)."""

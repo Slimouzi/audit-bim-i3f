@@ -19,18 +19,6 @@ import sys
 from pathlib import Path
 
 
-def _assert_outside_repo(path: Path) -> None:
-    root = Path(__file__).resolve()
-    while root != root.parent and not (root / ".git").exists():
-        root = root.parent
-    p = path.resolve()
-    if p == root or root in p.parents:
-        raise SystemExit(
-            f"REFUS : {p} est dans le dépôt {root}. Le dump contient des données "
-            f"client — écris-le HORS du repo (ex. /tmp/engine-parity)."
-        )
-
-
 def main(argv: list[str]) -> int:
     if len(argv) not in (3, 4):
         print(
@@ -49,7 +37,9 @@ def main(argv: list[str]) -> int:
 
     art = Path(argv[1])
     outpath = Path(argv[2])
-    _assert_outside_repo(outpath)
+    from audit_bim.security.guards import assert_outside_repo
+
+    assert_outside_repo(outpath, context="engine-parity")
     phase = BIMPhase(argv[3]) if len(argv) == 4 else BIMPhase.AVP
 
     catalog = RequirementsCatalog.model_validate_json((art / "catalog.json").read_text())

@@ -7,6 +7,23 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed (refactor PR4 — factorisation)
+
+- **Dédup / factorisation** (`docs/instruct-refactor-pr-series.md` §PR4), goldens +
+  payloads **inchangés**. (4a) Les gardes des runners (`assert_outside_repo` ×4,
+  garde catalogue ×2) déménagent dans `audit_bim/security/guards.py` (**module
+  produit**, pas `scripts/_guards.py` — les runners sont chargés par chemin dans les
+  tests) ; messages contextualisés via `context=`. Tests des gardes réunis dans
+  `tests/unit/test_guards.py`. (4b) Squelette commun `actions/_apply_runtime.py`
+  (`run_apply` + `ApplyOutcome`) portant contrôle de `kind` → cible → `validate_target`
+  → journal → `ActionResult` : chaque planner (`bcf`/`smartview`/`doe`/`classification`)
+  ne garde que **son exécuteur** d'items — payloads de refus/résultat **byte-identiques**
+  (un futur 5ᵉ planner ne peut plus oublier la garde). (4c) `build_catalog` **mémoïsé**
+  sur `(chemin résolu, mtime, taille)` des 3 sources : « preview puis audit » économise
+  un second parse ; fichier modifié → reconstruction ; source manquante → pas de cache.
+  (4d) Helper `suggestions_map` unique dans `classifier/` — `word_report` et
+  `xlsx_annex` consomment le même (fin du doublon byte-à-byte).
+
 ### Security (refactor PR3 — durcissement transport)
 
 - **Défaut secure-by-transport passé en fail-closed** (`docs/instruct-refactor-pr-series.md`
