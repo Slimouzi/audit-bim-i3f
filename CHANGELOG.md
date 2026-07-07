@@ -7,6 +7,14 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-07
+
+Jalon : **replay A1 industrialisé** (publication BCF / Smart Views `prepare → review
+→ apply` avec verdict machine + `--write` réel prouvé et auto-purgé sur maquette
+jetable), acceptation du rapport Word AVP, fiabilisation `field_path` des zones, et
+durcissement du wheel de release. Pins first-party : `bimdata-read v0.1.3`,
+`bimdata-write v0.1.1` (+ `bim-core v0.1.1`).
+
 ### Fixed
 
 - **Replay A1 — re-lecture Smart Views + tag `bimdata-read` déplacé** — la
