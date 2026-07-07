@@ -70,8 +70,35 @@ que l'endpoint n'existe pas, le hand-off 5b (vérif visuelle) reste obligatoire
 après un `--write` — c'est précisément ce que l'étape 8 doit faire disparaître,
 donc l'endpoint est sur le chemin critique de la clôture du jalon.
 
+## Prérequis d'environnement — sortir du sandbox pour les tests réels
+
+Le replay A1 (dry-run **et** `--write`) et l'acceptation AVP sont des tests
+**réseau réels** : ils exigent les identifiants BIMData et l'accès plateforme.
+Un environnement **sandboxé** (isolation réseau + variables d'env vidées) ne
+peut, par construction, prouver ni le dry-run réel ni le `--write` — donc ne
+peut pas lever le gel « pas de release tant que le write n'a pas prouvé PASS ».
+
+**Consigne** : pour le prochain dev, **exécuter hors sandbox** — supprimer
+l'isolation réseau/credentials de l'environnement d'exécution — de sorte que
+les tests tournent **au réel sur le seul périmètre exposé par les variables
+d'environnement** (`BIMDATA_API_KEY` / `BIMDATA_CLIENT_ID` / `BIMDATA_CLOUD_ID`
+/ `BIMDATA_PROJECT_ID` / `BIMDATA_MODEL_ID`, cf. `.env.example`). Ce périmètre
+**est** la borne de sûreté : la garde `assert_write_target` +
+`REPLAY_WRITE_MODEL_ID` verrouille l'écriture sur le seul modèle jetable
+(Dieppe `1674450`), et le contrôle d'identité `DIEPPE` rejette toute autre
+cible **avant** tout `apply`. Aucune écriture n'est donc possible en dehors de
+ce que l'env autorise, sandbox ou pas — le sandbox n'ajoute pas de sûreté ici,
+il empêche seulement la preuve.
+
+Rappels de sûreté qui restent en vigueur hors sandbox : dry-run par défaut,
+`--write` manuel uniquement, plans/sorties hors repo, stdout sans donnée
+client, purge documentée après chaque `--write`.
+
 ## Instruction — ordre d'exécution pour le prochain dev
 
+0. **Environnement hors sandbox** (cf. section ci-dessus) — condition
+   nécessaire pour prouver le dry-run réel puis le `--write` ; les gardes du
+   runner (cible jetable + identité) restent la borne de sûreté.
 1. **Correctif P2 (étape 9 journal)** sur la branche de la PR #76, puis merge.
    Les P3 peuvent suivre dans la même PR ou une petite PR dédiée.
 2. **`bimdata-read` : endpoints de liste read-only** (`list_bcf_topics`,
