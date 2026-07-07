@@ -18,6 +18,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   ArchiCAD inclus). **Changement de comptage** : les rapports perdent ces faux positifs du
   thème « Quantités » ; le finding légitime (pièce réellement sans quantité) est conservé.
   Nouveau `tests/unit/test_spatial_quantity.py` (cas positif *et* négatif).
+- **E1 — les exigences `kind="quantity"` du format 2026 sont enfin auditées.**
+  `audit_properties` filtrait `kind == "property"` : les quantités (`BaseQuantities`,
+  toutes classes — murs, dalles, pièces…) n'étaient **jamais** vérifiées. Elles le sont
+  désormais (thème « Quantités », `SPATIAL_MISSING_QUANTITY`, sévérité MEDIUM).
+  Réconciliation « spatial cède à properties » : le contrôle IfcSpace câblé de
+  `audit_spatial` devient un **repli** actif uniquement quand le catalogue n'a **pas**
+  d'exigence quantité sur `IfcSpace` (ancien format V3.x) → pas de double comptage.
+  **Changement de comptage** (plus de vrais manquants 2026). Nouveau
+  `tests/unit/test_quantity_audit_e1.py`.
 
 ### Changed (refactor PR4 — factorisation)
 
