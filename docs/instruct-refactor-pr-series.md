@@ -97,9 +97,14 @@ Découpage par domaine, en suivant le modèle existant (`tools_actions`/`tools_q
 | Nouveau module | Contenu (depuis `server.py`) |
 |---|---|
 | `mcp/tools_session.py` | cible/contexte : `set_active_model`, `verify_active_model`, `parse_owner_requirements`, configuration de session |
-| `mcp/tools_audit.py` | `full_audit`, `import_preliminary_findings`, consultation de findings de session |
+| `mcp/tools_audit.py` | `full_audit`, `import_preliminary_findings`, `doe_match_only` (lecture/analyse), consultation de findings de session |
 | `mcp/tools_reporting.py` | `generate_word_report`, `generate_xlsx_annex`, `generate_avp_i3f_pack` |
+| `mcp/tools_actions.py` (existant) | reçoit `apply_classifications_from_xlsx` — seul tool d'**écriture** encore dans `server.py` ; pré-positionné là où PR3 §3c le reconstruit sur `classification_planner` (le diff PR3 devient purement comportemental) |
 | `mcp/phase.py` (helpers, pas de tools) | `_map_phase`, `_detect_snapshot_phase`, `_phase_question*` (`server.py:982-1072`), `_validate_audit_context` (`:1121`) |
+
+Critère de rangement : la **nature** du tool (lecture vs écriture), pas son
+thème métier. Tout tool restant non listé suit ce critère ; aucun tool ne
+reste dans `server.py`.
 
 `server.py` disparaît ou ne garde que la compat de ré-export une version.
 
