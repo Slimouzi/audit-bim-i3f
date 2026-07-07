@@ -16,6 +16,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -74,6 +75,10 @@ def _spawn_mcp_server(extra_env: dict[str, str] | None = None) -> tuple[subproce
     repo_root = Path(__file__).resolve().parents[2]
     env = os.environ.copy()
     env.setdefault("BIMDATA_API_KEY", "dummy-for-integration-tests")
+    # PR3 §3b : tout transport réseau exige AUDIT_INPUT_DIR — racine éphémère par
+    # défaut pour que le serveur streamable-http démarre (les tests qui veulent
+    # tester le refus la surchargent via extra_env).
+    env.setdefault("AUDIT_INPUT_DIR", tempfile.mkdtemp(prefix="audit-integ-input-"))
     if extra_env:
         env.update(extra_env)
 

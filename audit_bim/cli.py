@@ -44,6 +44,9 @@ def _prompt_push_mode() -> str:
 
 
 def main() -> int:
+    from audit_bim.mcp.security import set_runtime_transport
+
+    set_runtime_transport("script")  # PR3 §3a — CLI = entrypoint local
     parser = argparse.ArgumentParser(
         prog="audit-bim",
         description=(

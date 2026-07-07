@@ -114,7 +114,10 @@ class TestStartupConfig:
         # stdio = pas de réseau, pas de contrainte
         assert_startup_config(transport="stdio")
 
-    def test_http_dev_without_key_ok(self, caplog):
+    def test_http_dev_without_key_ok(self, caplog, monkeypatch, tmp_path):
+        # PR3 §3b — HTTP exige désormais AUDIT_INPUT_DIR (même sans clé) ;
+        # une fois défini, le démarrage dev sans clé passe (avec warning).
+        monkeypatch.setenv("AUDIT_INPUT_DIR", str(tmp_path))
         with caplog.at_level("WARNING", logger="audit_bim.mcp.security"):
             assert_startup_config(transport="http", host="127.0.0.1")
         assert any("API_KEY non défini" in r.message for r in caplog.records)
@@ -135,7 +138,10 @@ class TestStartupConfig:
         with pytest.raises(RuntimeError):
             assert_startup_config(transport="streamable-http", host="127.0.0.1")
 
-    def test_refuses_bind_all_interfaces_without_prod(self):
+    def test_refuses_bind_all_interfaces_without_prod(self, monkeypatch, tmp_path):
+        monkeypatch.setenv(
+            "AUDIT_INPUT_DIR", str(tmp_path)
+        )  # PR3 §3b : franchir le check input-dir
         with pytest.raises(RuntimeError, match="0.0.0.0"):
             assert_startup_config(transport="http", host="0.0.0.0")
 
@@ -194,14 +200,20 @@ class TestStartupConfig:
         # Démarre sans lever — opt-out explicite
         assert_startup_config(transport="http", host="127.0.0.1")
 
-    def test_http_without_api_key_no_input_dir_required(self, monkeypatch):
-        """Sans clé service et hors mode prod, l'input dir reste optionnel
-        (mode dev)."""
+    def test_http_without_api_key_now_requires_input_dir(self, monkeypatch):
+        """PR3 §3b — durcissement : HTTP (même dev, sans clé) exige
+        AUDIT_INPUT_DIR ; sinon refus de démarrer."""
         monkeypatch.delenv("AUDIT_BIM_API_KEY", raising=False)
         monkeypatch.delenv("AUDIT_INPUT_DIR", raising=False)
         monkeypatch.delenv("AUDIT_BIM_ENV", raising=False)
         monkeypatch.delenv("AUDIT_BIM_REQUIRE_API_KEY", raising=False)
-        # Ne lève pas (warnings dans les logs OK)
+        with pytest.raises(RuntimeError, match="AUDIT_INPUT_DIR"):
+            assert_startup_config(transport="http", host="127.0.0.1")
+
+    def test_http_unbounded_optout_allows_no_input_dir(self, monkeypatch):
+        """Échappatoire explicite : AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true."""
+        monkeypatch.delenv("AUDIT_INPUT_DIR", raising=False)
+        monkeypatch.setenv("AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS", "true")
         assert_startup_config(transport="http", host="127.0.0.1")
 
 

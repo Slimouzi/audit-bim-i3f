@@ -10,7 +10,7 @@ Couvre :
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -330,3 +330,52 @@ class TestListWritePlans:
         res = mcp_server.list_write_plans()
         kinds = {p["kind"] for p in res["plans"]}
         assert {"bcf_topics", "smart_views"}.issubset(kinds)
+
+
+# ── apply_classifications_from_xlsx : prepare → apply (PR3 §3c) ───────────────
+class TestApplyClassificationsFromXlsx:
+    """Le tool xlsx suit désormais le contrat commun confirm-gate (plus de dry_run)."""
+
+    _ITEMS = [{"uuid": "u1", "code": "C1010", "label": "Mur", "system": "UniFormat II"}]
+
+    def _patched_xlsx(self):
+        # Évite un vrai fichier : sandbox + lecture xlsx simulées.
+        return patch.multiple(
+            "audit_bim.mcp.tools_actions",
+            safe_input_path=MagicMock(return_value="/tmp/audit.xlsx"),
+            read_classifications_from_xlsx=MagicMock(return_value=self._ITEMS),
+        )
+
+    def test_without_confirm_is_dry_run_no_write(self, _isolated):
+        from audit_bim.security.write_journal import get_journal
+
+        sess, _ = _isolated
+        _wire_session(sess)
+        n_before = len(get_journal().tail(50))
+        with self._patched_xlsx():
+            res = mcp_server.apply_classifications_from_xlsx("audit.xlsx", confirm=False)
+        assert res["refused"] is True
+        assert res["plan"]["summary"]["n_classifications"] == 1
+        assert res["n_items_read_from_xlsx"] == 1
+        # Aucune écriture / entrée journal sans confirm.
+        assert len(get_journal().tail(50)) == n_before
+
+    def test_with_confirm_applies_and_journals(self, _isolated):
+        from audit_bim.security.write_journal import get_journal
+
+        sess, _ = _isolated
+        _wire_session(sess)
+        with (
+            self._patched_xlsx(),
+            patch(
+                "audit_bim.actions.classification_planner.apply_classifications",
+                return_value={"linked_uuids": ["u1"], "failed_uuids": [], "errors": []},
+            ),
+        ):
+            res = mcp_server.apply_classifications_from_xlsx("audit.xlsx", confirm=True)
+        assert res.get("succeeded") == 1
+        assert res["n_items_read_from_xlsx"] == 1
+        # Entrée journal écrite par apply_classification_update.
+        last = get_journal().tail(1)[0]
+        assert last.action == "apply_classification_update"
+        assert last.succeeded == 1

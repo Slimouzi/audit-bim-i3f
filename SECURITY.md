@@ -17,13 +17,30 @@ pour les détails. Les axes couverts :
 - **Isolation d'état** par session client MCP (`ContextVar` + middleware).
 - **Sandbox filesystem** sur les lectures (`AUDIT_INPUT_DIR`) et les
   écritures (`AUDIT_OUTPUT_DIR`).
-- **Politique d'écriture BIMData** (`AUDIT_BIM_ALLOW_WRITES`, défaut
-  read-only sur transport réseau).
-- **Refus du Bearer en paramètre MCP** sur transport réseau
-  (`AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM`, défaut `false` en HTTP/SSE).
-  Le paramètre `access_token` des tools reste réservé au mode
-  stdio local/dev — en HTTP exposé, configurer `BIMDATA_API_KEY`
-  ou `BIMDATA_CLIENT_ID`+`…_SECRET` côté serveur.
+- **Politique d'écriture BIMData** (`AUDIT_BIM_ALLOW_WRITES`) —
+  **fail-closed par défaut** : un transport non déclaré (montage ASGI
+  custom, `fastmcp run`) est traité comme réseau et **refuse** les
+  écritures. Seuls les entrypoints **locaux déclarés** (stdio/script :
+  `__main__`, `cli.py`, runners de `scripts/`) sont permissifs.
+- **`AUDIT_INPUT_DIR` obligatoire en réseau** : tout transport réseau
+  refuse de démarrer sans racine de confinement d'entrée (opt-out explicite
+  `AUDIT_BIM_ALLOW_UNBOUNDED_INPUTS=true` seulement).
+- **Refus du Bearer en paramètre MCP** sur transport réseau **ou non
+  déclaré** (`AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM`, défaut fail-closed).
+  Le paramètre `access_token` des tools reste réservé au mode local
+  déclaré — en HTTP exposé, configurer `BIMDATA_API_KEY` ou
+  `BIMDATA_CLIENT_ID`+`…_SECRET` côté serveur.
+
+### Transport → posture (défauts secure-by-transport)
+
+| Transport | Écritures | `access_token` param | `AUDIT_INPUT_DIR` |
+|---|---|---|---|
+| **local déclaré** (`stdio` / `script`) | autorisées | autorisé | optionnel |
+| **réseau** (`http` / `sse` / `streamable-http`) | **refusées** | **refusé** | **obligatoire** |
+| **non déclaré** (`None` : ASGI custom) | **refusées** | **refusé** | (fail-fast si réseau) |
+
+Le flag explicite (`AUDIT_BIM_ALLOW_WRITES` / `AUDIT_BIM_ALLOW_ACCESS_TOKEN_PARAM`)
+gagne **toujours** sur le défaut.
 - **Anti-injection** de formule sur les exports XLSX
   (`Workbook(strings_to_formulas=False)` + neutralisation `'` sur les
   valeurs externes).

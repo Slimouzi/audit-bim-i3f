@@ -24,9 +24,14 @@ class TestIsAccessTokenParamAllowed:
         set_runtime_transport("stdio")
         assert is_access_token_param_allowed() is True
 
-    def test_default_unknown_transport_allowed(self):
-        # Tests directs, scripts → ContextVar à None → permissif
+    def test_default_unknown_transport_refused(self):
+        # PR3 §3a — transport NON déclaré (montage ASGI custom) → fail-closed.
         set_runtime_transport("")
+        assert is_access_token_param_allowed() is False
+
+    def test_default_script_mode_allowed(self):
+        # Entrypoints locaux (runners/cli) se déclarent "script" → permissif.
+        set_runtime_transport("script")
         assert is_access_token_param_allowed() is True
 
     @pytest.mark.parametrize("transport", ["http", "sse", "streamable-http"])
