@@ -73,8 +73,17 @@ def audit_spatial(
             )
         )
 
-    # 4. Quantités IfcSpace : NetFloorArea / SHAB / SU attendues dès AVP
-    if phase != BIMPhase.APS:
+    # 4. Quantités IfcSpace : NetFloorArea / SHAB / SU attendues dès AVP.
+    #    REPLI (E1) : depuis le format CCH 2026, les exigences ``kind="quantity"``
+    #    du catalogue sont auditées par ``audit_properties`` (source **unique**,
+    #    toutes classes). On ne conserve ce bloc câblé que pour les catalogues
+    #    SANS exigence quantité sur IfcSpace (ancien format V3.x) — sinon double
+    #    comptage de la même surface manquante.
+    space_qty_in_catalog = any(
+        p.kind == "quantity" and p.ifc_class == "IfcSpace" and p.required_at(phase)
+        for p in catalog.properties
+    )
+    if phase != BIMPhase.APS and not space_qty_in_catalog:
         for sp in snap.of_class("IfcSpace"):
             uuid = sp.get("uuid")
             nm = (
