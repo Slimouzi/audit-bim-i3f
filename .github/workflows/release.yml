@@ -42,7 +42,7 @@ jobs:
       - name: Install bim-core (tagged contract lib)
         run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
       - name: Install bimdata-read (tagged read core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.2"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.3"
       - name: Install bimdata-write (tagged write core)
         run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.1"
       - name: Install bim-sandbox (tagged shared sandbox)
@@ -71,7 +71,7 @@ jobs:
       - name: Install bim-core (tagged contract lib)
         run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
       - name: Install bimdata-read (tagged read core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.2"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.3"
       - name: Install bimdata-write (tagged write core)
         run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.1"
       - name: Install bim-sandbox (tagged shared sandbox)
@@ -167,7 +167,7 @@ jobs:
           python -m pip install --upgrade pip
           # Les 7 packages first-party (non PyPI) depuis leurs tags Git AVANT le wheel.
           pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
-          pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.2"
+          pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.3"
           pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.1"
           pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
           pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.0"
@@ -219,7 +219,7 @@ jobs:
 
             ```bash
             pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.1"
-            pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.2"
+            pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.3"
             pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.1"
             pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
             pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.0"

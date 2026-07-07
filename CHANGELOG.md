@@ -7,6 +7,19 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed
+
+- **Replay A1 — re-lecture Smart Views + tag `bimdata-read` déplacé** — la
+  validation `--write` réelle a attrapé que `list_smart_views()` renvoyait `0` : le
+  correctif « côté serveur `?format=` » avait été tagué `bimdata-read-v0.1.2` mais
+  **le tag a été déplacé après publication** (`497c6058` → `be43575`), et le lock
+  restait épinglé sur le commit *pré-correctif* → `uv sync` réinstallait le code
+  cassé. Remédiation : re-publication propre sous **`bimdata-read v0.1.3`** (tag
+  immuable ; v0.1.2 proscrite), audit-bim ré-épinglé v0.1.2 → **v0.1.3** (sources +
+  override + lock + CI/release). `--write` **propre en un seul run : PASS** (apply +
+  journal + re-lecture API 1/1 + purge → 0). `delete_bcf_topic` **et**
+  `delete_smart_view` validés contre l'API réelle. Voir `docs/validation-a1-replay.md`.
+
 ### Added
 
 - **Replay A1 — purge automatique (`create → verify → purge`)** — `bimdata-write`
