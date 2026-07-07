@@ -83,8 +83,13 @@ def audit_spatial(
                 or get_attribute(sp, "Name")
                 or sp.get("name")
             )
-            # On cherche la surface (NetFloorArea ou GrossFloorArea)
-            area = resolve_value(sp, "BaseQuantities", "NetFloorArea")
+            # On cherche la surface (NetFloorArea ou GrossFloorArea).
+            # Locateur **composite** ``BaseQuantities/NetFloorArea`` : indispensable —
+            # un ``pset_or_attribute`` sans ``/`` ni ``.`` et sans préfixe ``Pset`` ne
+            # matche AUCUNE étape de routage de ``resolve_value`` et renvoie toujours
+            # ``None`` (faux positif « quantité manquante » sur toute pièce conforme).
+            # La forme composite route vers ``get_quantity_with_fallback`` (repli ArchiCAD).
+            area = resolve_value(sp, "BaseQuantities/NetFloorArea", "NetFloorArea")
             if area is None:
                 area = resolve_value(sp, "Pset_SpaceCommon", "GrossPlannedArea")
             if area in (None, 0, 0.0):
