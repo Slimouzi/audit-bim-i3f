@@ -26,7 +26,7 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   `audit_spatial` devient un **repli** actif uniquement quand le catalogue n'a **pas**
   d'exigence quantité sur `IfcSpace` (ancien format V3.x) → pas de double comptage.
   **Changement de comptage** (plus de vrais manquants 2026). Nouveau
-  `tests/unit/test_quantity_audit_e1.py`. *(Dépend de C1 — même branche.)*
+  `tests/unit/test_quantity_audit_e1.py`.
 
 ### Changed (refactor PR4 — factorisation)
 
