@@ -44,11 +44,16 @@ def register_all() -> FastMCP:
     if _registered:
         return mcp
     # Ces imports SONT l'enregistrement explicite (déclenchent les @mcp.tool).
+    # Ordre déclaré : session/audit/reporting (domaine) → actions/query (lecture/
+    # écriture) → aliases (re-dispatch) → server (prompt + compat).
     from . import (  # noqa: F401
         aliases,
         server,
         tools_actions,
+        tools_audit,
         tools_query,
+        tools_reporting,
+        tools_session,
     )
 
     _registered = True

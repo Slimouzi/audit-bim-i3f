@@ -43,6 +43,7 @@ from ..actions import (
     save_plan,
 )
 from ..actions import list_plans as _list_plans
+from ..classifier import apply_classifications, read_classifications_from_xlsx
 from ..doe import match_doe_records, parse_doe, summarize_matches
 from ..domain.filters import FindingFilter, SuggestionFilter, SuggestionStatus
 from ..safe_paths import safe_input_path
@@ -527,3 +528,38 @@ def audit_trail(limit: int = 20) -> dict:
         "entries": [e.model_dump(mode="json") for e in entries],
         "total_returned": len(entries),
     }
+
+
+@mcp.tool()
+def apply_classifications_from_xlsx(
+    xlsx_path: str,
+    dry_run: bool = True,
+) -> dict:
+    """Applique les classifications **validées par l'auditeur** dans un XLSX
+    d'audit potentiellement modifié.
+
+    L'auditeur télécharge l'annexe ``audit_*_annexes.xlsx`` (générée par
+    ``generate_xlsx_annex`` / ``full_audit``), édite l'onglet
+    *Classifications suggérées* en colonne « Suggestion 1 — code » :
+
+    - laisser la valeur suggérée → la classification sera appliquée ;
+    - modifier le code → on applique le code corrigé (ex: ``B2010`` → ``C1010``) ;
+    - effacer la cellule → ligne ignorée (refus de la suggestion).
+
+    Args:
+        xlsx_path: chemin absolu vers l'annexe XLSX éventuellement modifiée.
+        dry_run: si ``True`` (défaut), simule sans appel POST.
+
+    Returns:
+        Résumé identique à ``apply_suggested_classifications``, avec en plus
+        ``n_items_read_from_xlsx`` pour traçabilité.
+    """
+    _State.ensure_client()
+    if not dry_run:
+        ensure_writes_allowed("apply_classifications_from_xlsx")
+    safe_xlsx = safe_input_path(xlsx_path, allowed_extensions={".xlsx", ".xlsm"})
+    items = read_classifications_from_xlsx(str(safe_xlsx))
+    result = apply_classifications(_State.client, items, dry_run=dry_run)
+    result["n_items_read_from_xlsx"] = len(items)
+    result["xlsx_path"] = str(safe_xlsx)
+    return result

@@ -19,6 +19,7 @@ import pytest
 
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp import tools_audit, tools_session
 from audit_bim.mcp.model_identity import (
     model_matches_expected,
     normalize_model_name,
@@ -146,7 +147,7 @@ class TestResolveBimdataTarget:
 class TestSetActiveModelFromUrl:
     def test_url_configures_any_model_without_env_edit(self, _isolated_session):
         url = "https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d"
-        with patch.object(mcp_server, "BIMDataClient", _FakeClient):
+        with patch.object(tools_session, "BIMDataClient", _FakeClient):
             result = mcp_server.set_active_model(bimdata_url=url, phase="AVP")
 
         assert result["cloud_id"] == "33617"
@@ -205,7 +206,7 @@ class TestVerifyActiveModel:
     def test_ok_when_match(self, _isolated_session):
         _isolated_session.client = _FakeClient(model_id="abc")
         snap = _snapshot_with_model("Maquette BIM - LIFFRÉ - DOE.ifc", model_id="abc")
-        with patch.object(mcp_server, "extract_snapshot", return_value=snap):
+        with patch.object(tools_session, "extract_snapshot", return_value=snap):
             res = mcp_server.verify_active_model(expected_model_name="LIFFRE")
         assert res["ok"] is True
         assert res["model_name"] == "Maquette BIM - LIFFRÉ - DOE.ifc"
@@ -221,7 +222,7 @@ class TestVerifyActiveModel:
     def test_ko_when_mismatch_does_not_touch_result(self, _isolated_session):
         _isolated_session.client = _FakeClient(model_id="zzz")
         snap = _snapshot_with_model("Autre projet.ifc", model_id="zzz")
-        with patch.object(mcp_server, "extract_snapshot", return_value=snap):
+        with patch.object(tools_session, "extract_snapshot", return_value=snap):
             res = mcp_server.verify_active_model(expected_model_name="LIFFRE")
         assert res["ok"] is False
         assert "inattendu" in res["message"].lower()
@@ -252,7 +253,7 @@ class TestVerifyActiveModel:
         _isolated_session.client = _FakeClient()
         snap = _snapshot_with_model("Maquette LIFFRE DOE.ifc")
         _isolated_session.snapshot = snap
-        with patch.object(mcp_server, "extract_snapshot") as m_extract:
+        with patch.object(tools_session, "extract_snapshot") as m_extract:
             res = mcp_server.verify_active_model(
                 expected_model_name="LIFFRE",
                 refresh_snapshot=False,
@@ -266,9 +267,9 @@ class TestVerifyActiveModel:
         snap = _snapshot_with_model("Maquette LIFFRE DOE.ifc")
         with (
             patch.object(
-                mcp_server, "cached_extract_snapshot", return_value=(snap, True)
+                tools_session, "cached_extract_snapshot", return_value=(snap, True)
             ) as m_cached,
-            patch.object(mcp_server, "extract_snapshot") as m_direct,
+            patch.object(tools_session, "extract_snapshot") as m_direct,
         ):
             res = mcp_server.verify_active_model(
                 expected_model_name="LIFFRE",
@@ -289,12 +290,12 @@ class TestFullAuditExpectedModelName:
         """Le mismatch doit lever AVANT toute génération de livrable."""
         snap = _snapshot_with_model("Autre maquette.ifc")
         with (
-            patch.object(mcp_server, "build_catalog") as m_catalog,
-            patch.object(mcp_server, "set_active_model") as m_set,
-            patch.object(mcp_server, "extract_snapshot", return_value=snap),
-            patch.object(mcp_server, "run_audit") as m_run,
-            patch.object(mcp_server, "write_xlsx_annex") as m_xlsx,
-            patch.object(mcp_server, "write_word_report") as m_word,
+            patch.object(tools_audit, "build_catalog") as m_catalog,
+            patch.object(tools_audit, "set_active_model") as m_set,
+            patch.object(tools_audit, "extract_snapshot", return_value=snap),
+            patch.object(tools_audit, "run_audit") as m_run,
+            patch.object(tools_audit, "write_xlsx_annex") as m_xlsx,
+            patch.object(tools_audit, "write_word_report") as m_word,
         ):
             # set_active_model est mocké : il faut installer client + phase
             # dans la session manuellement pour atteindre l'étape snapshot.
@@ -340,14 +341,14 @@ class TestFullAuditExpectedModelName:
                 return {"n_findings": 0}
 
         with (
-            patch.object(mcp_server, "build_catalog"),
-            patch.object(mcp_server, "set_active_model") as m_set,
-            patch.object(mcp_server, "extract_snapshot", return_value=snap),
-            patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
-            patch.object(mcp_server, "build_report_context") as m_ctx,
-            patch.object(mcp_server, "merge_user_context") as m_merge,
-            patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
-            patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
+            patch.object(tools_audit, "build_catalog"),
+            patch.object(tools_audit, "set_active_model") as m_set,
+            patch.object(tools_audit, "extract_snapshot", return_value=snap),
+            patch.object(tools_audit, "run_audit", return_value=_FakeAuditResult()),
+            patch.object(tools_audit, "build_report_context") as m_ctx,
+            patch.object(tools_audit, "merge_user_context") as m_merge,
+            patch.object(tools_audit, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
+            patch.object(tools_audit, "write_word_report", return_value=tmp_path / "x.docx"),
         ):
             m_ctx.return_value = object()
             m_merge.return_value = object()
@@ -387,14 +388,14 @@ class TestFullAuditExpectedModelName:
                 return {"n_findings": 0}
 
         with (
-            patch.object(mcp_server, "build_catalog"),
-            patch.object(mcp_server, "set_active_model") as m_set,
-            patch.object(mcp_server, "extract_snapshot", return_value=snap),
-            patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
-            patch.object(mcp_server, "build_report_context") as m_ctx,
-            patch.object(mcp_server, "merge_user_context") as m_merge,
-            patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
-            patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
+            patch.object(tools_audit, "build_catalog"),
+            patch.object(tools_audit, "set_active_model") as m_set,
+            patch.object(tools_audit, "extract_snapshot", return_value=snap),
+            patch.object(tools_audit, "run_audit", return_value=_FakeAuditResult()),
+            patch.object(tools_audit, "build_report_context") as m_ctx,
+            patch.object(tools_audit, "merge_user_context") as m_merge,
+            patch.object(tools_audit, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
+            patch.object(tools_audit, "write_word_report", return_value=tmp_path / "x.docx"),
         ):
             m_ctx.return_value = object()
             m_merge.return_value = object()

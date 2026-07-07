@@ -23,8 +23,9 @@ from unittest.mock import patch
 
 import pytest
 
+from audit_bim import config as _config
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp import tools_audit as mcp_server
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.requirements.models import BIMPhase
 
@@ -84,9 +85,9 @@ class TestFullAuditPreservesActiveTarget:
 
         # On simule un ``.env`` qui pointe sur une AUTRE cible — c'est
         # exactement le piège que le fix doit éviter.
-        monkeypatch.setattr(mcp_server.config, "CLOUD_ID", "cloud-ENV")
-        monkeypatch.setattr(mcp_server.config, "PROJECT_ID", "projet-ENV")
-        monkeypatch.setattr(mcp_server.config, "MODEL_ID", "MODEL_ID_ENV")
+        monkeypatch.setattr(_config, "CLOUD_ID", "cloud-ENV")
+        monkeypatch.setattr(_config, "PROJECT_ID", "projet-ENV")
+        monkeypatch.setattr(_config, "MODEL_ID", "MODEL_ID_ENV")
 
         monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
 

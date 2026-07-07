@@ -7,6 +7,28 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed (refactor PR2 — mcp/app.py + éclatement de server.py)
+
+- **Enregistrement explicite des tools + éclatement de `server.py`**
+  (`docs/instruct-refactor-pr-series.md` §PR2). (2a) L'instance `FastMCP`, les
+  middlewares et l'état de session vivent dans `mcp/app.py` (socle **sans tools**) ;
+  tous les modules de tools importent `from .app import mcp` ; l'enregistrement passe
+  par une fonction **explicite** `register_all()` (ordre déclaré, appelée par
+  `__main__`) — le bloc d'import à effet de bord en fin de `server.py` et **tous** les
+  `noqa: E402` disparaissent. (2b) Les 20 tools de `server.py` (1878 l.) sont répartis
+  **par nature** : `tools_session` (cible/contexte/config), `tools_audit` (audit +
+  findings), `tools_reporting` (livrables), `tools_actions` (+`apply_classifications_from_xlsx`) ;
+  les helpers de phase/contexte vont dans `mcp/phase.py`. `server.py` devient un mince
+  module **compat** (prompt + `main` + ré-exports dépréciés). (2c) `full_audit`
+  (356 l.) est décomposé en **étapes nommées testables** (`_fa_resolve_target_and_context`,
+  `_fa_resolve_push_mode`, `_fa_prepare_catalog`, `_fa_finalize_target`,
+  `_fa_extract_snapshot`, `_fa_assert_expected_model`, `_fa_write_deliverables`,
+  `_fa_prepare_publication`, `_fa_write_findings_json`, `_fa_build_payload`), le tool
+  n'étant plus qu'un orchestrateur court. **Contrat gelé** : inventaire **49 tools**
+  identique, signature + payload de `full_audit` byte-identiques (clients + tests),
+  `python -m audit_bim.mcp` inchangé. Étapes testées unitairement
+  (`tests/unit/test_full_audit_steps.py`).
+
 ### Changed (refactor PR1 — cycles de couche)
 
 - **3 cycles d'import cassés** (`docs/instruct-refactor-pr-series.md` §PR1) : (1a)
