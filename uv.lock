@@ -80,7 +80,7 @@ wheels = [
 
 [[package]]
 name = "audit-bim-i3f"
-version = "0.7.0"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "bim-audit-engine" },
