@@ -28,7 +28,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from ..audit.ifc_hierarchy import normalize_catalog_class
+from ..domain.ifc_taxonomy import normalize_catalog_class
 from ._openpyxl_compat import patch_openpyxl
 from .models import BIMPhase, PropertySpec
 

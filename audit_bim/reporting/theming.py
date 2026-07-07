@@ -22,6 +22,13 @@ rouge visible sur le rapport.
 
 from __future__ import annotations
 
+# Palette feux tricolores : convention métier attachée à l'enum ``Severity``,
+# hébergée dans ``audit_bim.audit.findings`` (single source of truth). Ré-export
+# ici (import descendant reporting → audit, légal) pour que word_report /
+# xlsx_annex / avp_i3f l'importent depuis theming sans changement — sans recréer
+# le cycle audit ↔ reporting.
+from ..audit.findings import SEVERITY_COLORS  # noqa: F401  (ré-export)
+
 # ── Palette BIMData (hex sans #) ──────────────────────────────────────
 # Source : BIMData — Brand Guidelines 2022 v1.0.
 # Source éditoriale complète (logo, typographie, mise en page, QA) :
@@ -66,16 +73,8 @@ I3F_BLUE = BIMDATA_PRIMARY
 I3F_BLUE_LIGHT = BIMDATA_BLUE_NEUTRAL_LIGHT
 I3F_GREY = BIMDATA_GRANITE
 
-# Palette feux tricolores standard (single source of truth — voir aussi
-# audit_bim.audit.findings.severity_color qui ré-exporte ces valeurs).
-# Indépendant de la charte de marque (convention métier prime).
-SEVERITY_COLORS = {
-    "CRITICAL": "8B0000",  # rouge très foncé (dark red)
-    "HIGH": "DC3545",  # rouge
-    "MEDIUM": "FF8C00",  # orange (dark orange)
-    "LOW": "28A745",  # vert
-    "INFO": "4682B4",  # bleu (steel blue) — pas de gravité
-}
+# (``SEVERITY_COLORS`` est ré-exporté depuis ``audit.findings`` — cf. haut du
+# module. Il n'est plus défini ici : convention métier, pas charte de marque.)
 
 # Couleurs de thèmes (camemberts) — palette catégorielle alignée sur la
 # charte BIMData (bleu royal, jaune secondaire, granite, états UI) tout

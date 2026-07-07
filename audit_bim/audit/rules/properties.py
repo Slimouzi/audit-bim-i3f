@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from ...domain.ifc_taxonomy import expand_class
 from ...extraction.model_data import ModelSnapshot
 from ...extraction.normalizer import get_attribute, resolve_value
 from ...requirements.models import BIMPhase, RequirementsCatalog
 from ..findings import ErrorType, Finding, Severity, Theme
-from ..ifc_hierarchy import expand_class
 from ..validators import validate_property_value
 
 

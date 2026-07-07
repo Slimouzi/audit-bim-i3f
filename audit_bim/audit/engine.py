@@ -17,7 +17,7 @@ I3F sur le moteur générique.
 
 Restent **côté I3F**, inchangés : le catalogue (``RequirementsCatalog``), la
 phase (``BIMPhase``), les 6 règles concrètes (``audit/rules/``), les helpers
-(``validators``, ``ifc_hierarchy``, ``normalizer``) et ``preliminary``.
+(``validators``, ``ifc_taxonomy``, ``normalizer``) et ``preliminary``.
 
 Pour ajouter une règle : créer ``audit_bim/audit/rules/ma_regle.py`` avec
 ``audit_ma_regle(snap, catalog, phase) -> list[Finding]``, l'exporter dans

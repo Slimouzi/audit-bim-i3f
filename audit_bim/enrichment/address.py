@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import ProjectAddress
+from ..doe.address import extract_address_from_doe
+from ..domain.address import ProjectAddress
 
 
 def _from_postal_dict(d: dict | None, source: str) -> ProjectAddress | None:
@@ -101,9 +102,6 @@ def resolve_project_address(
             return addr
 
     if doe_path:
-        # Import paresseux pour éviter le cycle enrichment ↔ doe.
-        from ..doe.address import extract_address_from_doe
-
         doe_addr = extract_address_from_doe(doe_path)
         if doe_addr is not None:
             return doe_addr

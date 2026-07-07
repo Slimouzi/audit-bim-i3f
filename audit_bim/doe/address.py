@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ..enrichment.models import ProjectAddress
+from ..domain.address import ProjectAddress
 
 # Code postal français : 5 chiffres suivis d'un nom de commune en
 # majuscules (au moins première lettre). Tolère espaces, tirets,
