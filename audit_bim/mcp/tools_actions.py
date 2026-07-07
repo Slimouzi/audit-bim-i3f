@@ -47,6 +47,7 @@ from ..doe import match_doe_records, parse_doe, summarize_matches
 from ..domain.filters import FindingFilter, SuggestionFilter, SuggestionStatus
 from ..safe_paths import safe_input_path
 from ..security.write_journal import get_journal
+from .app import mcp
 from .payloads import (
     current_target,
     ensure_suggestion_store,
@@ -55,7 +56,6 @@ from .payloads import (
 )
 from .security import ensure_writes_allowed
 from .selection import resolve_object_selection
-from .server import mcp
 from .session import _State
 
 

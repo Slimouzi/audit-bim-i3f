@@ -22,8 +22,8 @@ import argparse
 import logging
 import sys
 
+from .app import register_all
 from .security import assert_startup_config, set_runtime_transport
-from .server import mcp
 
 logger = logging.getLogger("audit_bim.mcp")
 
@@ -60,6 +60,10 @@ def main() -> int:
     # logge ses warnings via :func:`is_write_allowed` qui dépend du
     # transport runtime.
     set_runtime_transport(args.transport)
+
+    # Enregistrement EXPLICITE de tous les tools (ordre déclaré dans app.py) —
+    # remplace l'ancien import à effet de bord en fin de server.py.
+    mcp = register_all()
 
     # Fail-fast avant tout bind socket.
     try:

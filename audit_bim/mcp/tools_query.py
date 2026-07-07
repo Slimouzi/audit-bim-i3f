@@ -33,9 +33,9 @@ from ..domain.filters import FindingFilter, ObjectFilter, SuggestionFilter
 from ..query.filtering import apply_finding_filter, apply_suggestion_filter
 from ..query.table_query import BimQuery, query_bim_table
 from ..query.views import bim_object_from_element
+from .app import mcp
 from .payloads import ensure_suggestion_store, maybe_dump_to_disk
 from .selection import resolve_object_selection
-from .server import mcp
 from .session import _State
 
 
