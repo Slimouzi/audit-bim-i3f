@@ -45,6 +45,16 @@ _NUMERIC_POSITIVE_KEYS = (
     "resistance",
 )
 
+# Ratings feu/acoustique : valeurs sous forme de **codes** (« EI30 », « REI60 »,
+# « 38 dB »), pas des numériques. Traités avant _NUMERIC_POSITIVE_KEYS (dont la
+# clé générique « rating » les capturerait à tort).
+_RATING_STRING_KEYS = (
+    "firerating",
+    "fire rating",
+    "acousticrating",
+    "acoustic rating",
+)
+
 # Noms suggérant un booléen (V/F dans la spec CCH).
 _BOOL_KEYS = (
     "isexternal",
@@ -123,6 +133,16 @@ def validate_property_value(
     if value is None:
         return None  # absence gérée ailleurs
     full_name = " ".join(filter(None, [pset_or_attribute or "", property_name or ""]))
+
+    # 0. Ratings feu/acoustique = **codes**, pas des numériques. FireRating vaut
+    #    « EI30 » / « REI60 », AcousticRating « 38 dB » : la clé générique
+    #    « rating » (sous-chaîne de firerating/acousticrating) les faisait passer
+    #    par la validation numérique → faux PROPERTY_TYPE_INVALID. On les accepte
+    #    comme chaîne non vide.
+    if _has_key(full_name, _RATING_STRING_KEYS):
+        if isinstance(value, str) and not value.strip():
+            return "chaîne vide"
+        return None
 
     # 1. Numérique positif
     if _has_key(full_name, _NUMERIC_POSITIVE_KEYS):
