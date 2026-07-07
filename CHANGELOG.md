@@ -7,6 +7,14 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-07
+
+Jalon : **`field_path` généralisé** aux findings non-zone (grammaire gelée + verrou
+générique) et **dette override uv soldée** (les 5 packages first-party ré-taggés sous
+tags immuables pinnant `bim-core v0.1.1`, plus aucun `override-dependencies`). Pins :
+`bim-core v0.1.1`, `bimdata-read v0.1.4`, `bimdata-write v0.1.2`, `bim-query v0.1.1`,
+`bim-publication v0.1.1`, `bim-audit-engine v0.1.2`.
+
 ### Added
 
 - **`field_path` généralisé aux findings non-zone** — le champ structuré
