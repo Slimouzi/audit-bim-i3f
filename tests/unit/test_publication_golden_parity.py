@@ -124,3 +124,86 @@ def test_prepare_smart_view_from_filter_matches_pre_shim_golden():
         ["W1", "D1"], name="Sélection", target=TARGET, description="note"
     )
     assert _plan_dump(plan) == _load("prepare_smart_view_from_filter.json")
+
+
+# ── E11 : invariants STRUCTURELS indépendants (anti-tautologie) ───────────────
+# Les tests ci-dessus comparent le builder à un golden régénéré par… le builder →
+# tautologie. On épingle donc des invariants de payload **indépendants** (clés
+# obligatoires, préfixe, format), vérifiés à la fois sur la sortie fraîche du
+# builder ET sur le golden — un golden régénéré cassé échoue aussi.
+_BCF_REQUIRED_KEYS = {
+    "title",
+    "description",
+    "topic_type",
+    "topic_status",
+    "priority",
+    "labels",
+    "viewpoints",
+    "models",
+}
+_SMARTVIEW_REQUIRED_KEYS = {"title", "format", "viewpoints", "models"}
+
+
+def _assert_bcf_invariants(payloads):
+    assert isinstance(payloads, list) and payloads
+    for p in payloads:
+        assert _BCF_REQUIRED_KEYS <= set(p), f"clés BCF manquantes : {_BCF_REQUIRED_KEYS - set(p)}"
+        assert isinstance(p["title"], str) and p["title"].startswith(PREFIX)
+        assert isinstance(p["topic_type"], str) and p["topic_type"]
+        assert isinstance(p["topic_status"], str) and p["topic_status"]
+        assert isinstance(p["labels"], list)
+        assert isinstance(p["models"], list) and MODEL_ID in p["models"]
+
+
+def _assert_smartview_invariants(payloads):
+    items = payloads if isinstance(payloads, list) else [payloads]
+    assert items
+    for p in items:
+        assert _SMARTVIEW_REQUIRED_KEYS <= set(p)
+        assert p["format"] == "bimdata-smartview"
+        assert isinstance(p["models"], list) and MODEL_ID in p["models"]
+
+
+def _assert_plan_invariants(dump: dict, kind: str):
+    assert dump["kind"] == kind
+    assert set(dump["target"]) >= {"cloud_id", "project_id", "model_id"}
+    assert dump["target"] == TARGET
+    assert isinstance(dump["items"], list)
+    assert isinstance(dump["summary"], dict)
+    assert isinstance(dump["risks"], list)
+
+
+def test_bcf_payload_invariants_hold_on_builder_and_golden():
+    got = pub.build_bcf_payloads(_findings(), phase="AVP", prefix=PREFIX, model_id=MODEL_ID)
+    _assert_bcf_invariants(got)
+    _assert_bcf_invariants(_load("bcf_payloads.json"))  # golden aussi
+
+
+def test_smartview_payload_invariants_hold_on_builder_and_golden():
+    ebu = _snapshot().element_by_uuid
+    got = pub.build_smartview_payloads(
+        _findings(), phase="AVP", prefix=PREFIX, model_id=MODEL_ID, element_by_uuid=ebu
+    )
+    _assert_smartview_invariants(got)
+    _assert_smartview_invariants(_load("smartview_payloads.json"))
+    for p in got:
+        assert p["title"].startswith(PREFIX)
+
+
+def test_prepare_plan_invariants():
+    _assert_plan_invariants(
+        _plan_dump(pub.prepare_bcf(_findings(), phase="AVP", target=TARGET)), "bcf_topics"
+    )
+    ebu = _snapshot().element_by_uuid
+    sv = pub.prepare_smart_views(_findings(), phase="AVP", target=TARGET, element_by_uuid=ebu)
+    _assert_plan_invariants(_plan_dump(sv), "smart_views")
+
+
+def test_golden_regeneration_is_gated_by_invariants():
+    # Garde de régénération : les 5 goldens de payload/plan doivent satisfaire les
+    # invariants (un golden régénéré depuis un builder cassé serait attrapé ici).
+    _assert_bcf_invariants(_load("bcf_payloads.json"))
+    _assert_smartview_invariants(_load("smartview_payloads.json"))
+    _assert_smartview_invariants(_load("smartview_from_uuids.json"))
+    _assert_plan_invariants(_load("prepare_bcf.json"), "bcf_topics")
+    _assert_plan_invariants(_load("prepare_smart_views.json"), "smart_views")
