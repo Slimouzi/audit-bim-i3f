@@ -7,14 +7,17 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
-### Fixed (audit profond 2ᵉ passe — Lot 5, hygiène ops)
+### Removed
 
-- **Message explicite selon le `status` du modèle BIMData.** `assert_snapshot_usable`
-  refuse désormais un modèle dont `model.status ≠ "C"` (Completed) en **nommant la
-  cause métier** : `D`=supprimé, `P`/`W`/`I`=traitement IFC en cours/attente,
-  `E`=erreur — au lieu d'un « snapshot vide » générique. Le `status` est lu depuis
-  `snap.model` (déjà extrait) → garde consommateur, **sans cascade** bimdata-read.
-  Complète le refus C2.
+- **Garde `assert_snapshot_usable` retirée (décision produit).** Le contrôle
+  consommateur de C2 (refus d'un snapshot vide / partiel / `status ≠ C`) et le message
+  de statut associé sont supprimés à tous les points d'appel (`extract_model_snapshot`,
+  `full_audit`, `verify_active_model`). L'extraction/l'audit renvoie désormais ce que
+  BIMData fournit, y compris vide/partiel. Le champ `ModelSnapshot.extraction_errors`
+  et le refus de cache partiel (côté `bimdata-read`) restent en place — ce ne sont pas
+  des contrôles bloquants.
+
+### Fixed (audit profond 2ᵉ passe — Lot 5, hygiène ops)
 
 - **Extraction snapshot robuste à une racine d'export en lecture seule.**
   `extract_model_snapshot` appelait `safe_export_dir(cache_dir)` **inconditionnellement**
@@ -143,12 +146,11 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   vide indéfiniment. Corrigé **cross-repo** (tags immuables) :
   `bim-core v0.1.2` ajoute `ModelSnapshot.extraction_errors` ; `bimdata-read v0.1.5`
   l'**attache** au snapshot et **ne met plus en cache un snapshot partiel** (schéma
-  cache v2) ; côté MCP, nouveau `extraction.model_data.assert_snapshot_usable`
-  appelé par `extract_model_snapshot` et `full_audit` — **refus** (`ValueError`) si
-  `model` vide ou `extraction_errors` non vide. Cascade de pins (résolution uv
-  unique, **aucun override**) : `bim-query v0.1.2`, `bim-publication v0.1.2`,
-  `bim-audit-engine v0.1.3`, `bimdata-write v0.1.3`. Nouveau
-  `tests/unit/test_snapshot_guard_c2.py`.
+  cache v2). *(Le garde consommateur `assert_snapshot_usable` initialement ajouté a
+  été retiré par la suite — cf. section « Removed » — sur décision produit ; le champ
+  `extraction_errors` et le refus de cache partiel restent.)* Cascade de pins
+  (résolution uv unique, **aucun override**) : `bim-query v0.1.2`,
+  `bim-publication v0.1.2`, `bim-audit-engine v0.1.3`, `bimdata-write v0.1.3`.
 
 - **E6 — garde catalogue CCH sur le chemin MCP.** `build_catalog` tolère des
   documents illisibles et rend un catalogue vide ; un audit sur ce catalogue rendait
