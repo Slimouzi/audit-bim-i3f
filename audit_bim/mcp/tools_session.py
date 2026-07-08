@@ -337,16 +337,26 @@ def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cach
         Résumé du snapshot enrichi de ``from_cache: bool``.
     """
     _State.ensure_client()
-    # Le dossier de cache est sandboxé : créé sous AUDIT_OUTPUT_DIR si
-    # relatif, refusé s'il s'évade.
-    safe_dir = safe_export_dir(cache_dir)
+    # L'extraction est une **lecture** : elle ne doit pas dépendre d'un dossier de
+    # sortie inscriptible. Le cache (optionnel) est sandboxé sous AUDIT_OUTPUT_DIR ;
+    # si cette racine est en **lecture seule** (ex. volume /out non monté en
+    # écriture), on dégrade en extraction sans cache au lieu de planter. On ne
+    # touche même pas la racine quand ``use_cache=False``.
+    hit = False
     if use_cache:
-        _State.snapshot, hit = cached_extract_snapshot(
-            _State.client, cache_dir=str(safe_dir), use_cache=True
-        )
+        try:
+            safe_dir = safe_export_dir(cache_dir)
+            _State.snapshot, hit = cached_extract_snapshot(
+                _State.client, cache_dir=str(safe_dir), use_cache=True
+            )
+        except OSError:
+            _server_logger.warning(
+                "cache snapshot indisponible (racine d'export en lecture seule ?) "
+                "— extraction sans cache."
+            )
+            _State.snapshot = extract_snapshot(_State.client)
     else:
         _State.snapshot = extract_snapshot(_State.client)
-        hit = False
     # C2 — refuse un snapshot vide (extraction échouée) ou partiel (route en
     # échec) : sinon les tools d'audit dérouleraient sur du vide/tronqué.
     assert_snapshot_usable(_State.snapshot)
@@ -404,17 +414,23 @@ def verify_active_model(
 
     from_cache: bool | None
     if refresh_snapshot:
+        from_cache = False
         if use_cache:
-            # Lot 5 — sandboxer le dossier de cache (comme extract_model_snapshot) :
-            # sinon `.audit_cache` s'écrit sous le CWD, hors AUDIT_OUTPUT_DIR.
-            safe_dir = safe_export_dir(".audit_cache")
-            _State.snapshot, hit = cached_extract_snapshot(
-                _State.client, cache_dir=str(safe_dir), use_cache=True
-            )
-            from_cache = hit
+            # Cache sandboxé sous AUDIT_OUTPUT_DIR ; dégradation en lecture seule
+            # (racine non inscriptible) → extraction sans cache plutôt que crash.
+            try:
+                safe_dir = safe_export_dir(".audit_cache")
+                _State.snapshot, from_cache = cached_extract_snapshot(
+                    _State.client, cache_dir=str(safe_dir), use_cache=True
+                )
+            except OSError:
+                _server_logger.warning(
+                    "cache snapshot indisponible (racine d'export en lecture seule ?)"
+                    " — extraction sans cache."
+                )
+                _State.snapshot = extract_snapshot(_State.client)
         else:
             _State.snapshot = extract_snapshot(_State.client)
-            from_cache = False
     else:
         if _State.snapshot is None:
             raise RuntimeError(
