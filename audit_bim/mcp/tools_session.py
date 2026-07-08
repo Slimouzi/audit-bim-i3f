@@ -9,7 +9,7 @@ from .. import config
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import extract_snapshot
 from ..extraction.snapshot_cache import cached_extract_snapshot
-from ..requirements.catalog import build_catalog
+from ..requirements.catalog import build_catalog, catalog_usable
 from ..requirements.models import BIMPhase
 from ..safe_paths import safe_export_dir, safe_input_path
 from .app import mcp
@@ -178,7 +178,13 @@ def parse_owner_requirements() -> dict:
         data_spec_xlsx=_State.data_spec_xlsx,
         naming_spec_xlsx=_State.naming_spec_xlsx,
     )
-    return _State.catalog.summary()
+    summary = _State.catalog.summary()
+    # E6 — avertissement structuré si le catalogue est inexploitable : un audit
+    # ultérieur rendrait un verdict faussement « conforme » (documents illisibles).
+    ok, reason = catalog_usable(_State.catalog)
+    if not ok:
+        summary["warning"] = reason
+    return summary
 
 
 @mcp.tool()

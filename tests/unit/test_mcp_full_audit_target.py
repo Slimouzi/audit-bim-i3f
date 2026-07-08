@@ -100,6 +100,7 @@ class TestFullAuditPreservesActiveTarget:
 
         with (
             patch.object(mcp_server, "build_catalog"),
+            patch.object(mcp_server, "catalog_usable", return_value=(True, None)),
             patch.object(mcp_server, "set_active_model") as m_set,
             patch.object(mcp_server, "extract_snapshot", return_value=snap),
             patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()) as m_run,
@@ -186,6 +187,7 @@ class TestFullAuditPreservesActiveTarget:
 
         with (
             patch.object(mcp_server, "build_catalog"),
+            patch.object(mcp_server, "catalog_usable", return_value=(True, None)),
             patch.object(mcp_server, "set_active_model") as m_set,
             patch.object(mcp_server, "extract_snapshot", return_value=snap),
             patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
@@ -238,6 +240,7 @@ class TestFullAuditPreservesActiveTarget:
 
         with (
             patch.object(mcp_server, "build_catalog"),
+            patch.object(mcp_server, "catalog_usable", return_value=(True, None)),
             patch.object(mcp_server, "set_active_model") as m_set,
             patch.object(mcp_server, "extract_snapshot", return_value=snap),
             patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
@@ -290,6 +293,7 @@ class TestFullAuditPreservesActiveTarget:
 
         with (
             patch.object(mcp_server, "build_catalog"),
+            patch.object(mcp_server, "catalog_usable", return_value=(True, None)),
             patch.object(mcp_server, "set_active_model") as m_set,
             patch.object(mcp_server, "extract_snapshot", return_value=snap),
             patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()) as m_run,
@@ -437,6 +441,7 @@ class TestForceRefreshSnapshotSemantics:
 
         with (
             patch.object(mcp_server, "build_catalog"),
+            patch.object(mcp_server, "catalog_usable", return_value=(True, None)),
             patch.object(mcp_server, "set_active_model", side_effect=_fake_set),
             patch.object(mcp_server, "extract_snapshot", return_value=snap_b) as m_extract,
             patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),
@@ -475,6 +480,7 @@ class TestForceRefreshSnapshotSemantics:
 
         with (
             patch.object(mcp_server, "build_catalog"),
+            patch.object(mcp_server, "catalog_usable", return_value=(True, None)),
             patch.object(mcp_server, "set_active_model") as m_set,
             patch.object(mcp_server, "extract_snapshot", return_value=snap) as m_extract,
             patch.object(mcp_server, "run_audit", return_value=_FakeAuditResult()),

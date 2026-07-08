@@ -29,6 +29,25 @@ def clear_catalog_cache() -> None:
     _CATALOG_CACHE.clear()
 
 
+def catalog_usable(catalog: RequirementsCatalog) -> tuple[bool, str | None]:
+    """``(utilisable, motif)`` — garde **non fatale** du chemin MCP (E6).
+
+    ``build_catalog`` tolère des documents absents/illisibles et rend un catalogue
+    partiel ou **vide** ; un audit sur un tel catalogue rend un verdict
+    faussement « conforme » (rien à vérifier ⇒ rien à signaler). On refuse si
+    ``properties`` **ou** ``naming_rules`` est vide — même critère que la garde CLI
+    ``security.guards.assert_catalog_usable``, mais sans ``SystemExit`` (le serveur
+    MCP doit répondre une erreur/avertissement, pas mourir)."""
+    n_props = len(getattr(catalog, "properties", None) or [])
+    n_rules = len(getattr(catalog, "naming_rules", None) or [])
+    if n_props == 0 or n_rules == 0:
+        return False, (
+            f"catalogue CCH inexploitable (properties={n_props}, naming_rules={n_rules}) "
+            "— documents MOA absents ou illisibles. L'audit serait faussement « conforme »."
+        )
+    return True, None
+
+
 def _source_key(path: str | Path | None) -> tuple[str, int, int] | None:
     """``(chemin résolu, mtime_ns, taille)`` d'une source, ou ``None`` si absente."""
     if not path:

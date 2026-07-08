@@ -15,7 +15,7 @@ from ..extraction.model_data import extract_snapshot
 from ..reporting.context import build_report_context, merge_user_context
 from ..reporting.word_report import write_word_report
 from ..reporting.xlsx_annex import write_xlsx_annex
-from ..requirements.catalog import build_catalog
+from ..requirements.catalog import build_catalog, catalog_usable
 from ..requirements.models import BIMPhase
 from ..safe_paths import safe_export_path, safe_input_path
 from .app import mcp
@@ -166,12 +166,22 @@ def _fa_resolve_push_mode(push_mode: str) -> str | dict:
 
 
 def _fa_prepare_catalog() -> None:
-    """Étape 2 — (re)charge le catalogue d'exigences depuis les 3 documents MOA."""
+    """Étape 2 — (re)charge le catalogue d'exigences depuis les 3 documents MOA.
+
+    Refuse (``ValueError``) un catalogue inexploitable (E6) : sans référentiel CCH
+    chargé, ``full_audit`` rendrait un rapport faussement « conforme ». Même garde
+    que les runners CLI, mais non fatale (l'erreur remonte au client MCP)."""
     _State.catalog = build_catalog(
         cch_pdf=_State.cch_pdf,
         data_spec_xlsx=_State.data_spec_xlsx,
         naming_spec_xlsx=_State.naming_spec_xlsx,
     )
+    ok, reason = catalog_usable(_State.catalog)
+    if not ok:
+        raise ValueError(
+            f"REFUS full_audit : {reason} Charge des documents MOA lisibles "
+            "(data-spec + nommage) avant de lancer l'audit."
+        )
 
 
 def _fa_finalize_target(

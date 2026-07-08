@@ -9,6 +9,14 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Fixed (audit profond 2ᵉ passe — Lot 2, infra ≠ métier)
 
+- **E6 — garde catalogue CCH sur le chemin MCP.** `build_catalog` tolère des
+  documents illisibles et rend un catalogue vide ; un audit sur ce catalogue rendait
+  un verdict faussement « conforme ». Les runners CLI se protégeaient
+  (`assert_catalog_usable`, `SystemExit`), **pas le serveur**. Nouveau
+  `requirements.catalog.catalog_usable` (non fatal, même critère : refus si
+  `properties` **ou** `naming_rules` vide) : `parse_owner_requirements` renvoie un
+  `warning` structuré, `full_audit` **refuse** (`ValueError`) plutôt que de produire
+  un rapport trompeur. Nouveau `tests/unit/test_catalog_guard_e6.py`.
 - **E7 — open data : les pannes ne passent plus pour « aucune donnée ».** Les
   clients `dpe` / `plu` / `georisques` / `ban` avalaient les `RequestException`
   (timeout, 4xx/5xx) et renvoyaient `[]`, avec la source comptée dans `sources_used` :
