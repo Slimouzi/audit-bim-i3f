@@ -17,9 +17,7 @@ from audit_bim.mcp.session import _store
 
 
 def _ctx(session_id: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        fastmcp_context=SimpleNamespace(session_id=session_id, client_id=None)
-    )
+    return SimpleNamespace(fastmcp_context=SimpleNamespace(session_id=session_id, client_id=None))
 
 
 def _run(coro):
