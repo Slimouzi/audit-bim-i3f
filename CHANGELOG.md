@@ -9,6 +9,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Tests (audit profond 2ᵉ passe — Lot 4, la suite verrouille)
 
+- **E12 — verrou du `conformity_rate`.** Trou de mutation : changer un poids
+  (CRITICAL 5 / HIGH 3 / MEDIUM 1 / LOW 0.3 / INFO 0) ou le dénominateur
+  (`n_éléments × 3`) ne cassait aucun test, alors que ce taux pilote la décision au
+  **seuil 0.7** des livrables. Épinglé : valeur exacte (cas mixte), chaque poids
+  isolé, mise à l'échelle du dénominateur, bornes [0,1], et comportement **au seuil**
+  (0.70 pile n'est pas « < 0.7 »). Nouveau `tests/unit/test_conformity_rate_e12.py`.
+- **E13 — couverture `on_get_prompt` / `on_read_resource`.** Ces handlers du
+  `SessionBindingMiddleware` bindent `current_session` mais n'étaient testés par rien
+  (une fuite d'état inter-sessions via prompts/resources serait passée). Bind + reset
+  + isolation par clé + reset sur exception. Nouveau
+  `tests/unit/test_middleware_prompt_resource_e13.py`.
+
 - **C4 — le corps post-confirm des 3 `apply_*` (hors BCF) est enfin couvert.** Seul
   `apply_bcf_topics` avait le trio complet ; `apply_smart_views_plan`,
   `apply_classification_update_plan` et `apply_doe_enrichment_plan` n'exécutaient
