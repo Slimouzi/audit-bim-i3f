@@ -282,6 +282,11 @@ def set_active_model(
     # Invalide les caches downstream
     _State.snapshot = None
     _State.result = None
+    # E8 — le store de suggestions est construit sur les UUIDs du modèle précédent :
+    # sans invalidation, un plan de classifications scellé sur la NOUVELLE cible
+    # porterait les UUIDs de l'ANCIENNE → écritures parasites sur le mauvais modèle
+    # (validate_target ne voit que la cible, pas la provenance des items).
+    _State.suggestion_store = None
     return {
         "cloud_id": _State.cloud_id,
         "project_id": _State.project_id,

@@ -9,6 +9,13 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Fixed (audit profond 2ᵉ passe — Lot 3, écritures sûres)
 
+- **E8 — `set_active_model` invalide le store de suggestions.** Il remettait à zéro
+  `snapshot` et `result` mais **pas** `suggestion_store` : construit sur les UUIDs du
+  modèle précédent, il aurait produit un plan de classifications scellé sur la
+  **nouvelle** cible mais portant les UUIDs de l'**ancien** modèle → écritures
+  parasites (`validate_target` ne contrôle que la cible, pas la provenance). Le store
+  est désormais invalidé avec les autres caches. Nouveau
+  `tests/unit/test_session_invalidation_e8.py`.
 - **C3 — un crash mid-apply ne duplique plus au re-run.** Les 4 planners
   journalisaient **après** la boucle d'items : un crash à l'item 3/5 laissait le
   journal vide (« rien ne s'est passé ») alors que 3 écritures étaient déjà faites
