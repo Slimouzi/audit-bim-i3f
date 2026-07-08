@@ -126,13 +126,13 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bim-audit-engine", git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.2" },
-    { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.1.1" },
-    { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.1" },
-    { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.1" },
+    { name = "bim-audit-engine", git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.3" },
+    { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.1.2" },
+    { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.2" },
+    { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.2" },
     { name = "bim-sandbox", git = "https://github.com/Slimouzi/bim-sandbox.git?tag=bim-sandbox-v0.1.0" },
-    { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.4" },
-    { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.2" },
+    { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.5" },
+    { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.3" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
     { name = "fastmcp", specifier = ">=3.0,<4" },
     { name = "matplotlib", specifier = ">=3.8,<4" },
@@ -192,24 +192,24 @@ wheels = [
 
 [[package]]
 name = "bim-audit-engine"
-version = "0.1.2"
-source = { git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.2#ba6a70ae93b969a850c713ec7244e4f32b58a361" }
+version = "0.1.3"
+source = { git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.3#e71fc6582a3893c7b14108673b7928498584714e" }
 dependencies = [
     { name = "bim-core" },
 ]
 
 [[package]]
 name = "bim-core"
-version = "0.1.1"
-source = { git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.1.1#d7f776aff3e33ce365c952d580ddc1eaac76e96d" }
+version = "0.1.2"
+source = { git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.1.2#4a6613619a9941bdb44e47bb0edd14d13c8e8b52" }
 dependencies = [
     { name = "pydantic" },
 ]
 
 [[package]]
 name = "bim-publication"
-version = "0.1.1"
-source = { git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.1#e0c2ddccbfd39ad2e6a7bd627ed49d9ff4678be1" }
+version = "0.1.2"
+source = { git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.2#01fb7f82ca0e65fd2594ad27f38360f4b01a527a" }
 dependencies = [
     { name = "bim-core" },
     { name = "bim-query" },
@@ -217,8 +217,8 @@ dependencies = [
 
 [[package]]
 name = "bim-query"
-version = "0.1.1"
-source = { git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.1#cf846f153da2e180365bb82bcc98d7e646848077" }
+version = "0.1.2"
+source = { git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.2#8236a8f5984780499ebad0b2dde1de4a2fa7ad51" }
 dependencies = [
     { name = "bim-core" },
     { name = "pydantic" },
@@ -231,8 +231,8 @@ source = { git = "https://github.com/Slimouzi/bim-sandbox.git?tag=bim-sandbox-v0
 
 [[package]]
 name = "bimdata-read"
-version = "0.1.4"
-source = { git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.4#999647c458704da2d5bd8f8a79f94cd7670e0cef" }
+version = "0.1.5"
+source = { git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.5#931f873c859ab54fc4514a3cb2f1aef950281cbd" }
 dependencies = [
     { name = "bim-core" },
     { name = "requests" },
@@ -241,8 +241,8 @@ dependencies = [
 
 [[package]]
 name = "bimdata-write"
-version = "0.1.2"
-source = { git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.2#e8703155d9b856ef321f4f27dc4fb9ab65919874" }
+version = "0.1.3"
+source = { git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.3#926123491e77311b1946a2e9b12b209920a0981d" }
 dependencies = [
     { name = "bimdata-read" },
 ]

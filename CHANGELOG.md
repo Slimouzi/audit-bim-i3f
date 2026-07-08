@@ -9,6 +9,20 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Fixed (audit profond 2ᵉ passe — Lot 2, infra ≠ métier)
 
+- **C2 — l'infrastructure ne se déguise plus en métier.** Une extraction BIMData
+  échouée (token expiré, cible injoignable) produisait un snapshot vide ; l'audit
+  déroulait dessus et livrait « pas d'IfcSite/IfcBuilding » (CRITICAL spatial) au
+  lieu d'une erreur d'infra. Pire, un snapshot partiel mis en cache resservait son
+  vide indéfiniment. Corrigé **cross-repo** (tags immuables) :
+  `bim-core v0.1.2` ajoute `ModelSnapshot.extraction_errors` ; `bimdata-read v0.1.5`
+  l'**attache** au snapshot et **ne met plus en cache un snapshot partiel** (schéma
+  cache v2) ; côté MCP, nouveau `extraction.model_data.assert_snapshot_usable`
+  appelé par `extract_model_snapshot` et `full_audit` — **refus** (`ValueError`) si
+  `model` vide ou `extraction_errors` non vide. Cascade de pins (résolution uv
+  unique, **aucun override**) : `bim-query v0.1.2`, `bim-publication v0.1.2`,
+  `bim-audit-engine v0.1.3`, `bimdata-write v0.1.3`. Nouveau
+  `tests/unit/test_snapshot_guard_c2.py`.
+
 - **E6 — garde catalogue CCH sur le chemin MCP.** `build_catalog` tolère des
   documents illisibles et rend un catalogue vide ; un audit sur ce catalogue rendait
   un verdict faussement « conforme ». Les runners CLI se protégeaient

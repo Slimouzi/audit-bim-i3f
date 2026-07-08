@@ -111,13 +111,13 @@ audit-bim-mcp = "audit_bim.mcp.__main__:main"
 # ``bim-core`` n'est pas publié sur PyPI : uv le résout depuis le dépôt Git
 # au tag figé. Bumper ce tag = bumper le contrat (et la borne de version
 # dans [project.dependencies]), puis regénérer uv.lock (``uv lock``).
-bim-core = { git = "https://github.com/Slimouzi/bim-core.git", tag = "bim-core-v0.1.1" }
-bimdata-read = { git = "https://github.com/Slimouzi/bimdata-read.git", tag = "bimdata-read-v0.1.4" }
-bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "bimdata-write-v0.1.2" }
+bim-core = { git = "https://github.com/Slimouzi/bim-core.git", tag = "bim-core-v0.1.2" }
+bimdata-read = { git = "https://github.com/Slimouzi/bimdata-read.git", tag = "bimdata-read-v0.1.5" }
+bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "bimdata-write-v0.1.3" }
 bim-sandbox = { git = "https://github.com/Slimouzi/bim-sandbox.git", tag = "bim-sandbox-v0.1.0" }
-bim-query = { git = "https://github.com/Slimouzi/bim-query.git", tag = "bim-query-v0.1.1" }
-bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag = "bim-publication-v0.1.1" }
-bim-audit-engine = { git = "https://github.com/Slimouzi/bim-audit-engine.git", tag = "bim-audit-engine-v0.1.2" }
+bim-query = { git = "https://github.com/Slimouzi/bim-query.git", tag = "bim-query-v0.1.2" }
+bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag = "bim-publication-v0.1.2" }
+bim-audit-engine = { git = "https://github.com/Slimouzi/bim-audit-engine.git", tag = "bim-audit-engine-v0.1.3" }
 
 [tool.setuptools.packages.find]
 include = ["audit_bim*"]
