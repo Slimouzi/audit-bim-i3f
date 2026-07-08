@@ -9,6 +9,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Fixed (audit profond 2ᵉ passe — Lot 3, écritures sûres)
 
+- **E10 — redaction élargie + masquage d'erreurs en réseau.** (1) `redact_secrets`
+  couvre désormais les **URLs signées** (`X-Amz-Signature`/`X-Amz-Credential`/
+  `X-Amz-Security-Token`/`Signature`/`sig`/`token`) et les **chemins absolus serveur**
+  (`/Users`, `/home`, `/tmp`, `/var`… → `<path>` ; les routes API `/cloud/…` sont
+  préservées). Les retours `str(e)` de `classifier/applier` (×3) et de
+  `apply_classifications_from_xlsx` (`reason`) sont scrubés. (2) Nouveau
+  `ErrorMaskingMiddleware` : en transport **réseau**, une exception non gérée d'un tool
+  est journalisée **redactée** côté serveur et remplacée par un message générique pour
+  le client (les chemins/URLs signées ne fuient plus). En local (stdio/script), l'erreur
+  brute est conservée. Choisi en middleware car `mask_error_details` ne peut pas être
+  fixé à la construction de `mcp` (importé avant que le transport soit connu). Nouveaux
+  `tests/unit/test_error_masking_e10.py` + cas dans `test_security_redaction.py`.
 - **E9 — sérialisation intra-session des `tools/call`.** `_Session` était mutable sans
   verrou et les tools sync tournent en threadpool : deux appels concurrents d'un même
   client pouvaient s'entrelacer — un `set_active_model` (cible B) pendant un

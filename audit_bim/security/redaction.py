@@ -91,6 +91,27 @@ _KV_PATTERNS: tuple[re.Pattern[str], ...] = (
     _make_kv_pattern("BIMDATA_CLIENT_SECRET"),
     _make_kv_pattern("password"),
     _make_kv_pattern("passwd"),
+    # Paramètres d'**URL signée** (S3/MinIO presigned, fréquents dans les erreurs
+    # de download BIMData) : leur signature autorise l'accès au fichier.
+    _make_kv_pattern("X-Amz-Signature"),
+    _make_kv_pattern("X-Amz-Credential"),
+    _make_kv_pattern("X-Amz-Security-Token"),
+    _make_kv_pattern("Signature"),
+    _make_kv_pattern("sig"),
+    _make_kv_pattern("token"),
+)
+
+# Chemins **absolus du serveur** (home, tmp, /var…) : les fuir révèle
+# l'arborescence de l'hôte au client MCP. On les remplace par ``<path>`` (≥ 2
+# segments sous une racine système connue → évite de toucher les routes API
+# ``/cloud/.../project/...``).
+_ABS_PATH_PATTERN = re.compile(
+    r"""(?x)
+    (?: [A-Za-z]:\\                                   # Windows  C:\...
+      | /(?:Users|home|root|tmp|private|var|opt|mnt|srv|Applications|Library)
+    )
+    (?:[\\/][^\s"',;:)\]]+)+                          # ≥ 1 segment de plus
+    """,
 )
 
 
@@ -120,6 +141,8 @@ def _redact_str(text: str) -> str:
             return f"{key}{sep}{_scrub_value(value)}"
 
         text = pattern.sub(_kv_sub, text)
+
+    text = _ABS_PATH_PATTERN.sub("<path>", text)
 
     return text
 

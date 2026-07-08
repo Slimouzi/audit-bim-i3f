@@ -117,3 +117,37 @@ class TestRealisticHttpErrors:
     def test_no_secrets(self):
         msg = "HTTPError: 404 Not Found"
         assert redact_secrets(msg) == msg
+
+
+class TestSignedUrlsAndPaths:
+    """E10 — élargissement : URLs signées (S3 presigned) + chemins absolus serveur."""
+
+    def test_x_amz_signature_scrubbed(self):
+        msg = "download: https://s3/bucket/f.ifc?X-Amz-Signature=abcdef1234567890&x=1"
+        out = redact_secrets(msg)
+        assert "abcdef1234567890" not in out
+        assert "<scrub:" in out
+
+    def test_x_amz_credential_scrubbed(self):
+        out = redact_secrets("url ...?X-Amz-Credential=AKIA1234567890/eu/s3 ...")
+        assert "AKIA1234567890" not in out
+
+    def test_generic_signed_token_param(self):
+        out = redact_secrets("presigned ...?token=deadbeefcafe1234 expired")
+        assert "deadbeefcafe1234" not in out
+
+    def test_absolute_path_redacted(self):
+        msg = "FileNotFoundError: '/Users/stani/code/MCP/audit-bim-i3f/out/plan.json'"
+        out = redact_secrets(msg)
+        assert "/Users/stani" not in out
+        assert "<path>" in out
+
+    def test_tmp_path_redacted(self):
+        out = redact_secrets("cache at /private/tmp/claude-501/scratch/x.json.gz")
+        assert "/private/tmp" not in out
+        assert "<path>" in out
+
+    def test_api_route_not_redacted(self):
+        # Les routes API ne sont PAS des chemins fs → conservées (debug).
+        msg = "GET /cloud/1/project/2/model/3 -> 404"
+        assert redact_secrets(msg) == msg
