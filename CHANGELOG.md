@@ -7,6 +7,19 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (audit profond 2ᵉ passe — Lot 3, écritures sûres)
+
+- **C3 — un crash mid-apply ne duplique plus au re-run.** Les 4 planners
+  journalisaient **après** la boucle d'items : un crash à l'item 3/5 laissait le
+  journal vide (« rien ne s'est passé ») alors que 3 écritures étaient déjà faites
+  chez le client ; le plan restant applicable, un re-run rejouait les 5 → doublons.
+  `run_apply` (choke point des 4 planners) trace désormais l'**intent** (marqueur
+  `<plan_id>.started` + entrée journal `status=started`) **avant** la boucle, un
+  **completed** (marqueur `<plan_id>.applied.json` des items impactés + entrée
+  journal, forme d'origine **inchangée**) **après**, et **refuse** un second apply
+  du même `plan_id` — qu'il ait abouti ou été interrompu — sauf `force=True`.
+  Nouveau `tests/unit/test_actions_planners.py::TestApplyIdempotencyC3`.
+
 ### Fixed (audit profond 2ᵉ passe — Lot 2, infra ≠ métier)
 
 - **C2 — l'infrastructure ne se déguise plus en métier.** Une extraction BIMData
