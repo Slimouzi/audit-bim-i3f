@@ -24,6 +24,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 
 from ..extraction.client import BIMDataClient
+from ..security.redaction import redact_secrets
 
 
 def list_project_classifications(client: BIMDataClient) -> list[dict]:
@@ -118,7 +119,7 @@ def apply_classifications(
                     )
                 ] = c["id"]
         except Exception as e:  # pragma: no cover
-            errors.append(f"list_project_classifications: {e}")
+            errors.append(f"list_project_classifications: {redact_secrets(str(e))}")
 
     # Création des classifications manquantes
     relations: list[dict] = []
@@ -143,7 +144,7 @@ def apply_classifications(
                 n_created += 1
                 status = "created"
             except Exception as e:
-                errors.append(f"create {system}/{code}: {e}")
+                errors.append(f"create {system}/{code}: {redact_secrets(str(e))}")
                 # Toutes les UUIDs du groupe sont en échec : leur
                 # classification cible n'a pas pu être créée.
                 failed_uuids.extend(uuids)
@@ -189,7 +190,7 @@ def apply_classifications(
             client.assign_classification_elements(relations)
             n_linked = len(relations)
         except Exception as e:
-            errors.append(f"bulk link {len(relations)} relations: {e}")
+            errors.append(f"bulk link {len(relations)} relations: {redact_secrets(str(e))}")
             link_failed = True
 
     # Journal des classifications créées mais non liées (orphelines en

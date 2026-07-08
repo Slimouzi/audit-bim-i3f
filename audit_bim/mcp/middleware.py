@@ -20,10 +20,37 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 
-from .security import API_KEY_ENV, verify_api_key
+from ..security.redaction import redact_secrets
+from .security import API_KEY_ENV, _is_network_transport, verify_api_key
 from .session import _store, current_session
 
 logger = logging.getLogger("audit_bim.mcp.middleware")
+
+
+class ErrorMaskingMiddleware(Middleware):
+    """E10 — masque les détails des exceptions **non gérées** en transport réseau.
+
+    Sans ``mask_error_details`` (impossible à fixer à la construction de ``mcp`` :
+    ``app.py`` est importé avant que le transport runtime soit connu), une
+    exception non catchée d'un tool part au client avec son ``str()`` brut —
+    chemins absolus serveur, URLs signées. Ce middleware, gardé par le transport
+    **au moment de la requête**, journalise le détail **redacté** côté serveur et
+    ne renvoie au client qu'un message générique. En local (stdio/script), l'erreur
+    brute est conservée (utile en dev). Les ``ToolError`` (erreurs métier
+    volontaires) sont laissées passer telles quelles."""
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        try:
+            return await call_next(context)
+        except ToolError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — masquage volontaire en réseau
+            if _is_network_transport():
+                logger.warning("tool error masked (network): %s", redact_secrets(str(exc)))
+                raise ToolError(
+                    "Erreur interne du serveur d'audit — détail dans les logs serveur."
+                ) from None
+            raise
 
 
 class SessionBindingMiddleware(Middleware):

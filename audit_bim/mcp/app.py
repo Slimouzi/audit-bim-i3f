@@ -15,14 +15,21 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from .middleware import ApiKeyMiddleware, SessionBindingMiddleware
+from .middleware import (
+    ApiKeyMiddleware,
+    ErrorMaskingMiddleware,
+    SessionBindingMiddleware,
+)
 from .session import _State  # ré-export : conteneur d'état de session
 
 __all__ = ["mcp", "_State", "register_all"]
 
 mcp = FastMCP("audit-bim-i3f")
-# Middleware d'isolation de session (bind ``_State`` au client MCP courant) et
-# d'authentification optionnelle. En stdio, les deux sont des no-ops transparents.
+# Masquage d'erreurs en réseau (E10) en **premier** = enveloppe extérieure : il
+# rattrape les exceptions non gérées de toute la chaîne. Puis isolation de session
+# (bind ``_State`` au client MCP courant) et authentification optionnelle. En stdio,
+# les trois sont des no-ops transparents.
+mcp.add_middleware(ErrorMaskingMiddleware())
 mcp.add_middleware(SessionBindingMiddleware())
 mcp.add_middleware(ApiKeyMiddleware())
 

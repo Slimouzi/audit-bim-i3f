@@ -49,6 +49,7 @@ from ..doe import match_doe_records, parse_doe, summarize_matches
 from ..domain.filters import FindingFilter, SuggestionFilter, SuggestionStatus
 from ..domain.write_plan import WritePlan, WritePlanKind
 from ..safe_paths import safe_input_path
+from ..security.redaction import redact_secrets
 from ..security.write_journal import get_journal
 from .app import mcp
 from .payloads import (
@@ -602,11 +603,20 @@ def apply_classifications_from_xlsx(
     try:
         loaded = load_plan(plan_path)
     except (FileNotFoundError, PlanIntegrityError) as exc:
-        return {"refused": True, "action": "apply_classifications_from_xlsx", "reason": str(exc)}
+        # E10 — le message porte le chemin absolu du plan (FileNotFoundError) : scrub.
+        return {
+            "refused": True,
+            "action": "apply_classifications_from_xlsx",
+            "reason": redact_secrets(str(exc)),
+        }
     try:
         result = apply_classification_update(loaded, _State.client, actual_target=target)
     except PlanTargetMismatchError as exc:
-        return {"refused": True, "action": "apply_classifications_from_xlsx", "reason": str(exc)}
+        return {
+            "refused": True,
+            "action": "apply_classifications_from_xlsx",
+            "reason": redact_secrets(str(exc)),
+        }
     out = result.model_dump(mode="json")
     out["n_items_read_from_xlsx"] = len(items)
     out["xlsx_path"] = str(safe_xlsx)
