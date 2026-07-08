@@ -9,6 +9,12 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Fixed (audit profond 2ᵉ passe — Lot 5, hygiène ops)
 
+- **`verify_active_model(use_cache=True)` — cache sandboxé.** Il écrivait
+  `.audit_cache` sous le **CWD** (hors `AUDIT_OUTPUT_DIR`), contrairement à
+  `extract_model_snapshot`. Le dossier passe désormais par `safe_export_dir`.
+- **xlsx corrompu → erreur claire.** `read_classifications_from_xlsx` remontait un
+  `BadZipFile` brut sur un fichier tronqué/non-zip ; converti en `ValueError` métier
+  (« Fichier xlsx illisible ou corrompu »).
 - **`set_owner_documents` invalide le catalogue.** Un changement de documents MOA
   laissait `_State.catalog` en place → un audit ultérieur tournait sur l'**ancien
   référentiel** (incohérent avec `full_audit` qui reconstruit). Le catalogue est

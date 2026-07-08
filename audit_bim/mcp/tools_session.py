@@ -405,8 +405,11 @@ def verify_active_model(
     from_cache: bool | None
     if refresh_snapshot:
         if use_cache:
+            # Lot 5 — sandboxer le dossier de cache (comme extract_model_snapshot) :
+            # sinon `.audit_cache` s'écrit sous le CWD, hors AUDIT_OUTPUT_DIR.
+            safe_dir = safe_export_dir(".audit_cache")
             _State.snapshot, hit = cached_extract_snapshot(
-                _State.client, cache_dir=".audit_cache", use_cache=True
+                _State.client, cache_dir=str(safe_dir), use_cache=True
             )
             from_cache = hit
         else:

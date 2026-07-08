@@ -45,7 +45,14 @@ def read_classifications_from_xlsx(xlsx_path: str | Path) -> list[dict]:
     import openpyxl
 
     patch_openpyxl()
-    wb = openpyxl.load_workbook(path, data_only=True)
+    # Lot 5 — un xlsx corrompu/tronqué lève un ``BadZipFile`` brut (peu parlant
+    # côté client) : on le convertit en erreur métier claire.
+    try:
+        wb = openpyxl.load_workbook(path, data_only=True)
+    except Exception as e:  # noqa: BLE001 — openpyxl remonte des erreurs variées
+        raise ValueError(
+            f"Fichier xlsx illisible ou corrompu : {path.name} ({type(e).__name__})."
+        ) from e
     try:
         if SHEET_NAME not in wb.sheetnames:
             raise ValueError(
