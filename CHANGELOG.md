@@ -7,6 +7,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (audit profond 2ᵉ passe — Lot 2, infra ≠ métier)
+
+- **E7 — open data : les pannes ne passent plus pour « aucune donnée ».** Les
+  clients `dpe` / `plu` / `georisques` / `ban` avalaient les `RequestException`
+  (timeout, 4xx/5xx) et renvoyaient `[]`, avec la source comptée dans `sources_used` :
+  un Géorisques down produisait « aucun aléa » dans le livrable. Désormais : `dpe`/`plu`
+  laissent **remonter** l'erreur (capturée par l'enricher dans `sources_errors`, source
+  **absente** de `sources_used`) ; `georisques` enregistre les échecs **par endpoint**
+  (`GeoriskReport.errors`) que l'enricher remonte ; une panne **BAN** est distinguée
+  d'une « adresse introuvable » (`sources_errors["ban"]`). Tests dans
+  `tests/unit/test_enrichment.py`.
+
 ### Fixed (audit profond 2ᵉ passe — Lot 1, Moyens moteur)
 
 - **Dédup parent/sous-classe dans `audit_properties`.** Une même exigence listée

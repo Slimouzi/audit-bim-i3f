@@ -89,6 +89,9 @@ class GeoriskReport(BaseModel):
 
     items: list[GeoriskItem] = Field(default_factory=list)
     nb_aleas: int = 0
+    # Échecs **par endpoint** (clé = type d'aléa, valeur = motif) : sans ça, un
+    # endpoint down est indiscernable d'« aucun aléa » dans le livrable (E7).
+    errors: dict[str, str] = Field(default_factory=dict)
 
 
 class EnrichmentReport(BaseModel):

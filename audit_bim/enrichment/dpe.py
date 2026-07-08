@@ -63,12 +63,12 @@ def lookup_dpe(
         "geo_distance": f"{geo.lon}:{geo.lat}:{radius_m}m",
         "sort": "-date_etablissement_dpe",
     }
-    try:
-        r = requests.get(DPE_URL, params=params, timeout=timeout)
-        r.raise_for_status()
-        data = r.json()
-    except (requests.RequestException, ValueError):
-        return []
+    # E7 — on **laisse remonter** les erreurs réseau/HTTP : l'enricher les capture
+    # dans ``sources_errors`` et n'ajoute PAS la source à ``sources_used``. Les
+    # avaler ici ferait passer une API down pour « aucun DPE » dans le livrable.
+    r = requests.get(DPE_URL, params=params, timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
 
     out: list[DPERecord] = []
     for row in data.get("results") or []:

@@ -33,12 +33,11 @@ def lookup_plu(geo: GeocodingResult, *, timeout: float = 8.0) -> list[PLUZoning]
         return []
 
     geom = {"type": "Point", "coordinates": [geo.lon, geo.lat]}
-    try:
-        r = requests.get(GPU_ZONE_URBA, params={"geom": json.dumps(geom)}, timeout=timeout)
-        r.raise_for_status()
-        data = r.json()
-    except (requests.RequestException, ValueError):
-        return []
+    # E7 — erreurs réseau/HTTP laissées remonter (capturées par l'enricher dans
+    # ``sources_errors``) : les avaler ferait passer un GPU down pour « aucun PLU ».
+    r = requests.get(GPU_ZONE_URBA, params={"geom": json.dumps(geom)}, timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
 
     out: list[PLUZoning] = []
     for feat in data.get("features") or []:

@@ -87,17 +87,22 @@ def lookup_georisques(
     }
 
     items: list[GeoriskItem] = []
+    errors: dict[str, str] = {}
     for path, kind in _ENDPOINTS:
+        # Échec d'un endpoint = **enregistré** (et non avalé) : sinon « API down »
+        # est indiscernable d'« aucun aléa » dans le livrable (E7).
         try:
             r = requests.get(GR_BASE + path, params=params, timeout=timeout)
             if r.status_code != 200:
+                errors[kind] = f"HTTP {r.status_code}"
                 continue
             data = r.json()
-        except (requests.RequestException, ValueError):
+        except (requests.RequestException, ValueError) as e:
+            errors[kind] = str(e)
             continue
         rows = data.get("data") or data.get("results") or []
         for row in rows[:max_per_endpoint]:
             if isinstance(row, dict):
                 items.append(_extract_item(row, kind))
 
-    return GeoriskReport(items=items, nb_aleas=len(items))
+    return GeoriskReport(items=items, nb_aleas=len(items), errors=errors)
