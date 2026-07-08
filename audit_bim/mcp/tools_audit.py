@@ -11,7 +11,7 @@ from ..audit.comparator import compare_audits_from_files
 from ..audit.engine import run_audit
 from ..doe import match_doe_records, parse_doe, summarize_matches
 from ..enrichment import enrich_with_public_data as _enrich_with_public_data
-from ..extraction.model_data import extract_snapshot
+from ..extraction.model_data import assert_snapshot_usable, extract_snapshot
 from ..reporting.context import build_report_context, merge_user_context
 from ..reporting.word_report import write_word_report
 from ..reporting.xlsx_annex import write_xlsx_annex
@@ -94,6 +94,7 @@ def _fa_resolve_target_and_context(
             access_token=access_token,
         )
         _State.snapshot = extract_snapshot(_State.client)
+        assert_snapshot_usable(_State.snapshot)
         target_loaded = True
 
     explicit_phase = phase.strip() if isinstance(phase, str) and phase.strip() else None
@@ -215,6 +216,7 @@ def _fa_extract_snapshot(target_loaded: bool, force_refresh_snapshot: bool) -> N
     fraîchement en étape 1)."""
     if not target_loaded and (force_refresh_snapshot or _State.snapshot is None):
         _State.snapshot = extract_snapshot(_State.client)
+        assert_snapshot_usable(_State.snapshot)
 
 
 def _fa_assert_expected_model(expected_model_name: str | None) -> None:
