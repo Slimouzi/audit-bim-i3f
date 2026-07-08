@@ -119,17 +119,25 @@ def _extract_zone_and_room_specs(ws) -> tuple[list[ZoneSpec], list[RoomSpec]]:
     rooms: list[RoomSpec] = []
     in_table = False
     type_surface_col: int | None = None
+    # Report des cellules **mergées** de la colonne PP/PC : openpyxl ne renvoie la
+    # valeur que sur la cellule d'ancrage du merge, les suivantes valent None. On
+    # reporte la dernière localisation vue au lieu de retomber à tort sur « PP »
+    # (ou de perdre la ligne côté pièces).
+    last_z_loc: str | None = None
+    last_r_loc: str | None = None
 
     for row in ws.iter_rows(values_only=True):
         cells = list(row)
-        # Détection de la ligne d'en-tête du tableau
-        joined = " | ".join(str(c) for c in cells if c)
-        joined_l = joined.lower()
-        if "liste des types de zones" in joined_l or "liste de types des zones" in joined_l:
+        # Détection **tolérante** de la ligne d'en-tête du tableau (accents,
+        # espaces, « des/de » variables) : sinon en-tête légèrement différent →
+        # tableau non détecté → listes vides → contrôles d'audit silencieusement
+        # désactivés.
+        joined_l = fold_accents(" | ".join(str(c) for c in cells if c)).lower()
+        if "liste" in joined_l and "type" in joined_l and "zone" in joined_l:
             in_table = True
             # Repérer la colonne « Type de surface » si présente
             for i, c in enumerate(cells):
-                if c and "type de surface" in str(c).lower():
+                if c and "type de surface" in fold_accents(str(c)).lower():
                     type_surface_col = i
             continue
         if not in_table:
@@ -141,11 +149,14 @@ def _extract_zone_and_room_specs(ws) -> tuple[list[ZoneSpec], list[RoomSpec]]:
         z_loc = cells[2] if len(cells) > 2 else None
         z_def = cells[3] if len(cells) > 3 else None
         if z_type and isinstance(z_type, str) and z_type.strip().lower().startswith("zone"):
+            z_loc_norm = str(z_loc).strip().upper() if z_loc else None
+            if z_loc_norm:
+                last_z_loc = z_loc_norm
             zones.append(
                 ZoneSpec(
                     name=str(z_name).strip() if z_name else None,
                     type_label=z_type.strip(),
-                    localisation=(str(z_loc).strip().upper() if z_loc else "PP"),
+                    localisation=(z_loc_norm or last_z_loc or "PP"),
                     definition=str(z_def).strip() if z_def else None,
                 )
             )
@@ -157,14 +168,18 @@ def _extract_zone_and_room_specs(ws) -> tuple[list[ZoneSpec], list[RoomSpec]]:
             r_type = cells[start + 1] if start + 1 < len(cells) else None
             r_loc = cells[start + 2] if start + 2 < len(cells) else None
             r_def = cells[start + 3] if start + 3 < len(cells) else None
+            r_loc_norm = str(r_loc).strip().upper() if r_loc else None
+            eff_loc = r_loc_norm or last_r_loc
             if (
                 r_name
                 and r_type
                 and isinstance(r_name, str)
                 and isinstance(r_type, str)
                 and r_name.strip().isupper()
-                and r_loc in ("PP", "PC")
+                and eff_loc in ("PP", "PC")
             ):
+                if r_loc_norm:
+                    last_r_loc = r_loc_norm
                 surf = None
                 if type_surface_col is not None and type_surface_col < len(cells):
                     sv = cells[type_surface_col]
@@ -174,7 +189,7 @@ def _extract_zone_and_room_specs(ws) -> tuple[list[ZoneSpec], list[RoomSpec]]:
                     RoomSpec(
                         name=r_name.strip(),
                         type_label=r_type.strip(),
-                        localisation=r_loc,
+                        localisation=eff_loc,
                         surface_type=surf,
                         definition=str(r_def).strip() if r_def else None,
                     )
