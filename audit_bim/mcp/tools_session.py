@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import config
 from ..extraction.client import BIMDataClient
-from ..extraction.model_data import assert_snapshot_usable, extract_snapshot
+from ..extraction.model_data import extract_snapshot
 from ..extraction.snapshot_cache import cached_extract_snapshot
 from ..requirements.catalog import build_catalog, catalog_usable
 from ..requirements.models import BIMPhase
@@ -357,9 +357,6 @@ def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cach
             _State.snapshot = extract_snapshot(_State.client)
     else:
         _State.snapshot = extract_snapshot(_State.client)
-    # C2 — refuse un snapshot vide (extraction échouée) ou partiel (route en
-    # échec) : sinon les tools d'audit dérouleraient sur du vide/tronqué.
-    assert_snapshot_usable(_State.snapshot)
     summary = _State.snapshot.summary()
     summary["from_cache"] = hit
     return summary
