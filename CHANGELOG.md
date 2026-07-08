@@ -9,6 +9,13 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Fixed (audit profond 2ᵉ passe — Lot 5, hygiène ops)
 
+- **Message explicite selon le `status` du modèle BIMData.** `assert_snapshot_usable`
+  refuse désormais un modèle dont `model.status ≠ "C"` (Completed) en **nommant la
+  cause métier** : `D`=supprimé, `P`/`W`/`I`=traitement IFC en cours/attente,
+  `E`=erreur — au lieu d'un « snapshot vide » générique. Le `status` est lu depuis
+  `snap.model` (déjà extrait) → garde consommateur, **sans cascade** bimdata-read.
+  Complète le refus C2.
+
 - **Extraction snapshot robuste à une racine d'export en lecture seule.**
   `extract_model_snapshot` appelait `safe_export_dir(cache_dir)` **inconditionnellement**
   (même `use_cache=False`) → `get_export_root()` faisait un `mkdir` sur
