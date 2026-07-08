@@ -59,11 +59,20 @@ def _imported_modules(path: pathlib.Path, pkg_parts: list[str]) -> set[str]:
             out.update(a.name for a in node.names)
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
-                if node.module:
-                    out.add(node.module)
+                base = node.module or ""
             else:
-                base = pkg_parts[: len(pkg_parts) - (node.level - 1)]
-                out.add(".".join(base + ([node.module] if node.module else [])))
+                base_parts = pkg_parts[: len(pkg_parts) - (node.level - 1)]
+                base = ".".join(base_parts + ([node.module] if node.module else []))
+            if base:
+                out.add(base)
+            # Chaque **nom** importé peut être un SOUS-MODULE, pas seulement un
+            # symbole : ``from audit_bim import reporting`` (base = ``audit_bim``,
+            # nom = ``reporting``) est une arête ``audit_bim.reporting`` qui, sans
+            # cette résolution, serait invisible (base seule = ``audit_bim``, couche
+            # None) → contournement du verrou. On verrouille donc le **principe**,
+            # pas seulement 4 arêtes nommées.
+            for alias in node.names:
+                out.add(f"{base}.{alias.name}" if base else alias.name)
     return out
 
 
@@ -106,3 +115,30 @@ def test_no_cycle_motivated_intrafunction_imports_remain():
         and "éviter le cycle" in p.read_text(encoding="utf-8")
     ]
     assert not offenders, f"commentaires 'éviter le cycle' résiduels (couches PR1) : {offenders}"
+
+
+def test_package_level_reexport_edge_is_visible(tmp_path):
+    """Méta-test du verrou (E-arch) : une re-importation au niveau **package**
+    (``from audit_bim import reporting``) doit être vue comme l'arête
+    ``audit_bim.reporting`` — sinon un module bas contournerait la règle."""
+    fake = tmp_path / "fake_domain_module.py"
+    fake.write_text(
+        "from audit_bim import reporting\n"
+        "from audit_bim.mcp import server\n"
+        "from __future__ import annotations\n",
+        encoding="utf-8",
+    )
+    targets = _imported_modules(fake, ["audit_bim", "domain"])
+    layers = {_layer(t) for t in targets}
+    # Les couches hautes réexportées sont désormais visibles (pas seulement
+    # ``audit_bim`` = couche None).
+    assert "reporting" in layers
+    assert "mcp" in layers
+
+
+def test_forbidden_covers_the_four_frozen_edges():
+    # Garde-fou : les 4 arêtes gelées restent déclarées (régression si supprimées).
+    assert _FORBIDDEN["domain"] == {"*"}
+    assert "reporting" in _FORBIDDEN["audit"] and "mcp" in _FORBIDDEN["audit"]
+    assert "audit" in _FORBIDDEN["requirements"]
+    assert "enrichment" in _FORBIDDEN["doe"]

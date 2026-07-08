@@ -9,6 +9,13 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Tests (audit profond 2ᵉ passe — Lot 4, la suite verrouille)
 
+- **Arch-lock — le verrou de couches attrape le contournement par re-export.**
+  `from audit_bim import reporting` (import au niveau **package**) n'enregistrait que
+  la cible `audit_bim` (couche `None`) → l'arête `audit_bim.reporting` était invisible
+  et un module bas pouvait contourner la règle. `_imported_modules` résout désormais
+  chaque **nom** importé comme sous-module potentiel (`base.name`) : on verrouille le
+  **principe**, pas seulement 4 arêtes nommées. Méta-test ajouté + garde des 4 arêtes
+  gelées. (Aucune violation réelle dans le code actuel.)
 - **E12 — verrou du `conformity_rate`.** Trou de mutation : changer un poids
   (CRITICAL 5 / HIGH 3 / MEDIUM 1 / LOW 0.3 / INFO 0) ou le dénominateur
   (`n_éléments × 3`) ne cassait aucun test, alors que ce taux pilote la décision au
