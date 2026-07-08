@@ -150,6 +150,13 @@ def set_owner_documents(
             else None
         )
 
+    # Lot 5 — un changement de documents invalide le catalogue déjà construit :
+    # sinon un audit ultérieur (`get_catalog_properties`, règles) tournerait sur
+    # l'ANCIEN référentiel. `full_audit` reconstruit déjà via `_fa_prepare_catalog` ;
+    # on aligne le reste du chemin MCP.
+    if any(v is not None for v in (cch_pdf, data_spec_xlsx, naming_spec_xlsx)):
+        _State.catalog = None
+
     def stat(p: Path | None):
         if not p:
             return None

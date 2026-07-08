@@ -7,6 +7,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (audit profond 2ᵉ passe — Lot 5, hygiène ops)
+
+- **`set_owner_documents` invalide le catalogue.** Un changement de documents MOA
+  laissait `_State.catalog` en place → un audit ultérieur tournait sur l'**ancien
+  référentiel** (incohérent avec `full_audit` qui reconstruit). Le catalogue est
+  désormais invalidé dès qu'un document change.
+- **`.gitignore` — artefacts de couverture** (`.coverage`, `.coverage.*`,
+  `coverage.xml`, `htmlcov/`) ne sont plus suivis par git.
+
 ### Tests (audit profond 2ᵉ passe — Lot 4, la suite verrouille)
 
 - **E11 — invariants structurels des goldens (anti-tautologie).** Les goldens de

@@ -37,3 +37,25 @@ def test_set_active_model_invalidates_suggestion_store():
         assert sess.result is None
 
     _run_with_session(body)
+
+
+def test_set_owner_documents_invalidates_catalog():
+    # Lot 5 — changer les documents MOA invalide le catalogue construit (sinon
+    # audit sur l'ancien référentiel). Passer "" efface un document = changement.
+    def body(sess):
+        sess.catalog = object()  # catalogue de l'ancien référentiel
+        ts.set_owner_documents(data_spec_xlsx="")
+        assert sess.catalog is None
+
+    _run_with_session(body)
+
+
+def test_set_owner_documents_no_change_keeps_catalog():
+    # Aucun document fourni (tout None) → pas d'invalidation.
+    def body(sess):
+        sentinel = object()
+        sess.catalog = sentinel
+        ts.set_owner_documents()
+        assert sess.catalog is sentinel
+
+    _run_with_session(body)
