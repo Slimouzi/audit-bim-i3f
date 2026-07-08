@@ -9,6 +9,13 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Tests (audit profond 2ᵉ passe — Lot 4, la suite verrouille)
 
+- **E14 — job CI OCR dédié (tesseract).** Les tests OCR étaient **toujours skippés**
+  en CI (binaire tesseract + extra `[ocr]` absents) alors qu'un job `pip-audit` OCR
+  existait → fausse confiance. Nouveau job `ocr` : installe `tesseract-ocr` +
+  `tesseract-ocr-fra` + `poppler-utils` et l'extra `[ocr]`, exécute
+  `test_ocr_robustness` + `test_doe_ocr`, et **échoue si aucun test OCR n'a
+  réellement passé** (garde anti-skip silencieux). Validé localement : 20 tests OCR
+  passent.
 - **Arch-lock — le verrou de couches attrape le contournement par re-export.**
   `from audit_bim import reporting` (import au niveau **package**) n'enregistrait que
   la cible `audit_bim` (couche `None`) → l'arête `audit_bim.reporting` était invisible

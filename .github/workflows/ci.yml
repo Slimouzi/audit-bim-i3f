@@ -80,6 +80,48 @@ jobs:
           fail_ci_if_error: false
         continue-on-error: true
 
+  ocr:
+    # E14 (audit profond 2ᵉ passe) — les tests OCR étaient TOUJOURS skippés en CI
+    # (binaire tesseract + extra [ocr] absents) : fausse confiance. Ce job installe
+    # le binaire et l'extra pour les exécuter réellement.
+    name: OCR tests (tesseract)
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install tesseract + poppler (binaires OCR)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-fra poppler-utils
+          tesseract --version
+      - name: Install first-party tagged libs
+        run: |
+          pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.1.2"
+          pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.5"
+          pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.3"
+          pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
+          pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.2"
+          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.2"
+          pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.3"
+      - name: Install package + OCR + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test,ocr]"
+      - name: Run OCR tests (doivent s'EXÉCUTER, pas skipper)
+        run: |
+          set -o pipefail
+          pytest tests/unit/test_ocr_robustness.py tests/unit/test_doe_ocr.py -rs | tee ocr_out.txt
+          # Garde anti-fausse-confiance : au moins un test OCR doit avoir réellement
+          # PASSÉ (si tesseract/ocr manquaient, tout serait skippé → aucun "passed").
+          grep -qE "[0-9]+ passed" ocr_out.txt || {
+            echo "::error::aucun test OCR exécuté — tesseract/ocr mal installés"
+            exit 1
+          }
+
   security-audit:
     name: Security audit (pip-audit) — uv.lock
     runs-on: ubuntu-latest
