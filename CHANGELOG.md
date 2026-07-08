@@ -15,6 +15,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   → deux findings **strictement identiques**. Nouveau `_dedup` final (clé
   `element_uuid`/`ifc_type`/`field_path`/`error_type`, ordre préservé). **Changement
   de comptage** (moins de doublons). Nouveau `tests/unit/test_properties_dedup.py`.
+- **Audit d'unicité des équipements — thème, classes et casse.** (1) Les défauts
+  d'identifiant Tag/Mark étaient rangés dans le thème « Nommage Pièce »
+  (`NAMING_SPACE`) → désormais `PROPERTY_MISSING` (manquant) / `PROPERTY_INVALID`
+  (doublon), avec `error_type` aligné. (2) Les classes `*Type` (`IfcAirTerminalType`…)
+  sont des **définitions de type** partagées, pas des occurrences → exclues (elles
+  n'ont pas d'identifiant GMAO par instance). (3) Détection du Pset « Common »
+  **insensible à la casse** (`pset_fancommon` était raté). **Changement de comptage**
+  (moins de faux positifs sur les types ; findings reclassés hors « Nommage Pièce »).
+  Nouveau `tests/unit/test_uniqueness_medium.py`.
 
 ### Fixed (audit profond 2ᵉ passe — Lot 1, locateurs E3)
 
