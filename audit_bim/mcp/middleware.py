@@ -44,11 +44,17 @@ class SessionBindingMiddleware(Middleware):
         ctx = context.fastmcp_context
         key = self._session_key(ctx)
         session = _store.get(key)
-        token = current_session.set(session)
-        try:
-            return await call_next(context)
-        finally:
-            current_session.reset(token)
+        # E9 — sérialise les tools d'une **même** session : empêche un
+        # ``set_active_model`` de muter la cible pendant qu'un ``full_audit``
+        # calcule ses findings (→ plan « findings A / cible B »). Lock async pris
+        # à travers l'``await`` sans figer l'event-loop ; par session (la
+        # concurrence entre clients distincts reste).
+        async with session.call_lock():
+            token = current_session.set(session)
+            try:
+                return await call_next(context)
+            finally:
+                current_session.reset(token)
 
     # Idem pour les autres handlers qui peuvent toucher à l'état (prompts,
     # resources). On copie le pattern par cohérence.

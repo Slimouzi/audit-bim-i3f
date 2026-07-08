@@ -9,6 +9,16 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Fixed (audit profond 2ᵉ passe — Lot 3, écritures sûres)
 
+- **E9 — sérialisation intra-session des `tools/call`.** `_Session` était mutable sans
+  verrou et les tools sync tournent en threadpool : deux appels concurrents d'un même
+  client pouvaient s'entrelacer — un `set_active_model` (cible B) pendant un
+  `full_audit` (findings A) → plan « findings A / cible B » scellé et applicable.
+  `SessionBindingMiddleware.on_call_tool` prend désormais un verrou **par session**
+  autour de l'exécution. Verrou **`asyncio.Lock`** (et non `threading.RLock` comme
+  suggéré) : le middleware est asynchrone et tient le verrou à travers un `await` — un
+  verrou bloquant figerait l'event-loop ; l'`asyncio.Lock` suspend la coroutine
+  concurrente sans bloquer, et reste **par session** (la concurrence inter-clients est
+  préservée). Nouveau `tests/unit/test_session_lock_e9.py`.
 - **E8 — `set_active_model` invalide le store de suggestions.** Il remettait à zéro
   `snapshot` et `result` mais **pas** `suggestion_store` : construit sur les UUIDs du
   modèle précédent, il aurait produit un plan de classifications scellé sur la
