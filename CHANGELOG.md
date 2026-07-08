@@ -7,6 +7,16 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Tests (audit profond 2ᵉ passe — Lot 4, la suite verrouille)
+
+- **C4 — le corps post-confirm des 3 `apply_*` (hors BCF) est enfin couvert.** Seul
+  `apply_bcf_topics` avait le trio complet ; `apply_smart_views_plan`,
+  `apply_classification_update_plan` et `apply_doe_enrichment_plan` n'exécutaient
+  jamais leur corps post-`confirm` en test (une régression type `verify_checksum=False`
+  y serait passée verte). Trio dupliqué sur les 3 (execute avec `confirm=True` +
+  appel client vérifié ; rejet d'un plan **altéré** ; rejet d'un **mismatch de cible**)
+  dans `tests/unit/test_mcp_prepare_apply_tools.py`.
+
 ### Fixed (audit profond 2ᵉ passe — Lot 3, écritures sûres)
 
 - **E10 — redaction élargie + masquage d'erreurs en réseau.** (1) `redact_secrets`

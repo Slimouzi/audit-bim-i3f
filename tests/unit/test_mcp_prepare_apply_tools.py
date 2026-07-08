@@ -379,3 +379,152 @@ class TestApplyClassificationsFromXlsx:
         last = get_journal().tail(1)[0]
         assert last.action == "apply_classification_update"
         assert last.succeeded == 1
+
+
+# ── C4 : trio apply (execute / tamper / mismatch) pour les 3 tools non-BCF ────
+def _tamper(plan_path: str) -> None:
+    from pathlib import Path
+
+    p = Path(plan_path)
+    raw = p.read_text(encoding="utf-8")
+    # Modifie une valeur du plan sans toucher au checksum → altération détectée.
+    p.write_text(raw.replace("model_name", "model_NAME", 1) + " ", encoding="utf-8")
+
+
+class TestApplySmartViewsPostConfirmC4:
+    """C4 — apply_smart_views_plan n'exécutait jamais son corps post-confirm."""
+
+    def test_apply_with_confirm_executes(self, _isolated):
+        sess, _ = _isolated
+        _wire_session(sess)
+        prep = mcp_server.prepare_smart_views_plan()
+        res = mcp_server.apply_smart_views_plan(plan_path=prep["plan_path"], confirm=True)
+        assert res.get("succeeded", 0) >= 1
+        assert sess.client.create_bcf_full_topic.call_count >= 1
+
+    def test_apply_rejects_tampered_plan(self, _isolated):
+        sess, _ = _isolated
+        _wire_session(sess)
+        prep = mcp_server.prepare_smart_views_plan()
+        _tamper(prep["plan_path"])
+        res = mcp_server.apply_smart_views_plan(plan_path=prep["plan_path"], confirm=True)
+        assert res.get("refused") is True
+
+    def test_apply_rejects_target_mismatch(self, _isolated):
+        sess, _ = _isolated
+        _wire_session(sess)
+        prep = mcp_server.prepare_smart_views_plan()
+        sess.model_id = "99"
+        sess.client.model_id = "99"
+        res = mcp_server.apply_smart_views_plan(plan_path=prep["plan_path"], confirm=True)
+        assert res.get("refused") is True
+        assert "model_id" in res["reason"]
+
+
+def _store_accepted() -> ClassificationSuggestionStore:
+    store = ClassificationSuggestionStore()
+    store.add(
+        ClassificationSuggestionEntry(
+            element_uuid="W1",
+            ifc_type="IfcWallStandardCase",
+            proposed_classification="C1010",
+            proposed_level_3="C1010",
+            confidence=0.7,
+            confidence_band=ConfidenceBand.MEDIUM,
+            status=SuggestionStatus.ACCEPTED,
+        )
+    )
+    return store
+
+
+class TestApplyClassificationPostConfirmC4:
+    """C4 — apply_classification_update_plan n'exécutait jamais son corps post-confirm."""
+
+    def test_apply_with_confirm_executes(self, _isolated):
+        sess, _ = _isolated
+        _wire_session(sess)
+        sess.client.create_classification.return_value = {"id": 1}
+        sess.suggestion_store = _store_accepted()
+        prep = mcp_server.prepare_classification_update_plan()
+        res = mcp_server.apply_classification_update_plan(plan_path=prep["plan_path"], confirm=True)
+        assert res.get("succeeded", 0) >= 1
+        assert sess.client.assign_classification_elements.call_count >= 1
+
+    def test_apply_rejects_tampered_plan(self, _isolated):
+        sess, _ = _isolated
+        _wire_session(sess)
+        sess.suggestion_store = _store_accepted()
+        prep = mcp_server.prepare_classification_update_plan()
+        _tamper(prep["plan_path"])
+        res = mcp_server.apply_classification_update_plan(plan_path=prep["plan_path"], confirm=True)
+        assert res.get("refused") is True
+
+    def test_apply_rejects_target_mismatch(self, _isolated):
+        sess, _ = _isolated
+        _wire_session(sess)
+        sess.suggestion_store = _store_accepted()
+        prep = mcp_server.prepare_classification_update_plan()
+        sess.model_id = "99"
+        sess.client.model_id = "99"
+        res = mcp_server.apply_classification_update_plan(plan_path=prep["plan_path"], confirm=True)
+        assert res.get("refused") is True
+        assert "model_id" in res["reason"]
+
+
+def _doe_plan_path(sess) -> str:
+    """Construit + scelle un plan DOE (bypass parse fichier) pour la cible session."""
+    from audit_bim.actions.doe_planner import prepare_doe_enrichment
+    from audit_bim.actions.plans import save_plan
+    from audit_bim.doe.models import DoeRecord, Match
+
+    match = Match(
+        record=DoeRecord(
+            source="doe.xlsx",
+            row_index=1,
+            uuid_hint="W1",
+            properties={"Pset_3F": {"Fabricant": "ACME"}},
+        ),
+        ifc_uuid="W1",
+        ifc_type="IfcWallStandardCase",
+        ifc_name="Mur",
+        confidence=1.0,
+        strategy="guid",
+    )
+    plan = prepare_doe_enrichment(
+        [match],
+        snapshot=sess.snapshot,
+        target={"cloud_id": "1", "project_id": "2", "model_id": "3", "model_name": "M.ifc"},
+        on_conflict="overwrite",
+    )
+    return str(save_plan(plan))
+
+
+class TestApplyDoePostConfirmC4:
+    """C4 — apply_doe_enrichment_plan n'exécutait jamais son corps post-confirm."""
+
+    def test_apply_with_confirm_executes(self, _isolated):
+        sess, _ = _isolated
+        _wire_session(sess)
+        sess.client.write_element_propertyset.return_value = {}
+        path = _doe_plan_path(sess)
+        res = mcp_server.apply_doe_enrichment_plan(plan_path=path, confirm=True)
+        assert res.get("succeeded", 0) >= 1
+        assert sess.client.write_element_propertyset.call_count >= 1
+
+    def test_apply_rejects_tampered_plan(self, _isolated):
+        sess, _ = _isolated
+        _wire_session(sess)
+        path = _doe_plan_path(sess)
+        _tamper(path)
+        res = mcp_server.apply_doe_enrichment_plan(plan_path=path, confirm=True)
+        assert res.get("refused") is True
+
+    def test_apply_rejects_target_mismatch(self, _isolated):
+        sess, _ = _isolated
+        _wire_session(sess)
+        path = _doe_plan_path(sess)
+        sess.model_id = "99"
+        sess.client.model_id = "99"
+        res = mcp_server.apply_doe_enrichment_plan(plan_path=path, confirm=True)
+        assert res.get("refused") is True
+        assert "model_id" in res["reason"]
