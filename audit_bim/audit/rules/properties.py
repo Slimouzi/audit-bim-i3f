@@ -52,7 +52,11 @@ def _property_field_path(ifc_class: str, spec) -> str:
     chemin composite ``Pset/Prop``), jamais du **libellé humain** ``property_name``
     qui peut porter espaces/accents — cf. grammaire gelée (docs/scope-field-path.md).
     """
-    locator = (spec.pset_or_attribute or spec.property_name or "").strip()
+    # E2 — **jamais** de repli sur ``property_name`` (libellé humain, espaces/accents) :
+    # le field_path se dérive du seul locateur technique. Un spec sans locateur est
+    # un défaut de catalogue → produit un field_path non grammatical que le verrou
+    # attrape (plutôt qu'une chaîne « propre » masquant le défaut).
+    locator = (spec.pset_or_attribute or "").strip()
     for sep in ("/", "."):
         if sep in locator:
             pset, prop = locator.split(sep, 1)

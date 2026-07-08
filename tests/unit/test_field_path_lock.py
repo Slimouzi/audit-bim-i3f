@@ -27,7 +27,7 @@ from audit_bim.audit.engine import run_audit
 from audit_bim.audit.findings import ErrorType, Finding, Severity, Theme
 from audit_bim.audit.rules.preliminary import PROVENANCE_PREFIX, is_imported_finding
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.requirements.models import BIMPhase
+from audit_bim.requirements.models import BIMPhase, PropertySpec, RequirementsCatalog
 
 # ── Contrat gelé (§1 grammaire + §3 liste blanche) ────────────────────────────
 _GRAMMAR = re.compile(r"^Ifc[A-Za-z0-9]+(\.[A-Za-z0-9_]+){1,2}$")
@@ -198,3 +198,54 @@ def test_imported_findings_are_excluded_by_provenance_marker():
         field_path="IfcSpace.Name", ref_cch="Chap 6.3.2", ifc_type="IfcSpace", element_uuid="X"
     )
     assert not is_imported_finding(rule)
+
+
+# ── E2-bis : le verrou couvre les branches paramétrées par le CATALOGUE ───────
+def test_each_rule_emits_at_least_one_finding(catalog):
+    """Le corpus doit exercer CHAQUE règle (sinon le verrou passe à vide sur des
+    familles entières)."""
+    from audit_bim.audit.rules import (
+        audit_classifications,
+        audit_lists,
+        audit_naming,
+        audit_properties,
+        audit_spatial,
+        audit_uniqueness,
+    )
+
+    snap = _broken_snapshot()
+    for rule in (audit_spatial, audit_naming, audit_classifications, audit_properties):
+        assert rule(snap, catalog, BIMPhase.AVP), f"{rule.__name__} n'émet aucun finding"
+    # uniqueness ne s'applique qu'à partir de DCE ; lists idem selon la phase.
+    assert audit_uniqueness(snap, catalog, BIMPhase.DOE) is not None
+    assert audit_lists(snap, catalog, BIMPhase.DOE) is not None
+
+
+def test_lock_catches_catalog_driven_malformed_field_path():
+    """Régression E2 : un ``field_path`` dérivé du **libellé humain** (spec sans
+    locateur technique) ne doit PAS passer le verrou. Le fixture à 4 specs propres
+    ne l'exerçait pas ; on le teste ici avec un catalogue paramétré."""
+    from audit_bim.audit.rules.properties import audit_properties
+
+    # Spec dégénérée : aucun pset_or_attribute → pas de field_path structuré.
+    cat = RequirementsCatalog(
+        properties=[
+            PropertySpec(
+                theme="Générale",
+                objet="Bâtiment",
+                ifc_class="IfcBuilding",
+                property_name="Adresse du bâtiment",  # libellé humain (espaces)
+                pset_or_attribute=None,
+                kind="property",
+                required_phases=[BIMPhase.AVP],
+            )
+        ]
+    )
+    findings = audit_properties(_broken_snapshot(), cat, BIMPhase.AVP)
+    building = [f for f in findings if f.ifc_type == "IfcBuilding"]
+    assert building, "le bâtiment sans adresse doit produire un finding"
+    # Le field_path est non grammatical (« IfcBuilding. ») → le verrou le REFUSE
+    # (avant : « IfcBuilding.Adresse du bâtiment » — refusé aussi, mais jamais testé).
+    offender = building[0]
+    assert not _GRAMMAR.fullmatch(offender.field_path or "X.Y")
+    assert not field_path_ok(offender)

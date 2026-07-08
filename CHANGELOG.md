@@ -9,6 +9,16 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Tests (audit profond 2ᵉ passe — Lot 4, la suite verrouille)
 
+- **E2-bis — `field_path` : repli sur le libellé humain supprimé + verrou sur
+  catalogue paramétré.** `_property_field_path` faisait un repli
+  `pset_or_attribute or property_name` (libellé humain, espaces/accents), en
+  contradiction avec sa propre docstring. Repli **supprimé** : le field_path se dérive
+  du seul locateur technique (no-op pour les catalogues réels, toujours dotés d'un
+  locateur ; un spec dégénéré produit désormais un chemin non grammatical **attrapé**
+  par le verrou au lieu d'une chaîne « propre » masquant le défaut). Le verrou
+  `field_path` tournait uniquement sur le fixture à 4 specs propres → les branches
+  paramétrées par le catalogue lui échappaient : ajout d'un test qui exerce le verrou
+  sur un catalogue à spec dégénérée + assertion « chaque règle émet ≥ 1 finding ».
 - **E14 — job CI OCR dédié (tesseract).** Les tests OCR étaient **toujours skippés**
   en CI (binaire tesseract + extra `[ocr]` absents) alors qu'un job `pip-audit` OCR
   existait → fausse confiance. Nouveau job `ocr` : installe `tesseract-ocr` +
