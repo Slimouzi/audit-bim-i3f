@@ -7,6 +7,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (audit profond 2ᵉ passe — Lot 1, Moyens moteur)
+
+- **Dédup parent/sous-classe dans `audit_properties`.** Une même exigence listée
+  sur la classe générique du CCH (`IfcWall`) **et** sur une sous-classe
+  (`IfcWallStandardCase`) faisait auditer deux fois un élément `IfcWallStandardCase`
+  → deux findings **strictement identiques**. Nouveau `_dedup` final (clé
+  `element_uuid`/`ifc_type`/`field_path`/`error_type`, ordre préservé). **Changement
+  de comptage** (moins de doublons). Nouveau `tests/unit/test_properties_dedup.py`.
+
 ### Fixed (audit profond 2ᵉ passe — Lot 1, locateurs E3)
 
 - **Locateurs `IfcName` / `IfcDescription` normalisés.** Le préfixe de classe (abus

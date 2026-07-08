@@ -177,4 +177,24 @@ def audit_properties(
                             field_path=_property_field_path(actual_class, spec),
                         )
                     )
-    return findings
+    return _dedup(findings)
+
+
+def _dedup(findings: list[Finding]) -> list[Finding]:
+    """Supprime les findings **strictement identiques** (même objet, même classe,
+    même champ, même type d'erreur), en préservant l'ordre.
+
+    Une même exigence peut être listée à la fois sur la classe générique du CCH
+    (``IfcWall``) et sur une sous-classe (``IfcWallStandardCase``) : un élément
+    ``IfcWallStandardCase`` est alors audité deux fois → deux findings identiques.
+    On garde le premier.
+    """
+    seen: set[tuple] = set()
+    out: list[Finding] = []
+    for f in findings:
+        key = (f.element_uuid, f.ifc_type, f.field_path, f.error_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f)
+    return out
