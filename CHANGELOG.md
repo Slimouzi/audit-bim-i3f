@@ -24,6 +24,12 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   **insensible à la casse** (`pset_fancommon` était raté). **Changement de comptage**
   (moins de faux positifs sur les types ; findings reclassés hors « Nommage Pièce »).
   Nouveau `tests/unit/test_uniqueness_medium.py`.
+- **`IfcProject/LongName` audité sur l'IFC, pas sur le projet plateforme.** La règle
+  contrôlait `snap.project["name"]` (nom du projet **BIMData**, saisi dans l'UI, sans
+  rapport avec le contenu IFC). Elle lit désormais le `LongName` de l'`IfcProject`
+  **à la racine de `structure_tree`** (l'arborescence spatiale de l'IFC) ; arbre
+  absent → pas d'audit (au lieu d'un contrôle sur la mauvaise donnée). Nouveau
+  `tests/unit/test_ifcproject_source.py`.
 
 ### Fixed (audit profond 2ᵉ passe — Lot 1, locateurs E3)
 

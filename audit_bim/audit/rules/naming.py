@@ -11,6 +11,21 @@ from ...requirements.models import RequirementsCatalog
 from ..findings import ErrorType, Finding, Severity, Theme
 
 
+def _ifc_project_longname(snap: ModelSnapshot) -> str | None:
+    """LongName de l'``IfcProject`` **de l'IFC**, lu à la racine de l'arborescence
+    spatiale (``structure_tree``).
+
+    À NE PAS confondre avec ``snap.project`` = le projet **plateforme** BIMData
+    (nom saisi dans l'UI, sans rapport avec le contenu IFC). Auditer ce dernier
+    contre la règle de nommage ``IfcProject/LongName`` contrôlait le mauvais objet.
+    ``structure_tree`` vide (fichier de structure non généré) → ``None`` → pas
+    d'audit (plutôt qu'un audit sur la mauvaise donnée)."""
+    for root in snap.structure_tree or []:
+        if root.get("type") == "IfcProject":
+            return root.get("long_name") or root.get("name")
+    return None
+
+
 def _check_storey_name(name: str | None, allowed: set[str]) -> bool:
     """Tolère les suffixes numériques (TOITURE 02, ENTRESOL 03, etc.).
 
@@ -59,7 +74,7 @@ def audit_naming(
 
     # ── IfcProject (LongName) ───────────────────────────────────────────────
     rule = catalog.naming_rule_for("IfcProject", "LongName")
-    project_name = (snap.project or {}).get("name")
+    project_name = _ifc_project_longname(snap)  # IFC, pas le nom du projet plateforme
     if rule and project_name:
         if rule.max_length and len(project_name) > rule.max_length:
             findings.append(
