@@ -431,3 +431,74 @@ class TestApplyClassificationUpdate:
         joined_errors = " ".join(e["message"] for e in result.errors)
         assert "eyJabcdefgh12345678" not in joined_errors
         assert "<scrub:" in joined_errors
+
+
+# ── C3 : idempotence des apply (intent/completed + refus re-apply + sidecar) ──
+class TestApplyIdempotencyC3:
+    """Un crash mid-apply laissait le journal vide et le plan rejouable → doublons.
+    On trace l'intent avant la boucle, un completed + sidecar après, et on refuse
+    un second apply du même plan_id (sauf force)."""
+
+    def test_second_apply_is_refused(self):
+        plan = prepare_bcf(_two_finding_audit(), target=_target())
+        client = _mock_client()
+        apply_bcf(plan, client)  # 1er apply OK
+        with pytest.raises(ValueError, match="REFUS"):
+            apply_bcf(plan, client)  # 2e → refus (dupliquerait)
+
+    def test_applied_sidecar_written_on_success(self):
+        from audit_bim.actions._apply_runtime import _applied_dir
+
+        plan = prepare_bcf(_two_finding_audit(), target=_target())
+        apply_bcf(plan, _mock_client())
+        sidecar = _applied_dir() / f"{plan.plan_id}.applied.json"
+        assert sidecar.exists()
+        assert json.loads(sidecar.read_text())["plan_id"] == plan.plan_id
+
+    def test_intent_recorded_before_loop(self):
+        plan = prepare_bcf(_two_finding_audit(), target=_target())
+        apply_bcf(plan, _mock_client())
+        entries = [e for e in journal_mod.get_journal().tail(50) if e.plan_id == plan.plan_id]
+        statuses = [e.extra.get("status") for e in entries]
+        assert "started" in statuses  # trace avant la boucle
+        assert entries[-1].succeeded >= 1  # completed en dernier (forme d'origine)
+
+    def test_crash_blocks_rerun_unless_forced(self):
+        from audit_bim.actions._apply_runtime import ApplyOutcome, run_apply
+
+        plan = prepare_bcf(_two_finding_audit(), target=_target())
+        client = _mock_client()
+
+        def _boom(_plan, _client):
+            raise RuntimeError("crash au milieu de la boucle")
+
+        with pytest.raises(RuntimeError, match="crash"):
+            run_apply(
+                plan,
+                client,
+                expected_kind=plan.kind,
+                action="apply_bcf_topics",
+                actual_target=_target(),
+                executor=_boom,
+            )
+        # started laissé, applied.json absent → re-run refuse
+        with pytest.raises(ValueError, match="interrompue"):
+            run_apply(
+                plan,
+                client,
+                expected_kind=plan.kind,
+                action="apply_bcf_topics",
+                actual_target=_target(),
+                executor=lambda p, c: ApplyOutcome(1, 0, ["x"]),
+            )
+        # force=True rejoue malgré tout
+        res = run_apply(
+            plan,
+            client,
+            expected_kind=plan.kind,
+            action="apply_bcf_topics",
+            actual_target=_target(),
+            executor=lambda p, c: ApplyOutcome(1, 0, ["x"]),
+            force=True,
+        )
+        assert res.succeeded == 1
