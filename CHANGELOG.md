@@ -30,6 +30,14 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   **à la racine de `structure_tree`** (l'arborescence spatiale de l'IFC) ; arbre
   absent → pas d'audit (au lieu d'un contrôle sur la mauvaise donnée). Nouveau
   `tests/unit/test_ifcproject_source.py`.
+- **Robustesse du parseur zones/pièces (`naming_spec_parser`).** (1) Détection de
+  l'en-tête du tableau **tolérante** (repli accents + tokens `liste`/`type`/`zone`
+  au lieu d'un intitulé exact) — un en-tête légèrement différent ne désactive plus
+  silencieusement les contrôles de liste fermée. (2) **Report des cellules mergées**
+  PP/PC : openpyxl ne renvoie la valeur que sur la cellule d'ancrage → la
+  localisation est reportée sur les lignes suivantes au lieu de retomber à tort sur
+  `PP` (zones) ou de perdre la ligne (pièces). Nouveau
+  `tests/unit/test_naming_spec_parser_robust.py` (fixtures openpyxl).
 
 ### Fixed (audit profond 2ᵉ passe — Lot 1, locateurs E3)
 
