@@ -13,6 +13,10 @@ build/
 dist/
 .pytest_cache/
 .mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 .ruff_cache/
 .DS_Store
 .idea/
