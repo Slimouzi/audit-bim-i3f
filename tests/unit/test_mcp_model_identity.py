@@ -291,6 +291,7 @@ class TestFullAuditExpectedModelName:
         snap = _snapshot_with_model("Autre maquette.ifc")
         with (
             patch.object(tools_audit, "build_catalog") as m_catalog,
+            patch.object(tools_audit, "catalog_usable", return_value=(True, None)),
             patch.object(tools_audit, "set_active_model") as m_set,
             patch.object(tools_audit, "extract_snapshot", return_value=snap),
             patch.object(tools_audit, "run_audit") as m_run,
@@ -342,6 +343,7 @@ class TestFullAuditExpectedModelName:
 
         with (
             patch.object(tools_audit, "build_catalog"),
+            patch.object(tools_audit, "catalog_usable", return_value=(True, None)),
             patch.object(tools_audit, "set_active_model") as m_set,
             patch.object(tools_audit, "extract_snapshot", return_value=snap),
             patch.object(tools_audit, "run_audit", return_value=_FakeAuditResult()),
@@ -389,6 +391,7 @@ class TestFullAuditExpectedModelName:
 
         with (
             patch.object(tools_audit, "build_catalog"),
+            patch.object(tools_audit, "catalog_usable", return_value=(True, None)),
             patch.object(tools_audit, "set_active_model") as m_set,
             patch.object(tools_audit, "extract_snapshot", return_value=snap),
             patch.object(tools_audit, "run_audit", return_value=_FakeAuditResult()),
