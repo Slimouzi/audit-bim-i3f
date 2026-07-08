@@ -9,6 +9,16 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Fixed (audit profond 2ᵉ passe — Lot 5, hygiène ops)
 
+- **Extraction snapshot robuste à une racine d'export en lecture seule.**
+  `extract_model_snapshot` appelait `safe_export_dir(cache_dir)` **inconditionnellement**
+  (même `use_cache=False`) → `get_export_root()` faisait un `mkdir` sur
+  `AUDIT_OUTPUT_DIR` (défaut `./out` → `/out` en conteneur, CWD=/), qui **plantait**
+  (Errno 30) si le volume était monté read-only — l'extraction (une lecture) devenait
+  impossible quels que soient `cache_dir`/`output_dir`. Désormais : la racine n'est
+  touchée que si `use_cache=True`, et un échec d'accès (OSError) **dégrade en
+  extraction sans cache** au lieu de planter (idem `verify_active_model`).
+  `.env.example` documente que `AUDIT_OUTPUT_DIR` doit être inscriptible (piège
+  `/out` read-only en conteneur).
 - **`verify_active_model(use_cache=True)` — cache sandboxé.** Il écrivait
   `.audit_cache` sous le **CWD** (hors `AUDIT_OUTPUT_DIR`), contrairement à
   `extract_model_snapshot`. Le dossier passe désormais par `safe_export_dir`.
