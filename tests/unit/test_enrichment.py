@@ -216,11 +216,14 @@ class TestLookupDpe:
         assert r.annee_construction == 1970
         assert r.consommation_kwh_m2_an == pytest.approx(180.5)
 
-    def test_http_error_returns_empty(self):
+    def test_http_error_propagates(self):
+        # E7 — l'erreur remonte (l'enricher la capture dans sources_errors) au lieu
+        # d'être avalée en « aucun DPE ».
         geo = GeocodingResult(matched=True, lat=48.855, lon=2.355)
         with patch("audit_bim.enrichment.dpe.requests.get") as g:
             g.side_effect = requests.Timeout("timeout")
-            assert lookup_dpe(geo) == []
+            with pytest.raises(requests.Timeout):
+                lookup_dpe(geo)
 
     def test_handles_missing_fields_gracefully(self):
         geo = GeocodingResult(matched=True, lat=48.855, lon=2.355)
@@ -268,11 +271,13 @@ class TestLookupPlu:
         assert zones[0].libelle == "UAa1"
         assert zones[1].libelle == "Zone naturelle"  # fallback libelong
 
-    def test_http_error_returns_empty(self):
+    def test_http_error_propagates(self):
+        # E7 — remontée au lieu d'un « aucun PLU » silencieux.
         geo = GeocodingResult(matched=True, lat=48.855, lon=2.355)
         with patch("audit_bim.enrichment.plu.requests.get") as g:
             g.side_effect = requests.ConnectionError("nope")
-            assert lookup_plu(geo) == []
+            with pytest.raises(requests.ConnectionError):
+                lookup_plu(geo)
 
 
 # ── Géorisques ───────────────────────────────────────────────────────────
@@ -306,7 +311,9 @@ class TestLookupGeorisques:
         assert "risque_naturel" in types
         assert "icpe" in types
 
-    def test_endpoint_404_ignored(self):
+    def test_endpoint_failures_recorded_not_ignored(self):
+        # E7 — un endpoint down (404 ici) est **enregistré** dans report.errors,
+        # pas avalé en « aucun aléa ».
         geo = GeocodingResult(matched=True, lat=48.855, lon=2.355, citycode="75104")
 
         def fake_get(url, params=None, timeout=None):
@@ -315,6 +322,18 @@ class TestLookupGeorisques:
         with patch("audit_bim.enrichment.georisques.requests.get", side_effect=fake_get):
             report = lookup_georisques(geo)
         assert report.nb_aleas == 0
+        assert report.errors  # au moins un endpoint en erreur
+        assert all("404" in v for v in report.errors.values())
+
+    def test_connection_error_recorded(self):
+        geo = GeocodingResult(matched=True, lat=48.855, lon=2.355, citycode="75104")
+
+        def fake_get(url, params=None, timeout=None):
+            raise requests.ConnectionError("down")
+
+        with patch("audit_bim.enrichment.georisques.requests.get", side_effect=fake_get):
+            report = lookup_georisques(geo)
+        assert report.errors and all("down" in v for v in report.errors.values())
 
 
 # ── Orchestrator ─────────────────────────────────────────────────────────
@@ -371,6 +390,47 @@ class TestEnrichWithPublicData:
         assert report.dpe_records and report.dpe_records[0].etiquette_dpe == "D"
         assert report.plu_zones and report.plu_zones[0].typezone == "U"
         assert report.georisks.nb_aleas >= 1
+
+    def test_source_down_is_surfaced_not_counted_clean(self):
+        # E7 — DPE en panne + un endpoint Géorisques down : erreurs remontées dans
+        # sources_errors, DPE absent de sources_used (pas « aucun DPE » silencieux).
+        snap = _snapshot(
+            buildings=[{"BuildingAddress": {"AddressLines": ["10 Rue de Rivoli"], "Town": "Paris"}}]
+        )
+
+        def fake_get(url, params=None, timeout=None):
+            if "api-adresse" in url:
+                return _FakeResp(_ban_feature())
+            if "ademe" in url:
+                raise requests.Timeout("ademe down")
+            if "apicarto" in url:
+                return _FakeResp({"features": []})
+            if "georisques" in url:
+                return _FakeResp({}, status=503)
+            return _FakeResp({}, status=404)
+
+        with (
+            patch("audit_bim.enrichment.ban.requests.get", side_effect=fake_get),
+            patch("audit_bim.enrichment.dpe.requests.get", side_effect=fake_get),
+            patch("audit_bim.enrichment.plu.requests.get", side_effect=fake_get),
+            patch("audit_bim.enrichment.georisques.requests.get", side_effect=fake_get),
+        ):
+            report = enrich_with_public_data(snap)
+
+        assert "dpe-ademe" not in report.sources_used
+        assert "dpe-ademe" in report.sources_errors
+        assert "georisques" in report.sources_errors  # endpoints 503 remontés
+
+    def test_ban_down_distinguished_from_not_found(self):
+        # E7 — panne BAN (ConnectionError) → sources_errors["ban"], pas un simple
+        # « adresse introuvable ».
+        snap = _snapshot(buildings=[{"BuildingAddress": {"AddressLines": ["x"], "Town": "y"}}])
+        with patch("audit_bim.enrichment.ban.requests.get") as g:
+            g.side_effect = requests.ConnectionError("ban boom")
+            report = enrich_with_public_data(snap)
+        assert report.geocoding.matched is False
+        assert "ban" in report.sources_errors
+        assert "boom" in report.sources_errors["ban"]
 
     def test_can_disable_sources(self):
         snap = _snapshot(

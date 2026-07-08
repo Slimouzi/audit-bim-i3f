@@ -76,6 +76,11 @@ def enrich_with_public_data(
 
     report = EnrichmentReport(address=address, geocoding=geo)
     if not geo.matched:
+        # E7 — distinguer « BAN indisponible » (erreur HTTP tracée dans raw) d'une
+        # « adresse introuvable » : sinon une panne BAN passe pour un non-match.
+        err = (geo.raw or {}).get("error")
+        if err:
+            report.sources_errors["ban"] = str(err)
         return report
 
     report.sources_used.append("ban")
@@ -98,6 +103,12 @@ def enrich_with_public_data(
         try:
             report.georisks = lookup_georisques(geo, radius_m=radius_georisques_m)
             report.sources_used.append("georisques")
+            # Endpoints Géorisques down → surface (aléas possiblement incomplets,
+            # surtout pas « aucun aléa »).
+            if report.georisks.errors:
+                report.sources_errors["georisques"] = "; ".join(
+                    f"{k}: {v}" for k, v in report.georisks.errors.items()
+                )
         except Exception as e:  # noqa: BLE001
             report.sources_errors["georisques"] = str(e)
 
