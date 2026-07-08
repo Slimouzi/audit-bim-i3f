@@ -25,6 +25,7 @@ long du process — comportement strictement identique à l'ancien
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -95,6 +96,25 @@ class _Session:
         self.snapshot: ModelSnapshot | None = None
         self.result: AuditResult | None = None
         self.suggestion_store: ClassificationSuggestionStore | None = None
+
+        # E9 — verrou de **sérialisation intra-session** (créé paresseusement sur
+        # la loop courante). Sans lui, deux appels concurrents du même client
+        # (les tools sync tournent en threadpool) mutent l'état en parallèle : ex.
+        # ``set_active_model`` (cible B) pendant un ``full_audit`` (findings A) →
+        # plan « findings A / cible B » scellé et applicable. Le lock est **par
+        # session** : la concurrence inter-clients est préservée.
+        self._call_lock: asyncio.Lock | None = None
+
+    def call_lock(self) -> asyncio.Lock:
+        """Verrou async de sérialisation des ``tools/call`` de cette session (E9).
+
+        Créé à la première utilisation, sur la loop de l'event-loop qui l'appelle
+        (le middleware ``on_call_tool``). ``asyncio.Lock`` (et non ``threading``) :
+        le middleware est asynchrone et tient le verrou *à travers* un ``await`` —
+        un verrou bloquant figerait l'event-loop."""
+        if self._call_lock is None:
+            self._call_lock = asyncio.Lock()
+        return self._call_lock
 
     def ensure_catalog(self) -> None:
         if self.catalog is None:
