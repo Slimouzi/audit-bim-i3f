@@ -88,10 +88,12 @@ def _equipment_identifier(element: dict) -> str | None:
         v = resolve_value(element, pset_root, "Mark")
         if v not in (None, ""):
             return str(v).strip()
-    # Pset_*Common générique (tag/mark sur tout équipement)
+    # Pset_*Common générique (tag/mark sur tout équipement). Détection du suffixe
+    # « Common » **insensible à la casse** : certains exports écrivent
+    # ``pset_doorcommon`` / ``PSET_DOORCOMMON`` → sinon l'identifiant est raté.
     for pset in element.get("property_sets") or []:
         pname = pset.get("name") or ""
-        if "Common" not in pname:
+        if "common" not in pname.lower():
             continue
         for prop in pset.get("properties") or []:
             nm = ((prop.get("definition") or {}).get("name") or "").lower()
@@ -127,6 +129,11 @@ def audit_uniqueness(
     for ifc_class, elements in snap.elements_by_type.items():
         if ifc_class not in _EQUIPMENT_CLASSES:
             continue
+        # Les classes *Type* (IfcAirTerminalType…) sont des **définitions de type**
+        # partagées, pas des occurrences physiques : elles n'ont pas à porter un
+        # identifiant GMAO unique par instance → on les exclut (faux positifs).
+        if ifc_class.endswith("Type"):
+            continue
         by_class[ifc_class] = [(el, _equipment_identifier(el)) for el in elements]
 
     for ifc_class, pairs in by_class.items():
@@ -135,9 +142,12 @@ def audit_uniqueness(
             if not ident:
                 findings.append(
                     Finding(
-                        theme=Theme.NAMING_SPACE,  # thème nommage générique
+                        # Un identifiant Tag/Mark manquant est une **propriété
+                        # manquante**, pas un défaut de « Nommage Pièce » (thème
+                        # erroné qui rangeait ces findings avec les pièces).
+                        theme=Theme.PROPERTY_MISSING,
                         severity=Severity.MEDIUM,
-                        error_type=ErrorType.NAMING_MISSING,
+                        error_type=ErrorType.PROPERTY_MISSING,
                         element_uuid=el.get("uuid"),
                         ifc_type=ifc_class,
                         name=get_attribute(el, "Name") or el.get("name"),
@@ -163,9 +173,11 @@ def audit_uniqueness(
                 if ident in duplicates:
                     findings.append(
                         Finding(
-                            theme=Theme.NAMING_SPACE,
+                            # Identifiant présent mais **non unique** = valeur de
+                            # propriété invalide (et non « Nommage Pièce »).
+                            theme=Theme.PROPERTY_INVALID,
                             severity=Severity.MEDIUM,
-                            error_type=ErrorType.NAMING_INVALID_FORMAT,
+                            error_type=ErrorType.PROPERTY_TYPE_INVALID,
                             element_uuid=el.get("uuid"),
                             ifc_type=ifc_class,
                             name=get_attribute(el, "Name") or el.get("name"),
