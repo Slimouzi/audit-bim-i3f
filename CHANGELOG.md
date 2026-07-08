@@ -9,6 +9,13 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ### Tests (audit profond 2ᵉ passe — Lot 4, la suite verrouille)
 
+- **E11 — invariants structurels des goldens (anti-tautologie).** Les goldens de
+  parité publication sont régénérables depuis les mêmes builders (façades
+  `bim-publication`) → régénérer compare le package à lui-même. Ajout d'**invariants
+  de payload indépendants** (clés obligatoires BCF/Smart View, préfixe `I3F Audit — `,
+  `format=bimdata-smartview`, `models` contient le model_id, `kind`/`target` des
+  plans), vérifiés **à la fois** sur la sortie fraîche du builder **et** sur les
+  fichiers golden — un golden régénéré depuis un builder cassé échoue désormais.
 - **E2-bis — `field_path` : repli sur le libellé humain supprimé + verrou sur
   catalogue paramétré.** `_property_field_path` faisait un repli
   `pset_or_attribute or property_name` (libellé humain, espaces/accents), en
