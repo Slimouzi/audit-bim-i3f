@@ -151,15 +151,7 @@ class TestFullAuditPreservesActiveTarget:
         ("target_kwargs", "expected_key", "expected_value"),
         [
             ({"model_id": "new"}, "model_id", "new"),
-            (
-                {
-                    "bimdata_url": (
-                        "https://platform.bimdata.io/spaces/1/projects/2/viewer/3?window=3d"
-                    )
-                },
-                "bimdata_url",
-                "https://platform.bimdata.io/spaces/1/projects/2/viewer/3?window=3d",
-            ),
+            ({"cloud_id": "9", "project_id": "8", "model_id": "new"}, "cloud_id", "9"),
         ],
     )
     def test_explicit_target_triggers_set_active_model(
@@ -208,8 +200,6 @@ class TestFullAuditPreservesActiveTarget:
             m_set.side_effect = _fake_set
 
             mcp_server.full_audit(
-                cloud_id=None,
-                project_id=None,
                 push_mode="none",
                 output_dir=str(tmp_path),
                 confirm_context=True,
@@ -331,7 +321,7 @@ class TestFullAuditPreservesActiveTarget:
 
 
 class TestFullAuditNoCrossModelContextContamination:
-    """P1 — un ``full_audit(bimdata_url=<B>)`` dans une session où le modèle
+    """P1 — un ``full_audit(model_id=<B>)`` dans une session où le modèle
     A est déjà chargé ne doit **jamais** proposer l'adresse, la description
     ou la phase du modèle A pour le rapport du modèle B.
 
@@ -383,7 +373,9 @@ class TestFullAuditNoCrossModelContextContamination:
             patch.object(mcp_server, "_snapshot_address_suggestion", side_effect=_fake_addr),
         ):
             out = mcp_server.full_audit(
-                bimdata_url="https://platform.bimdata.io/spaces/1/projects/2/viewer/BBB?window=3d",
+                cloud_id="1",
+                project_id="2",
+                model_id="BBB",
                 push_mode="none",
                 output_dir=str(tmp_path),
                 confirm_context=False,  # force le dialogue needs_context
@@ -451,7 +443,9 @@ class TestForceRefreshSnapshotSemantics:
             patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
         ):
             mcp_server.full_audit(
-                bimdata_url="https://platform.bimdata.io/spaces/1/projects/2/viewer/BBB?window=3d",
+                cloud_id="1",
+                project_id="2",
+                model_id="BBB",
                 force_refresh_snapshot=False,  # doit être outrepassé par la nouvelle cible
                 push_mode="none",
                 output_dir=str(tmp_path),

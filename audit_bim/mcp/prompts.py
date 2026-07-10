@@ -174,12 +174,20 @@ structurée des questions restantes à poser, mise à jour à chaque appel.
 1. Accueil bref + appel à `project_context_questions`.
 2. Poser les questions manquantes au MOA.
 3. `set_owner_documents` → `parse_owner_requirements` → catalogue prêt.
-4. `set_active_model(bimdata_url=..., phase=..., classification_system=...)`
-   (ou fournir les trois IDs BIMData).
-5. `extract_model_snapshot` → `run_audit_tool` → résumé findings.
-6. Présenter au MOA un résumé regroupé par thème, hiérarchisé par
+4. **Cibler la maquette par IDs explicites** (le runtime cible toujours par IDs) :
+   - si l'utilisateur donne une **URL viewer** → `parse_bimdata_target(url)` d'abord
+     pour extraire `cloud_id`/`project_id`/`model_id` ;
+   - puis `set_active_model(cloud_id=..., project_id=..., model_id=..., phase=...,
+     classification_system=...)`. *(NE PAS passer d'URL à `set_active_model`.)*
+5. **Prouver l'accès** : `check_bimdata_access` — `set_active_model` ne fait que
+   *configurer* l'auth, il ne la prouve pas (un 401 ici = credential OK mais non
+   autorisée sur ce cloud/projet). Ne continuer que si `ok=true`.
+6. `extract_model_snapshot(use_cache=false)` → **ne continuer que si**
+   `snapshot_health != "empty_model"` et `n_extraction_errors == 0`, puis
+   `run_audit_tool` → résumé findings.
+7. Présenter au MOA un résumé regroupé par thème, hiérarchisé par
    sévérité (rouge HIGH / orange MEDIUM / vert LOW).
-7. Si phase ≥ DCE, classification en **list → accept/reject → prepare → apply** :
+8. Si phase ≥ DCE, classification en **list → accept/reject → prepare → apply** :
    a. `list_classification_suggestions` — consulter les propositions ;
    b. `update_suggestion_status(element_uuid=..., status="accepted")` (ou
       `"rejected"`) pour **chaque** proposition tranchée par l'AMO. **Étape
@@ -190,10 +198,10 @@ structurée des questions restantes à poser, mise à jour à chaque appel.
    d. **revue** (cible, risques, nombre d'items) ;
    e. `apply_classification_update_plan(plan_path=..., confirm=True)` (ou
       `apply_classifications_from_xlsx` pour la voie XLSX contrôlée).
-8. Si phase ≥ DOE : `doe_match_only` sur le DOE Excel transmis pour prévisualiser,
+9. Si phase ≥ DOE : `doe_match_only` sur le DOE Excel transmis pour prévisualiser,
    puis **préparer** `prepare_doe_enrichment_from_file` → **revue** → **appliquer**
    `apply_doe_enrichment(plan_path=..., confirm=True)`.
-9. Générer les livrables : `generate_word_report`, `generate_xlsx_annex`.
+10. Générer les livrables : `generate_word_report`, `generate_xlsx_annex`.
    Ces outils renvoient le chemin disque (`path`) du `.docx` et du
    `.xlsx`. **Propose systématiquement à l'utilisateur de quoi ouvrir
    chaque rapport** sous deux formes complémentaires :
@@ -205,7 +213,7 @@ structurée des questions restantes à poser, mise à jour à chaque appel.
      le copier-coller).
    Utilise toujours le chemin absolu exact renvoyé par l'outil (champ
    `path`). Ne masque jamais le chemin brut derrière le seul lien.
-10. Publier dans le viewer : demander à l'utilisateur s'il veut BCF
+11. Publier dans le viewer : demander à l'utilisateur s'il veut BCF
     Topics (workflow d'issues), Smart Views (navigation 3D), ou les
     deux — `full_audit(push_mode=...)` orchestre.
 

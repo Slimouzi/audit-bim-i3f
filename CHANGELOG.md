@@ -7,6 +7,29 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed (ciblage explicite + auth non ambiguë)
+
+- **Le runtime cible BIMData par IDs explicites uniquement.** `set_active_model` et
+  `full_audit` **n'acceptent plus `bimdata_url`** (ni une URL collée dans `model_id`,
+  désormais refusée avec un renvoi vers `parse_bimdata_target`). Une URL viewer est un
+  **format d'entrée** : la convertir en IDs *avant* l'appel MCP. `resolve_bimdata_target`
+  ne contient plus de résolveur d'URL caché.
+- **`set_active_model` ne prétend plus prouver l'accès.** Sa réponse renvoie
+  `auth: "configured"` (+ `auth_status: "configured"` + `note`) au lieu du trompeur
+  `auth: "ok"` : configurer la cible/l'auth ne prouve pas l'autorisation BIMData.
+
+### Added
+
+- **`parse_bimdata_target(url)`** — tool : extrait `cloud_id`/`project_id`/`model_id`
+  d'une URL viewer, à appeler avant `set_active_model` (aucun effet de bord).
+- **`check_bimdata_access()`** — tool smoke cible/auth : lit `get_project` + `get_model`
+  **sans cache** et prouve l'accès. `{ok, cloud_id, project_id, model_id, project_name,
+  model_name}` ; sur `401` → « Credential configured, but not authorized for this
+  cloud/project » (403 = sans droits, 404 = cible introuvable). Workflow recommandé
+  (prompt/README/docs) : parse-URL → set (IDs) → **check_bimdata_access** →
+  extract(use_cache=false) → continuer si `snapshot_health != "empty_model"` et
+  `n_extraction_errors == 0` → audit.
+
 ### Removed
 
 - **Garde `assert_snapshot_usable` retirée (décision produit).** Le contrôle

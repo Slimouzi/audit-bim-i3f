@@ -146,18 +146,23 @@ et aux espaces multiples — ex: `"LIFFRE"` matche
 ### Workflow recommandé
 
 ```text
+# Le runtime cible TOUJOURS BIMData par IDs explicites. Une URL viewer est
+# un format d'entrée : la convertir en IDs AVANT l'appel MCP.
+0. parse_bimdata_target(
+       url="https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d",
+   )  # -> {cloud_id: "33617", project_id: "2698917", model_id: "1674450"}
 1. set_active_model(
-       bimdata_url="https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d",
+       cloud_id="33617", project_id="2698917", model_id="1674450",
        phase="AVP",
-   )
-   # Alternative historique : cloud_id + project_id + model_id.
-   # L'URL peut aussi être collée directement dans model_id.
-2. verify_active_model(expected_model_name="LIFFRE")
+   )  # CONFIGURE la cible/l'auth — ne prouve PAS l'accès
+2. check_bimdata_access()          # prouve l'accès (get_project) ; 401 = non autorisé
+   # ne continuer que si ok=true
+3. verify_active_model(expected_model_name="LIFFRE")
    # rafraîchit le snapshot sans cache + bloque si mismatch
-3. parse_owner_requirements()
-4. run_audit_tool()
-5. generate_xlsx_annex()
-6. generate_word_report(
+4. parse_owner_requirements()
+5. run_audit_tool()
+6. generate_xlsx_annex()
+7. generate_word_report(
        project_address="12 rue du Stade, 35340 Liffré",
        project_phase="DOE",
        auditor_name="AMO BIM",
