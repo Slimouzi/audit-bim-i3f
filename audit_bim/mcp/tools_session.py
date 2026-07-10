@@ -24,6 +24,54 @@ from .session import _State
 
 _server_logger = logging.getLogger("audit_bim.mcp.tools_session")
 
+_MODEL_STATUS_LABELS = {
+    "C": "Completed",
+    "D": "Deleted",
+    "P": "Pending",
+    "W": "Waiting",
+    "I": "In Process",
+    "E": "Error",
+}
+
+
+def _snapshot_diagnostics(snapshot) -> dict:
+    """Expose les signaux de sante du snapshot sans bloquer la connexion."""
+    model = snapshot.model or {}
+    status = model.get("status")
+    errors = list(getattr(snapshot, "extraction_errors", None) or [])
+    label = _MODEL_STATUS_LABELS.get(status) if status else None
+
+    health = "ok"
+    warning = None
+    if not model:
+        health = "empty_model"
+        warning = (
+            "Snapshot sans metadonnees model : cible/auth potentiellement invalides "
+            "ou extraction BIMData incomplete."
+        )
+    elif status and status != "C":
+        health = "model_not_completed"
+        warning = (
+            f"Modele BIMData status={status!r}"
+            + (f" ({label})" if label else "")
+            + " : les donnees d'elements peuvent etre absentes ou instables."
+        )
+    elif errors:
+        health = "partial"
+        warning = "Snapshot partiel : une ou plusieurs routes BIMData ont echoue."
+    elif not snapshot.elements:
+        health = "empty_elements"
+        warning = "Snapshot sans elements bruts : verifier que la maquette est bien exploitable."
+
+    return {
+        "snapshot_health": health,
+        "snapshot_warning": warning,
+        "model_status": status,
+        "model_status_label": label,
+        "n_extraction_errors": len(errors),
+        "extraction_errors": errors,
+    }
+
 
 @mcp.tool()
 def project_context_questions() -> dict:
@@ -358,6 +406,7 @@ def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cach
     else:
         _State.snapshot = extract_snapshot(_State.client)
     summary = _State.snapshot.summary()
+    summary.update(_snapshot_diagnostics(_State.snapshot))
     summary["from_cache"] = hit
     return summary
 
@@ -400,9 +449,10 @@ def verify_active_model(
 
     Returns:
         Dict ``{ok, expected_model_name, project_name, model_name,
-        model_id, modified_date, from_cache, message}``. Quand
-        ``ok=False`` l'audit ne doit pas être lancé ; cet outil ne
-        modifie jamais ``_State.result``.
+        model_id, modified_date, from_cache, message, snapshot_health, ...}``.
+        Quand ``ok=False`` l'audit ne doit pas être lancé ; cet outil ne
+        modifie jamais ``_State.result``. Les champs ``snapshot_health`` /
+        ``model_status`` sont informatifs et ne bloquent pas la connexion.
     """
     _State.ensure_client()
     expected = (expected_model_name or "").strip()
@@ -461,4 +511,5 @@ def verify_active_model(
         "modified_date": modified_date,
         "from_cache": from_cache,
         "message": message,
+        **_snapshot_diagnostics(_State.snapshot),
     }

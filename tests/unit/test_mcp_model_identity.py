@@ -57,10 +57,15 @@ class _FakeClient:
         self.access_token = access_token
 
 
-def _snapshot_with_model(name: str, model_id: str = "42") -> ModelSnapshot:
+def _snapshot_with_model(
+    name: str, model_id: str = "42", status: str | None = None
+) -> ModelSnapshot:
+    model = {"id": model_id, "name": name, "modified_date": "2026-05-25"}
+    if status is not None:
+        model["status"] = status
     return ModelSnapshot(
         project={"name": "Projet test"},
-        model={"id": model_id, "name": name, "modified_date": "2026-05-25"},
+        model=model,
     ).index()
 
 
@@ -218,6 +223,18 @@ class TestVerifyActiveModel:
         assert _isolated_session.snapshot is snap
         # Le tool ne touche pas _State.result.
         assert _isolated_session.result is None
+
+    def test_ok_identity_still_reports_non_completed_status(self, _isolated_session):
+        _isolated_session.client = _FakeClient(model_id="abc")
+        snap = _snapshot_with_model("Maquette BIM - LIFFRÉ - DOE.ifc", model_id="abc", status="I")
+        with patch.object(tools_session, "extract_snapshot", return_value=snap):
+            res = mcp_server.verify_active_model(expected_model_name="LIFFRE")
+        assert res["ok"] is True
+        assert res["model_status"] == "I"
+        assert res["model_status_label"] == "In Process"
+        assert res["snapshot_health"] == "model_not_completed"
+        assert "status='I'" in res["snapshot_warning"]
+        assert res["extraction_errors"] == []
 
     def test_ko_when_mismatch_does_not_touch_result(self, _isolated_session):
         _isolated_session.client = _FakeClient(model_id="zzz")

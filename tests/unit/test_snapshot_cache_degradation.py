@@ -30,6 +30,13 @@ def _snap() -> ModelSnapshot:
     return ModelSnapshot(model={"name": "M.ifc"}, buildings=[{"uuid": "b1"}]).index()
 
 
+def _partial_snap() -> ModelSnapshot:
+    return ModelSnapshot(
+        model={"name": "M.ifc", "status": "P"},
+        extraction_errors=["get_spaces: HTTPError: 404 Client Error"],
+    ).index()
+
+
 def test_extract_model_snapshot_degrades_on_readonly_root():
     def body(_sess):
         with (
@@ -41,6 +48,21 @@ def test_extract_model_snapshot_degrades_on_readonly_root():
         assert out["from_cache"] is False
         m_cached.assert_not_called()  # cache court-circuité, pas de crash
         m_extract.assert_called_once()
+
+    _with_session(body)
+
+
+def test_extract_model_snapshot_exposes_non_blocking_diagnostics():
+    def body(_sess):
+        with patch.object(ts, "extract_snapshot", return_value=_partial_snap()):
+            out = ts.extract_model_snapshot(use_cache=False)
+        assert out["model_status"] == "P"
+        assert out["model_status_label"] == "Pending"
+        assert out["snapshot_health"] == "model_not_completed"
+        assert out["n_extraction_errors"] == 1
+        assert out["extraction_errors"] == ["get_spaces: HTTPError: 404 Client Error"]
+        assert "status='P'" in out["snapshot_warning"]
+        assert out["from_cache"] is False
 
     _with_session(body)
 
