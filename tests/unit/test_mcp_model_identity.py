@@ -13,9 +13,10 @@ Couvre :
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import server as mcp_server
@@ -97,70 +98,114 @@ class TestParseBimdataViewerUrl:
             parse_bimdata_viewer_url(url)
 
 
+URL = "https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d"
+
+
 class TestResolveBimdataTarget:
-    URL = "https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d"
+    """Le runtime cible par IDs : resolve_bimdata_target ne résout PLUS d'URL
+    (plus de résolveur caché). Il passe les IDs tels quels et refuse une URL."""
 
-    def test_resolves_url_only(self):
-        assert resolve_bimdata_target(
-            cloud_id=None,
-            project_id=None,
-            model_id=None,
-            bimdata_url=self.URL,
-        ) == ("33617", "2698917", "1674450")
+    def test_passes_explicit_ids_through(self):
+        assert resolve_bimdata_target(cloud_id="c", project_id="p", model_id="m") == ("c", "p", "m")
 
-    def test_accepts_matching_explicit_ids(self):
-        assert resolve_bimdata_target(
-            cloud_id="33617",
-            project_id="2698917",
-            model_id="1674450",
-            bimdata_url=self.URL,
-        ) == ("33617", "2698917", "1674450")
-
-    def test_accepts_url_pasted_into_model_id(self):
-        assert resolve_bimdata_target(
-            cloud_id=None,
-            project_id=None,
-            model_id=self.URL,
-        ) == ("33617", "2698917", "1674450")
-
-    def test_without_url_preserves_historical_values(self):
-        assert resolve_bimdata_target(
-            cloud_id="c",
-            project_id="p",
-            model_id="m",
-        ) == ("c", "p", "m")
-
-    def test_rejects_conflicting_explicit_id(self):
-        with pytest.raises(ValueError, match="model_id='999'"):
-            resolve_bimdata_target(
-                cloud_id="33617",
-                project_id="2698917",
-                model_id="999",
-                bimdata_url=self.URL,
-            )
-
-    def test_rejects_duplicate_url_inputs(self):
-        with pytest.raises(ValueError, match="Cible BIMData ambiguë"):
-            resolve_bimdata_target(
-                cloud_id=None,
-                project_id=None,
-                model_id=self.URL,
-                bimdata_url=self.URL,
-            )
+    def test_rejects_url_pasted_into_model_id(self):
+        with pytest.raises(ValueError, match="parse_bimdata_target"):
+            resolve_bimdata_target(cloud_id=None, project_id=None, model_id=URL)
 
 
-class TestSetActiveModelFromUrl:
-    def test_url_configures_any_model_without_env_edit(self, _isolated_session):
-        url = "https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d"
+class TestParseBimdataTargetTool:
+    """Nouveau tool : URL viewer → IDs, à appeler AVANT set_active_model."""
+
+    def test_extracts_ids(self):
+        assert tools_session.parse_bimdata_target(URL) == {
+            "cloud_id": "33617",
+            "project_id": "2698917",
+            "model_id": "1674450",
+        }
+
+    def test_rejects_non_viewer_url(self):
+        with pytest.raises(ValueError, match="URL BIMData invalide"):
+            tools_session.parse_bimdata_target("https://example.com/nope")
+
+
+class TestSetActiveModelExplicitIds:
+    def test_ids_configure_target(self, _isolated_session):
         with patch.object(tools_session, "BIMDataClient", _FakeClient):
-            result = mcp_server.set_active_model(bimdata_url=url, phase="AVP")
-
-        assert result["cloud_id"] == "33617"
-        assert result["project_id"] == "2698917"
-        assert result["model_id"] == "1674450"
+            result = tools_session.set_active_model(
+                cloud_id="33617", project_id="2698917", model_id="1674450", phase="AVP"
+            )
+        assert (result["cloud_id"], result["project_id"], result["model_id"]) == (
+            "33617",
+            "2698917",
+            "1674450",
+        )
         assert _isolated_session.client.model_id == "1674450"
-        assert _isolated_session.snapshot is None
-        assert _isolated_session.result is None
+
+    def test_response_says_configured_not_ok(self, _isolated_session):
+        # L'auth est CONFIGURÉE, pas prouvée — plus de « auth: ok » trompeur.
+        with patch.object(tools_session, "BIMDataClient", _FakeClient):
+            result = tools_session.set_active_model(cloud_id="1", project_id="2", model_id="3")
+        assert result["auth"] == "configured"
+        assert result["auth_status"] == "configured"
+        assert result.get("auth") != "ok"
+        assert "check_bimdata_access" in result["note"]
+
+    def test_url_in_model_id_is_refused_with_redirect(self, _isolated_session):
+        with patch.object(tools_session, "BIMDataClient", _FakeClient):
+            with pytest.raises(ValueError, match="parse_bimdata_target"):
+                tools_session.set_active_model(model_id=URL, phase="AVP")
+
+    def test_parse_then_set_active_model_flow(self, _isolated_session):
+        ids = tools_session.parse_bimdata_target(URL)
+        with patch.object(tools_session, "BIMDataClient", _FakeClient):
+            result = tools_session.set_active_model(phase="AVP", **ids)
+        assert result["model_id"] == "1674450"
+        assert _isolated_session.snapshot is None  # caches invalidés
+
+
+def _wire_client(sess, client):
+    sess.client = client
+    sess.cloud_id, sess.project_id, sess.model_id = "1", "2", "3"
+
+
+class TestCheckBimdataAccess:
+    """Smoke test cible/auth : prouve l'accès réel via get_project + get_model,
+    et donne un diagnostic clair sur 401 (au lieu d'un audit sur du vide)."""
+
+    def test_ok_returns_ids_and_names(self, _isolated_session):
+        client = MagicMock()
+        client.get_project.return_value = {"name": "Projet X"}
+        client.get_model.return_value = {"name": "M.ifc"}
+        _wire_client(_isolated_session, client)
+        out = tools_session.check_bimdata_access()
+        assert out["ok"] is True
+        assert (out["cloud_id"], out["project_id"], out["model_id"]) == ("1", "2", "3")
+        assert out["project_name"] == "Projet X"
+        assert out["model_name"] == "M.ifc"
+
+    def test_401_reports_not_authorized(self, _isolated_session):
+        client = MagicMock()
+        resp = MagicMock()
+        resp.status_code = 401
+        client.get_project.side_effect = requests.HTTPError(response=resp)
+        _wire_client(_isolated_session, client)
+        out = tools_session.check_bimdata_access()
+        assert out["ok"] is False
+        assert "not authorized" in out["error"] and "401" in out["error"]
+
+    def test_404_reports_target_not_found(self, _isolated_session):
+        client = MagicMock()
+        resp = MagicMock()
+        resp.status_code = 404
+        client.get_project.side_effect = requests.HTTPError(response=resp)
+        _wire_client(_isolated_session, client)
+        out = tools_session.check_bimdata_access()
+        assert out["ok"] is False
+        assert "404" in out["error"]
+
+    def test_no_client_raises(self, _isolated_session):
+        with pytest.raises(RuntimeError):
+            tools_session.check_bimdata_access()
 
 
 class TestNormalizeModelName:

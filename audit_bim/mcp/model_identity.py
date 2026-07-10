@@ -10,7 +10,8 @@ alors un rapport sur la mauvaise maquette sans s'en apercevoir.
 Ce module expose des helpers purs :
 
 - :func:`parse_bimdata_viewer_url` — extrait les IDs d'une URL viewer ;
-- :func:`resolve_bimdata_target` — fusionne URL et IDs explicites ;
+- :func:`resolve_bimdata_target` — valide une cible par **IDs explicites**
+  (refuse une URL : pas de résolveur d'URL caché dans le chemin d'audit) ;
 - :func:`normalize_model_name` — normalise une chaîne (casse, accents,
   espaces multiples) pour comparaison robuste.
 - :func:`model_matches_expected` — vérifie que la valeur attendue
@@ -77,49 +78,23 @@ def resolve_bimdata_target(
     cloud_id: str | None,
     project_id: str | None,
     model_id: str | None,
-    bimdata_url: str | None = None,
 ) -> tuple[str | None, str | None, str | None]:
-    """Résout une cible BIMData depuis des IDs et/ou une URL viewer.
+    """Valide une cible BIMData par **IDs explicites** (le runtime cible TOUJOURS
+    par IDs, jamais par URL).
 
-    Une URL peut être fournie via ``bimdata_url`` ou collée directement dans
-    ``model_id``. Les IDs explicites compatibles sont acceptés ; toute
-    divergence est refusée afin d'éviter un audit sur une cible ambiguë.
-    Sans URL, les valeurs sont retournées telles quelles pour préserver le
-    fallback historique vers l'environnement.
+    Une **URL viewer n'est PAS résolue ici** : pas de résolveur d'URL caché dans le
+    chemin d'audit. Pour une URL, appeler :func:`parse_bimdata_viewer_url` (ou le
+    tool ``parse_bimdata_target``) **en amont**, puis passer les IDs. Un ``model_id``
+    ressemblant à une URL est refusé avec ce rappel. Les valeurs sont sinon
+    retournées telles quelles (fallback ``.env`` géré par l'appelant).
     """
-    url_value = (bimdata_url or "").strip() or None
-    resolved_model_id = model_id
-
     if isinstance(model_id, str) and model_id.strip().lower().startswith(("http://", "https://")):
-        if url_value is not None:
-            raise ValueError(
-                "Cible BIMData ambiguë : fournir l'URL soit via bimdata_url, "
-                "soit via model_id, pas les deux."
-            )
-        url_value = model_id.strip()
-        resolved_model_id = None
-
-    if url_value is None:
-        return cloud_id, project_id, resolved_model_id
-
-    url_cloud_id, url_project_id, url_model_id = parse_bimdata_viewer_url(url_value)
-    explicit_values = {
-        "cloud_id": (cloud_id, url_cloud_id),
-        "project_id": (project_id, url_project_id),
-        "model_id": (resolved_model_id, url_model_id),
-    }
-    for label, (explicit, extracted) in explicit_values.items():
-        if explicit is not None and str(explicit) != extracted:
-            raise ValueError(
-                f"Cible BIMData incohérente : {label}={explicit!r} "
-                f"ne correspond pas à l'URL ({extracted!r})."
-            )
-
-    return (
-        str(cloud_id) if cloud_id is not None else url_cloud_id,
-        str(project_id) if project_id is not None else url_project_id,
-        str(resolved_model_id) if resolved_model_id is not None else url_model_id,
-    )
+        raise ValueError(
+            "model_id doit être un identifiant numérique, pas une URL. Pour une URL "
+            "viewer BIMData, appelle d'abord parse_bimdata_target(url) puis passe "
+            "cloud_id/project_id/model_id explicites."
+        )
+    return cloud_id, project_id, model_id
 
 
 def normalize_model_name(value: str | None) -> str:

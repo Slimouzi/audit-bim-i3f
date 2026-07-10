@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import requests
+
 from .. import config
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import extract_snapshot
@@ -12,8 +14,13 @@ from ..extraction.snapshot_cache import cached_extract_snapshot
 from ..requirements.catalog import build_catalog, catalog_usable
 from ..requirements.models import BIMPhase
 from ..safe_paths import safe_export_dir, safe_input_path
+from ..security.redaction import redact_secrets
 from .app import mcp
-from .model_identity import model_matches_expected, resolve_bimdata_target
+from .model_identity import (
+    model_matches_expected,
+    parse_bimdata_viewer_url,
+    resolve_bimdata_target,
+)
 from .phase import (
     _detect_snapshot_phase,
     _phase_question_dict,
@@ -148,8 +155,9 @@ def project_context_questions() -> dict:
                     "BIMData, ou fournissez cloud_id, project_id et model_id."
                 ),
                 "suggestion": (
-                    "Appelle set_active_model(bimdata_url=...) ; les IDs restent "
-                    "acceptés et les valeurs du .env servent de fallback."
+                    "Si URL : parse_bimdata_target(url) → IDs, puis "
+                    "set_active_model(cloud_id=..., project_id=..., model_id=..., phase=...). "
+                    "Les valeurs du .env servent de fallback."
                 ),
             }
         )
@@ -268,37 +276,31 @@ def set_active_model(
     cloud_id: str | None = None,
     project_id: str | None = None,
     model_id: str | None = None,
-    bimdata_url: str | None = None,
     phase: str = "PRO",
     classification_system: str | None = None,
     access_token: str | None = None,
 ) -> dict:
-    """Cible la maquette BIMData et la phase BIM à auditer.
+    """Cible la maquette BIMData par **IDs explicites** + la phase BIM à auditer.
+
+    Le runtime cible **toujours** BIMData par ``cloud_id`` / ``project_id`` /
+    ``model_id``. Une **URL viewer n'est pas acceptée ici** : appelle d'abord
+    ``parse_bimdata_target(url)`` pour extraire les IDs, puis passe-les.
+
+    **Cette fonction ne prouve PAS l'accès BIMData** — elle ne fait que *configurer*
+    la cible et l'auth (clé serveur). L'autorisation réelle n'est confirmée qu'en
+    appelant ``check_bimdata_access`` (qui interroge ``get_project``).
 
     .. warning::
-       ``access_token`` reste **déconseillé en transport réseau** :
-       les paramètres MCP peuvent transiter dans des logs client,
-       des traces d'agent ou des historiques JSON-RPC. Préférer la
-       configuration côté serveur via ``BIMDATA_API_KEY`` /
-       ``BIMDATA_CLIENT_ID``+``…_SECRET``, ou l'injection d'identité
-       par le reverse-proxy. Utiliser ce paramètre uniquement en
-       contexte stdio local / dev. Côté audit-bim-i3f, le token est
-       *scrubbé* (sha-256[:8]) dans les logs serveur, mais l'appelant
-       est responsable de sa propre hygiène de logs.
+       ``access_token`` reste **déconseillé** : les paramètres MCP peuvent transiter
+       dans des logs client / traces d'agent. Préférer la config **serveur**
+       (``BIMDATA_API_KEY``, ou ``BIMDATA_CLIENT_ID``+``…_SECRET``). Le token en
+       paramètre est refusé par défaut en transport réseau.
 
     Args:
-        cloud_id, project_id, model_id: IDs BIMData (fallback ``.env``).
-            ``model_id`` accepte aussi une URL viewer complète pour tolérer
-            un copier-coller direct.
-        bimdata_url: URL viewer BIMData
-            ``https://platform.bimdata.io/spaces/<cloud>/projects/<project>/viewer/<model>``.
-            Les IDs sont extraits automatiquement. Si des IDs explicites sont
-            également fournis, ils doivent correspondre à l'URL.
+        cloud_id, project_id, model_id: **IDs numériques** BIMData (fallback ``.env``).
         phase: APS | AVP | PRO | DCE | EXE | DOE | GESTION (défaut PRO).
-        classification_system: référentiel à utiliser pour les
-            classifications. Valeurs admises : ``UniFormat II`` (défaut) |
-            ``Omniclass`` | ``CCS`` | ``3F``.
-        access_token: Bearer token déjà acquis (optionnel, local/dev).
+        classification_system: ``UniFormat II`` (défaut) | ``Omniclass`` | ``CCS`` | ``3F``.
+        access_token: Bearer token (déconseillé, local/dev uniquement).
     """
     from ..classifier import get_system
 
@@ -306,7 +308,6 @@ def set_active_model(
         cloud_id=cloud_id,
         project_id=project_id,
         model_id=model_id,
-        bimdata_url=bimdata_url,
     )
     _State.cloud_id = cloud_id or config.CLOUD_ID
     _State.project_id = project_id or config.PROJECT_ID
@@ -348,7 +349,65 @@ def set_active_model(
         "model_id": _State.model_id,
         "phase": _State.phase.value,
         "classification_system": _State.classification_system,
-        "auth": "ok",
+        # Cible + auth **configurées**, PAS prouvées. L'accès BIMData réel n'est
+        # confirmé que par `check_bimdata_access` (get_project réussit).
+        "auth": "configured",
+        "auth_status": "configured",
+        "note": "Auth configurée mais non prouvée — valider l'accès via check_bimdata_access.",
+    }
+
+
+@mcp.tool()
+def parse_bimdata_target(url: str) -> dict:
+    """Extrait ``cloud_id`` / ``project_id`` / ``model_id`` d'une **URL viewer** BIMData.
+
+    À appeler **avant** ``set_active_model`` quand l'utilisateur fournit une URL
+    (``https://platform.bimdata.io/spaces/<cloud>/projects/<project>/viewer/<model>``) :
+    le runtime cible toujours BIMData par IDs explicites, jamais par URL. Ne touche
+    à aucun état de session — c'est un simple parseur.
+    """
+    cloud_id, project_id, model_id = parse_bimdata_viewer_url(url)
+    return {"cloud_id": cloud_id, "project_id": project_id, "model_id": model_id}
+
+
+@mcp.tool()
+def check_bimdata_access() -> dict:
+    """Smoke test **cible + auth** : prouve l'accès BIMData réel (sans cache).
+
+    ``set_active_model`` ne fait que *configurer* l'auth ; ce tool la **prouve** en
+    lisant ``get_project`` puis ``get_model`` en direct. À lancer juste après
+    ``set_active_model``, avant l'extraction.
+
+    Returns:
+        Succès → ``{ok: True, cloud_id, project_id, model_id, project_name, model_name}``.
+        Échec → ``{ok: False, …, error: <diagnostic>}`` (401 = credential configurée
+        mais non autorisée sur ce cloud/projet ; 403 = sans droits ; 404 = cible
+        introuvable).
+    """
+    _State.ensure_client()
+    ids = {
+        "cloud_id": _State.cloud_id,
+        "project_id": _State.project_id,
+        "model_id": _State.model_id,
+    }
+    try:
+        project = _State.client.get_project()
+        model = _State.client.get_model()
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else None
+        diagnostic = {
+            401: "Credential configured, but not authorized for this cloud/project (HTTP 401).",
+            403: "Authentifié mais sans droits sur ce cloud/projet (HTTP 403).",
+            404: "Cible introuvable (HTTP 404) — vérifie cloud_id / project_id / model_id.",
+        }.get(status, f"Accès BIMData refusé (HTTP {status}).")
+        return {"ok": False, **ids, "error": diagnostic}
+    except requests.RequestException as exc:
+        return {"ok": False, **ids, "error": f"Erreur réseau BIMData : {redact_secrets(str(exc))}"}
+    return {
+        "ok": True,
+        **ids,
+        "project_name": (project or {}).get("name"),
+        "model_name": (model or {}).get("name"),
     }
 
 

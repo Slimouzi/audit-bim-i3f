@@ -382,22 +382,22 @@ Marquage des sources dans le rapport :
 Exemple Python :
 
 ```python
+# Cible par IDs explicites. Si l'utilisateur fournit une URL viewer, la convertir
+# d'abord : parse_bimdata_target(url) -> {cloud_id, project_id, model_id}.
+ids = parse_bimdata_target(
+    "https://platform.bimdata.io/spaces/33617/projects/2698917/viewer/1674450?window=3d"
+)  # {"cloud_id": "33617", "project_id": "2698917", "model_id": "1674450"}
+
 # Premier appel — refus structuré
 result = full_audit(
-    bimdata_url=(
-        "https://platform.bimdata.io/spaces/33617/projects/2698917/"
-        "viewer/1674450?window=3d"
-    ),
+    cloud_id=ids["cloud_id"], project_id=ids["project_id"], model_id=ids["model_id"],
     push_mode="none",
 )
 # → {"status": "needs_context", "missing": ["project_address", "auditor_name"], ...}
 
 # Second appel — audit lancé
 result = full_audit(
-    bimdata_url=(
-        "https://platform.bimdata.io/spaces/33617/projects/2698917/"
-        "viewer/1674450?window=3d"
-    ),
+    cloud_id=ids["cloud_id"], project_id=ids["project_id"], model_id=ids["model_id"],
     project_address="12 rue de la Paix, 35340 LIFFRÉ",
     project_phase="PRO",
     auditor_name="Stanislas Limouzi (BET Acme)",

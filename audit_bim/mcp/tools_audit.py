@@ -64,7 +64,6 @@ def _fa_resolve_target_and_context(
     cloud_id,
     project_id,
     model_id,
-    bimdata_url,
     phase,
     access_token,
     project_address,
@@ -82,14 +81,13 @@ def _fa_resolve_target_and_context(
     ``_AuditContext`` porteur d'un ``refusal`` si une info manque et que
     ``confirm_context`` n'est pas ``True``.
     """
-    explicit_target = any(v is not None for v in (cloud_id, project_id, model_id, bimdata_url))
+    explicit_target = any(v is not None for v in (cloud_id, project_id, model_id))
     target_loaded = False
     if explicit_target:
         set_active_model(
             cloud_id=cloud_id,
             project_id=project_id,
             model_id=model_id,
-            bimdata_url=bimdata_url,
             phase=(phase.strip() if isinstance(phase, str) and phase.strip() else "PRO"),
             access_token=access_token,
         )
@@ -185,7 +183,7 @@ def _fa_prepare_catalog() -> None:
 
 
 def _fa_finalize_target(
-    ctx: _AuditContext, *, cloud_id, project_id, model_id, bimdata_url, access_token
+    ctx: _AuditContext, *, cloud_id, project_id, model_id, access_token
 ) -> None:
     """Étape 3a — politique de préservation de cible + alignement de ``_State.phase``
     sur la phase effective (audit et rapport partagent la même source de vérité).
@@ -201,7 +199,6 @@ def _fa_finalize_target(
             cloud_id=cloud_id,
             project_id=project_id,
             model_id=model_id,
-            bimdata_url=bimdata_url,
             phase=ctx.effective_phase,
             access_token=access_token,
         )
@@ -312,7 +309,6 @@ def full_audit(
     cloud_id: str | None = None,
     project_id: str | None = None,
     model_id: str | None = None,
-    bimdata_url: str | None = None,
     phase: str | None = None,
     output_dir: str | None = None,
     push_mode: str = "ask",
@@ -346,10 +342,9 @@ def full_audit(
        l'injection par reverse-proxy.
 
     Args:
-        cloud_id, project_id, model_id: cible BIMData (fallback ``.env``).
-            ``model_id`` accepte aussi une URL viewer complète.
-        bimdata_url: URL viewer BIMData. Permet de lancer l'audit sur
-            n'importe quel modèle sans modifier la configuration locale.
+        cloud_id, project_id, model_id: cible BIMData par **IDs explicites**
+            (fallback ``.env``). Une **URL viewer n'est pas acceptée** : appeler
+            ``parse_bimdata_target(url)`` en amont pour extraire les IDs.
         phase: phase BIM auditée.
         output_dir: dossier de sortie (fallback ``AUDIT_OUTPUT_DIR`` env).
         push_mode: ``"ask"`` | ``"bcf"`` | ``"smartview"`` | ``"both"`` | ``"none"``.
@@ -379,7 +374,7 @@ def full_audit(
             ``False`` pour réutiliser ``_State.snapshot`` ou le cache
             (déconseillé quand ``expected_model_name`` est fourni).
             **Exception (sécurité)** : fournir une **nouvelle cible
-            explicite** (``bimdata_url`` ou IDs) force **toujours** une
+            explicite** (IDs) force **toujours** une
             extraction fraîche de *ce* modèle, quel que soit ce paramètre —
             on ne peut pas réutiliser le snapshot d'un autre modèle. Le
             drapeau ne s'applique donc qu'aux cibles préservées / au
@@ -393,7 +388,6 @@ def full_audit(
         cloud_id=cloud_id,
         project_id=project_id,
         model_id=model_id,
-        bimdata_url=bimdata_url,
         phase=phase,
         access_token=access_token,
         project_address=project_address,
@@ -413,7 +407,6 @@ def full_audit(
         cloud_id=cloud_id,
         project_id=project_id,
         model_id=model_id,
-        bimdata_url=bimdata_url,
         access_token=access_token,
     )
     _fa_extract_snapshot(ctx.target_loaded, force_refresh_snapshot)  # étape 3b
