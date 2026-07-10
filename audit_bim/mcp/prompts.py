@@ -180,8 +180,11 @@ structurée des questions restantes à poser, mise à jour à chaque appel.
    - puis `set_active_model(cloud_id=..., project_id=..., model_id=..., phase=...,
      classification_system=...)`. *(NE PAS passer d'URL à `set_active_model`.)*
 5. **Prouver l'accès** : `check_bimdata_access` — `set_active_model` ne fait que
-   *configurer* l'auth, il ne la prouve pas (un 401 ici = credential OK mais non
-   autorisée sur ce cloud/projet). Ne continuer que si `ok=true`.
+   *configurer* l'auth, il ne la prouve pas (un 401 ici = BIMData a **rejeté la
+   credential du processus MCP pour cette cible**, sans conclure sur les droits ni
+   sur la validité de la clé ailleurs). Le retour porte aussi `auth_source` /
+   `auth_scheme` (déploiement clé serveur attendu : `BIMDATA_API_KEY` / `ApiKey`).
+   Ne continuer que si `ok=true`.
 6. `extract_model_snapshot(use_cache=false)` → **ne continuer que si**
    `snapshot_health != "empty_model"` et `n_extraction_errors == 0`, puis
    `run_audit_tool` → résumé findings.

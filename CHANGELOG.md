@@ -24,8 +24,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   d'une URL viewer, à appeler avant `set_active_model` (aucun effet de bord).
 - **`check_bimdata_access()`** — tool smoke cible/auth : lit `get_project` + `get_model`
   **sans cache** et prouve l'accès. `{ok, cloud_id, project_id, model_id, project_name,
-  model_name}` ; sur `401` → « Credential configured, but not authorized for this
-  cloud/project » (403 = sans droits, 404 = cible introuvable). Workflow recommandé
+  model_name, auth_source, auth_scheme}` ; sur `401` → « BIMData a rejeté la credential
+  utilisée par le processus MCP pour cette cible » (formulation prudente : ni conclusion
+  de droits ni preuve que la clé est invalide ailleurs ; 403 = sans droits, 404 = cible
+  introuvable). Le couple `auth_source`/`auth_scheme` **rapporte le mode d'auth du
+  processus** (déploiement clé serveur attendu : `auth_source: BIMDATA_API_KEY`,
+  `auth_scheme: ApiKey`) sans jamais divulguer la valeur du secret. La provenance est lue
+  depuis la **config serveur** (`config.*` immuable), *pas* depuis l'instance client : le
+  flow OAuth2 écrit `client.access_token` **dès la construction**, l'attribut ne fait donc
+  pas foi. Sert de sonde de vérification post-déploiement. Workflow recommandé
   (prompt/README/docs) : parse-URL → set (IDs) → **check_bimdata_access** →
   extract(use_cache=false) → continuer si `snapshot_health != "empty_model"` et
   `n_extraction_errors == 0` → audit.

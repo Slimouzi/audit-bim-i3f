@@ -183,7 +183,8 @@ class TestCheckBimdataAccess:
         assert out["project_name"] == "Projet X"
         assert out["model_name"] == "M.ifc"
 
-    def test_401_reports_not_authorized(self, _isolated_session):
+    def test_401_reports_credential_rejected(self, _isolated_session):
+        # Formulation prudente : « credential rejetée », pas de conclusion de droits.
         client = MagicMock()
         resp = MagicMock()
         resp.status_code = 401
@@ -191,7 +192,9 @@ class TestCheckBimdataAccess:
         _wire_client(_isolated_session, client)
         out = tools_session.check_bimdata_access()
         assert out["ok"] is False
-        assert "not authorized" in out["error"] and "401" in out["error"]
+        assert "rejeté" in out["error"] and "401" in out["error"]
+        # On ne prétend PAS que la credential est « non autorisée » de façon absolue.
+        assert "not authorized" not in out["error"]
 
     def test_404_reports_target_not_found(self, _isolated_session):
         client = MagicMock()
@@ -206,6 +209,85 @@ class TestCheckBimdataAccess:
     def test_no_client_raises(self, _isolated_session):
         with pytest.raises(RuntimeError):
             tools_session.check_bimdata_access()
+
+    def test_reports_api_key_auth_on_success(self, _isolated_session, monkeypatch):
+        # Déploiement clé serveur : seul BIMDATA_API_KEY configuré → ApiKey.
+        _set_config_auth(monkeypatch, api_key="svc-key")
+        client = MagicMock()
+        client.get_project.return_value = {"name": "Projet X"}
+        client.get_model.return_value = {"name": "M.ifc"}
+        _wire_client(_isolated_session, client)
+        out = tools_session.check_bimdata_access()
+        assert out["ok"] is True
+        assert out["auth_source"] == "BIMDATA_API_KEY"
+        assert out["auth_scheme"] == "ApiKey"
+        # Le secret lui-même n'est jamais renvoyé.
+        assert "svc-key" not in str(out)
+
+    def test_reports_auth_even_on_401(self, _isolated_session, monkeypatch):
+        _set_config_auth(monkeypatch, api_key="svc-key")
+        client = MagicMock()
+        resp = MagicMock()
+        resp.status_code = 401
+        client.get_project.side_effect = requests.HTTPError(response=resp)
+        _wire_client(_isolated_session, client)
+        out = tools_session.check_bimdata_access()
+        assert out["ok"] is False
+        assert out["auth_source"] == "BIMDATA_API_KEY"
+        assert out["auth_scheme"] == "ApiKey"
+        # Le 401 dit « credential rejetée », pas « non autorisé ».
+        assert "rejeté" in out["error"] and "401" in out["error"]
+
+
+def _set_config_auth(
+    monkeypatch, *, access_token=None, api_key=None, client_id=None, client_secret=None
+):
+    """Fixe la provenance d'auth au niveau de ``config`` (source immuable lue par
+    ``_active_auth`` — l'instance client ne fait PAS foi, l'OAuth2 mute son
+    access_token dès la construction)."""
+    monkeypatch.setattr(tools_session.config, "ACCESS_TOKEN", access_token)
+    monkeypatch.setattr(tools_session.config, "API_KEY", api_key)
+    monkeypatch.setattr(tools_session.config, "CLIENT_ID", client_id)
+    monkeypatch.setattr(tools_session.config, "CLIENT_SECRET", client_secret)
+
+
+class TestActiveAuth:
+    """``_active_auth`` reflète la précédence de bimdata_read (access_token →
+    api_key → OAuth2) depuis la **config serveur**, sans divulguer les secrets.
+    Lit ``config.*`` et non l'instance client : le flow OAuth2 écrit
+    ``client.access_token`` dès la construction, l'attribut ne fait donc pas foi."""
+
+    def test_access_token_wins(self, monkeypatch):
+        _set_config_auth(monkeypatch, access_token="t", api_key="k")
+        assert tools_session._active_auth() == {
+            "auth_source": "BIMDATA_ACCESS_TOKEN",
+            "auth_scheme": "Bearer",
+        }
+
+    def test_api_key_when_no_token(self, monkeypatch):
+        _set_config_auth(monkeypatch, api_key="k")
+        assert tools_session._active_auth() == {
+            "auth_source": "BIMDATA_API_KEY",
+            "auth_scheme": "ApiKey",
+        }
+
+    def test_oauth2_when_only_client_creds(self, monkeypatch):
+        _set_config_auth(monkeypatch, client_id="i", client_secret="s")
+        out = tools_session._active_auth()
+        assert out["auth_source"] == "BIMDATA_CLIENT_ID+SECRET"
+        assert out["auth_scheme"].startswith("Bearer")
+
+    def test_none_when_no_credential(self, monkeypatch):
+        _set_config_auth(monkeypatch)
+        assert tools_session._active_auth() == {"auth_source": None, "auth_scheme": None}
+
+    def test_reads_config_not_mutated_client_attr(self, monkeypatch):
+        # Régression P1 : un client OAuth2 a access_token déjà peuplé (mutation à
+        # la construction). La provenance doit rester OAuth2, pas BIMDATA_ACCESS_TOKEN.
+        _set_config_auth(monkeypatch, client_id="i", client_secret="s")
+        # même si un client traînait avec un token dérivé, on ne le lit pas :
+        out = tools_session._active_auth()
+        assert out["auth_source"] == "BIMDATA_CLIENT_ID+SECRET"
 
 
 class TestNormalizeModelName:

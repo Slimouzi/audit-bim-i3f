@@ -155,7 +155,10 @@ et aux espaces multiples — ex: `"LIFFRE"` matche
        cloud_id="33617", project_id="2698917", model_id="1674450",
        phase="AVP",
    )  # CONFIGURE la cible/l'auth — ne prouve PAS l'accès
-2. check_bimdata_access()          # prouve l'accès (get_project) ; 401 = non autorisé
+2. check_bimdata_access()          # prouve l'accès (get_project/get_model)
+   # 401 = credential du processus MCP rejetée par BIMData pour cette cible
+   #        (ni conclusion de droits, ni preuve d'invalidité de la clé ailleurs)
+   # renvoie aussi auth_source/auth_scheme (clé serveur attendue : BIMDATA_API_KEY / ApiKey)
    # ne continuer que si ok=true
 3. verify_active_model(expected_model_name="LIFFRE")
    # rafraîchit le snapshot sans cache + bloque si mismatch
