@@ -370,19 +370,48 @@ def parse_bimdata_target(url: str) -> dict:
     return {"cloud_id": cloud_id, "project_id": project_id, "model_id": model_id}
 
 
+def _active_auth() -> dict:
+    """Mode d'auth **effectif** du processus MCP, dans l'ordre de précédence de
+    ``bimdata_read`` (access_token → api_key → OAuth2 client_credentials).
+
+    La provenance est lue depuis la **config serveur** (``config.*`` / ``.env``),
+    *pas* depuis l'instance client : le flow OAuth2 écrit ``self.access_token``
+    **dès la construction** du client (``BIMDataClient.__init__`` appelle
+    ``_auth_headers`` qui, en mode client_credentials, acquiert et stocke un
+    jeton). Lire l'attribut ferait donc passer OAuth2 pour un Bearer configuré.
+    Les ``config.*`` sont immuables → distinguent proprement un jeton *configuré*
+    d'un jeton *dérivé*. On ne renvoie jamais la valeur des secrets, seulement
+    leur *provenance*.
+    """
+    if config.ACCESS_TOKEN:
+        return {"auth_source": "BIMDATA_ACCESS_TOKEN", "auth_scheme": "Bearer"}
+    if config.API_KEY:
+        return {"auth_source": "BIMDATA_API_KEY", "auth_scheme": "ApiKey"}
+    if config.CLIENT_ID and config.CLIENT_SECRET:
+        return {
+            "auth_source": "BIMDATA_CLIENT_ID+SECRET",
+            "auth_scheme": "Bearer (OAuth2 client_credentials)",
+        }
+    return {"auth_source": None, "auth_scheme": None}
+
+
 @mcp.tool()
 def check_bimdata_access() -> dict:
     """Smoke test **cible + auth** : prouve l'accès BIMData réel (sans cache).
 
     ``set_active_model`` ne fait que *configurer* l'auth ; ce tool la **prouve** en
     lisant ``get_project`` puis ``get_model`` en direct. À lancer juste après
-    ``set_active_model``, avant l'extraction.
+    ``set_active_model``, avant l'extraction. Rapporte aussi le **mode d'auth
+    effectif** (``auth_source`` / ``auth_scheme``) — sans jamais divulguer la
+    valeur des secrets — pour la sonde de vérification de déploiement (ex. attendu
+    ``auth_source: BIMDATA_API_KEY``, ``auth_scheme: ApiKey``).
 
     Returns:
-        Succès → ``{ok: True, cloud_id, project_id, model_id, project_name, model_name}``.
-        Échec → ``{ok: False, …, error: <diagnostic>}`` (401 = credential configurée
-        mais non autorisée sur ce cloud/projet ; 403 = sans droits ; 404 = cible
-        introuvable).
+        Succès → ``{ok: True, cloud_id, project_id, model_id, project_name,
+        model_name, auth_source, auth_scheme}``.
+        Échec → ``{ok: False, …, auth_source, auth_scheme, error: <diagnostic>}``
+        (401 = credential du processus MCP rejetée par BIMData pour cette cible ;
+        403 = sans droits ; 404 = cible introuvable).
     """
     _State.ensure_client()
     ids = {
@@ -390,24 +419,35 @@ def check_bimdata_access() -> dict:
         "project_id": _State.project_id,
         "model_id": _State.model_id,
     }
+    auth = _active_auth()
     try:
         project = _State.client.get_project()
         model = _State.client.get_model()
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else None
         diagnostic = {
-            401: "Credential configured, but not authorized for this cloud/project (HTTP 401).",
+            401: (
+                "BIMData a rejeté la credential utilisée par le processus MCP pour "
+                "cette cible (HTTP 401) — ni une conclusion de droits ni une preuve "
+                "que la clé est invalide ailleurs."
+            ),
             403: "Authentifié mais sans droits sur ce cloud/projet (HTTP 403).",
             404: "Cible introuvable (HTTP 404) — vérifie cloud_id / project_id / model_id.",
         }.get(status, f"Accès BIMData refusé (HTTP {status}).")
-        return {"ok": False, **ids, "error": diagnostic}
+        return {"ok": False, **ids, **auth, "error": diagnostic}
     except requests.RequestException as exc:
-        return {"ok": False, **ids, "error": f"Erreur réseau BIMData : {redact_secrets(str(exc))}"}
+        return {
+            "ok": False,
+            **ids,
+            **auth,
+            "error": f"Erreur réseau BIMData : {redact_secrets(str(exc))}",
+        }
     return {
         "ok": True,
         **ids,
         "project_name": (project or {}).get("name"),
         "model_name": (model or {}).get("name"),
+        **auth,
     }
 
 
