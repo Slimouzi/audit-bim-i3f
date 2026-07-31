@@ -114,12 +114,15 @@ class ReportAvailability:
     label: str
     can_generate: bool
     can_generate_identical: bool
-    status: str  # "ready" | "partial" | "blocked"
+    status: str  # "ready" | "partial" | "partial_computed" | "blocked"
     available_data: list[str] = field(default_factory=list)
     missing_data: list[str] = field(default_factory=list)
     template_path: str | None = None
     source_xlsx_required_for_identical: bool = False
     next_action: str = ""
+    # True si la génération s'appuie sur des BaseQuantities **calculées**
+    # (IfcOpenShell fusionnées) et non natives BIMData → statut ``partial_computed``.
+    computed_assisted: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -132,6 +135,7 @@ class ReportAvailability:
             "missing_data": self.missing_data,
             "template_path": self.template_path,
             "source_xlsx_required_for_identical": self.source_xlsx_required_for_identical,
+            "computed_assisted": self.computed_assisted,
             "next_action": self.next_action,
         }
 

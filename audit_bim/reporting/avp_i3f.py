@@ -45,6 +45,7 @@ from ..audit.findings import ErrorType, Theme
 from ..extraction.model_data import ModelSnapshot
 from ..requirements._openpyxl_compat import patch_openpyxl
 from .avp_snapshot import (
+    _SRC_COMPUTED,
     build_sources_from_snapshot,
     count_envelope_walls,
     count_menuiseries,
@@ -74,6 +75,21 @@ from .xlsx_annex import _build_formats, write_safe
 # invalides que les fichiers I3F — patch appliqué explicitement (plus d'effet
 # de bord d'import depuis que les parseurs requirements sont paresseux).
 patch_openpyxl()
+
+# Mention normalisée (note méthodo) apposée sous les tables contenant des
+# quantités calculées : distingue le natif BIMData du calcul IfcOpenShell.
+_COMPUTED_METHODO_NOTE = (
+    "Quantités partiellement calculées par analyse géométrique IfcOpenShell "
+    "(colonne « Source quantité » = « Calculée (IfcOpenShell) ») — valeurs NON "
+    "contractuelles, en attente d'un ré-export maquette avec BaseQuantities natives. "
+    "Les quantités « Maquette » proviennent des BaseQuantities BIMData."
+)
+
+
+def _rows_have_computed(rows) -> bool:
+    """Vrai si une table contient au moins une valeur « Calculée (IfcOpenShell) »."""
+    return any(c == _SRC_COMPUTED for r in (rows or []) for c in (r or []))
+
 
 # Convention de nommage documentaire I3F, **générée à partir de données
 # projet confirmées** :
@@ -658,7 +674,9 @@ def _build_multisheet_export_xlsx(path, banner: str, title: str, multi, meta) ->
             ws, fmts, banner, f"{meta.project_name} {meta.project_code} — {g.title}"
         )
         if g.rows:
-            _write_grid(ws, fmts, g.rows, start_row=row)
+            end = _write_grid(ws, fmts, g.rows, start_row=row)
+            if _rows_have_computed(g.rows):
+                write_safe(ws, end + 1, 0, _COMPUTED_METHODO_NOTE, fmts["row"])
         else:
             # Onglet source vide : préservé (structure I3F stricte) mais
             # signalé comme tel (ce n'est PAS une donnée manquante).
@@ -716,6 +734,9 @@ def _build_menuiseries_xlsx(path, sources, meta) -> Path:
     write_safe(ws, row, 0, "Nombre de types de menuiseries", fmts["kpi_key"])
     nb = src.nombre_types if src else None
     write_safe(ws, row, 1, NOT_AVAILABLE if nb is None else nb, fmts["kpi_val"])
+    row += 2
+    if src and src.table and _rows_have_computed(src.table.rows):
+        write_safe(ws, row, 0, _COMPUTED_METHODO_NOTE, fmts["row"])
     wb.close()
     return path
 
@@ -814,6 +835,7 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta, snap=None) -> Path:
         "documents fournis. »."
     )
     _write_audit_synthese(doc, result)
+    _write_computed_coverage(doc, snap)
 
     # 4. Indicateurs de conformité
     _add_heading(doc, "4. Indicateurs de conformité", level=1)
@@ -924,6 +946,33 @@ def _docx_header_table(doc, headers, *, col_widths=None):
                 r.font.color.rgb = RGBColor(255, 255, 255)
                 r.bold = True
     return tbl
+
+
+def _write_computed_coverage(doc, snap) -> None:
+    """Couverture des quantités **calculées** (fusion IfcOpenShell, Lot 3), si
+    présente sur le snapshot — sinon rien. Ne masque aucun gap : affiche les
+    valeurs conservées / ignorées / uuid inconnus."""
+    cov = getattr(snap, "computed_coverage", None) if snap is not None else None
+    if not cov:
+        return
+    p = doc.add_paragraph()
+    p.add_run("Quantités calculées (IfcOpenShell) — couverture").bold = True
+    doc.add_paragraph(
+        "Valeurs géométriques calculées par IfcOpenShell et fusionnées en gap-only "
+        "(les BaseQuantities natives BIMData ne sont jamais écrasées). Valeurs "
+        "**non contractuelles** — un ré-export maquette avec BaseQuantities natives "
+        "reste recommandé.",
+        style="Intense Quote",
+    )
+    _kpi_table(
+        doc,
+        [
+            ("Quantités fusionnées (comblées)", str(cov.get("n_merged", 0))),
+            ("BaseQuantities natives conservées", str(cov.get("n_gap_kept", 0))),
+            ("Entrées ignorées (skipped/failed)", str(cov.get("n_skipped_status", 0))),
+            ("GlobalId inconnus du snapshot", str(cov.get("n_unknown_uuid", 0))),
+        ],
+    )
 
 
 def _write_audit_synthese(doc, result) -> None:
