@@ -9,6 +9,7 @@ import requests
 
 from .. import config
 from ..extraction.client import BIMDataAuthError, BIMDataClient
+from ..extraction.ifc_download import download_model_ifc as download_ifc
 from ..extraction.model_data import extract_snapshot
 from ..extraction.snapshot_cache import cached_extract_snapshot
 from ..requirements.catalog import build_catalog, catalog_usable
@@ -477,6 +478,41 @@ def list_classification_systems() -> list[dict]:
         }
         for k, v in SYSTEMS.items()
     ]
+
+
+@mcp.tool()
+def download_model_ifc(cache_dir: str = ".audit_cache", overwrite: bool = False) -> dict:
+    """Télécharge le **fichier .ifc** du modèle actif dans un cache local.
+
+    Lecture seule (aucune écriture BIMData). Récupère l'URL signée via
+    ``get_model()`` (champ ``document.file``) et **streame** le corps sur disque
+    (jamais chargé en RAM), sous un plafond ``AUDIT_MAX_IFC_MB`` (défaut 500 Mo).
+    Le fichier est mis en cache keyé ``model_id`` + ``modified_date`` (comme le
+    cache snapshot) dans ``<cache_dir>/ifc/``.
+
+    Sert notamment à fournir le ``.ifc`` au MCP ``ifc-geometry``
+    (``complete_ifc_base_quantities``) pour calculer géométriquement les
+    ``BaseQuantities`` absentes de la maquette.
+
+    Note déploiement : le chemin retourné est sous ``AUDIT_OUTPUT_DIR`` (sandbox
+    d'écriture d'audit-bim). Pour qu'``ifc-geometry`` le lise, son
+    ``AUDIT_INPUT_DIR`` doit couvrir cet emplacement (ou pointer le même volume).
+
+    Args:
+        cache_dir: dossier de cache (sandboxé sous ``AUDIT_OUTPUT_DIR``).
+        overwrite: force le re-téléchargement même si le cache est présent.
+
+    Returns:
+        ``{path, from_cache, size_bytes, model_id, modified_date}``.
+    """
+    _State.ensure_client()
+    safe_dir = safe_export_dir(cache_dir)
+    return download_ifc(
+        _State.client,
+        cache_dir=str(safe_dir),
+        max_mb=config.AUDIT_MAX_IFC_MB,
+        overwrite=overwrite,
+    )
 
 
 @mcp.tool()

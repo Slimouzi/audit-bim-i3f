@@ -69,6 +69,7 @@ from .tools_reporting import (  # noqa: F401  (ré-export compat)
     list_avp_i3f_xls_reports,
 )
 from .tools_session import (  # noqa: F401  (ré-export compat)
+    download_model_ifc,
     extract_model_snapshot,
     get_catalog_properties,
     list_classification_systems,
