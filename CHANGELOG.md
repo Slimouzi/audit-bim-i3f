@@ -7,6 +7,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed (MCP I3F — full audit par défaut)
+
+- **`full_audit` ne demande plus le choix de publication par défaut côté MCP.**
+  `push_mode` vaut désormais `"none"` : l'appel nominal lance l'audit complet,
+  génère les livrables Word/XLSX/JSON, et ne prépare aucune publication BIMData.
+  Le mode `"ask"` reste disponible uniquement si l'agent ou l'utilisateur le
+  demande explicitement.
+- **Prompt AMO I3F recentré sur le chemin nominal.** Après ciblage maquette +
+  preuve d'accès, l'agent doit proposer `full_audit(push_mode="none")`. Les
+  propositions de correctifs de classification passent dans un deuxième temps,
+  sur demande, via le workflow `list → accept/reject → prepare → apply`.
+
 ### Fixed (diagnostic auth honnête)
 
 - **`check_bimdata_access` renvoyait un dict sur 404 mais **remontait une exception

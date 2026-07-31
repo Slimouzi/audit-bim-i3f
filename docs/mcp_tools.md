@@ -84,7 +84,7 @@ section *Interroger la maquette*.
 | `run_audit_tool` | actif | R | exécute les règles d'audit |
 | `compare_with_previous_audit` | actif | R | audit comparatif |
 | `verify_active_model` | actif | R | garde-fou d'identité |
-| `full_audit` | actif | R+disque (W si push_mode) | orchestrateur ; voir docstring |
+| `full_audit` | actif | R+disque | orchestrateur ; défaut `push_mode="none"` = audit complet + livrables, sans publication BIMData |
 
 ### Reporting (écriture disque sandbox)
 

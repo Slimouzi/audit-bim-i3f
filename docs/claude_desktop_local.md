@@ -149,16 +149,16 @@ recharge la config.
    serveur qui fait foi) puis `extract_model_snapshot`. Renvoie un
    résumé du modèle BIMData.
 
-4. « **Parse les exigences maître d'ouvrage puis lance un audit sans
-   publication BIMData.** »
-   Enchaîne `parse_owner_requirements` puis `full_audit` avec
-   `push_mode="none"`. Aucun side-effect BIMData.
+4. « **Lance l'audit complet I3F sans publication BIMData.** »
+   Appelle `full_audit` (défaut `push_mode="none"`). Le tool recharge les
+   exigences maître d'ouvrage, extrait/rafraîchit le snapshot si nécessaire,
+   exécute l'audit et génère les livrables. Aucun side-effect BIMData.
 
 5. « **Génère le rapport Word et l'annexe Excel.** »
    `generate_word_report` + `generate_xlsx_annex`. Chemins sandboxés
    sous `AUDIT_OUTPUT_DIR`.
 
-6. « **Propose les classifications manquantes sans les appliquer.** »
+6. « **Dans un deuxième temps, propose les classifications manquantes sans les appliquer.** »
    `list_classification_suggestions` puis `prepare_classification_corrections`
    (plan scellé, **aucune écriture BIMData** — l'apply exige `confirm=True`).
 

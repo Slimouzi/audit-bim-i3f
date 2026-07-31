@@ -136,7 +136,7 @@ def _fa_resolve_push_mode(push_mode: str) -> str | dict:
     """Résout ``push_mode`` : renvoie le mode validé (``bcf``/``smartview``/``both``/
     ``none``), ou le dict-question ``needs_user_choice`` si ``ask``. ``ValueError``
     si invalide."""
-    mode = (push_mode or "ask").lower()
+    mode = (push_mode or "none").lower()
     if mode == "ask":
         return {
             "status": "needs_user_choice",
@@ -311,7 +311,7 @@ def full_audit(
     model_id: str | None = None,
     phase: str | None = None,
     output_dir: str | None = None,
-    push_mode: str = "ask",
+    push_mode: str = "none",
     access_token: str | None = None,
     project_address: str | None = None,
     auditor_name: str | None = None,
@@ -331,10 +331,10 @@ def full_audit(
     - ``"bcf"`` : prépare un plan **BCF Topics** (panneau *BCF Issues*).
     - ``"smartview"`` : prépare un plan **Smart Views** (panneau dédié).
     - ``"both"`` : prépare les deux plans.
-    - ``"none"`` : ne prépare aucun plan de publication.
-    - ``"ask"`` (défaut) : renvoie une question à l'utilisateur pour qu'il
-      choisisse — Claude doit demander avant de ré-appeler ``full_audit`` avec
-      une valeur explicite.
+    - ``"none"`` (défaut) : ne prépare aucun plan de publication — chemin
+      nominal AMO : audit complet + livrables, sans action corrective.
+    - ``"ask"`` : renvoie une question à l'utilisateur pour qu'il choisisse
+      les plans de publication à préparer.
 
     .. warning::
        ``access_token`` est déconseillé en transport réseau — cf. note
@@ -347,7 +347,7 @@ def full_audit(
             ``parse_bimdata_target(url)`` en amont pour extraire les IDs.
         phase: phase BIM auditée.
         output_dir: dossier de sortie (fallback ``AUDIT_OUTPUT_DIR`` env).
-        push_mode: ``"ask"`` | ``"bcf"`` | ``"smartview"`` | ``"both"`` | ``"none"``.
+        push_mode: ``"none"`` | ``"ask"`` | ``"bcf"`` | ``"smartview"`` | ``"both"``.
         access_token: bearer optionnel.
         project_address: **obligatoire** — adresse du projet (affichée
             dans le rapport Word comme donnée fournie par l'utilisateur).

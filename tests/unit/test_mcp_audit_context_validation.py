@@ -15,6 +15,8 @@ Couvre :
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from docx import Document
 
@@ -23,6 +25,7 @@ from audit_bim.audit.findings import ErrorType, Finding, Severity, Theme
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import phase
 from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp import tools_audit as ta
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.reporting.context import (
     merge_user_context,
@@ -191,6 +194,58 @@ class TestGenerateWordReportValidation:
 
 
 class TestFullAuditValidation:
+    def test_default_push_mode_runs_full_audit_without_user_choice(self, _isolated, monkeypatch):
+        """Sans ``push_mode`` explicite, le MCP lance le full audit nominal.
+
+        Verrou produit : la classification et la publication ne doivent pas
+        redevenir une question bloquante avant l'audit.
+        """
+        sess, tmp_path = _isolated
+        calls: dict[str, str] = {}
+        audit_result = SimpleNamespace(
+            summary=lambda: {"n_findings": 0, "conformity_rate": 1.0},
+            findings=[],
+        )
+
+        monkeypatch.setattr(ta, "_fa_prepare_catalog", lambda: None)
+        monkeypatch.setattr(
+            ta,
+            "_fa_finalize_target",
+            lambda *args, **kwargs: setattr(sess, "phase", BIMPhase.PRO),
+        )
+        monkeypatch.setattr(ta, "_fa_extract_snapshot", lambda *args, **kwargs: None)
+        monkeypatch.setattr(ta, "run_audit", lambda *args, **kwargs: audit_result)
+        monkeypatch.setattr(
+            ta,
+            "_fa_write_deliverables",
+            lambda **kwargs: (
+                tmp_path / "audit.docx",
+                tmp_path / "audit.xlsx",
+                tmp_path / "audit.docx",
+            ),
+        )
+        monkeypatch.setattr(
+            ta, "_fa_write_findings_json", lambda word_path: tmp_path / "audit_findings.json"
+        )
+
+        def _publication(mode: str) -> dict:
+            calls["mode"] = mode
+            return {"push_mode": mode}
+
+        monkeypatch.setattr(ta, "_fa_prepare_publication", _publication)
+
+        res = mcp_server.full_audit(
+            phase="PRO",
+            project_address="12 rue de la Paix",
+            auditor_name="Stanislas Limouzi",
+            project_description="Programme test.",
+        )
+
+        assert res.get("status") != "needs_user_choice"
+        assert calls["mode"] == "none"
+        assert res["publication"] == {"push_mode": "none"}
+        assert "deliverables" in res
+
     def test_refuses_when_address_missing(self, _isolated):
         sess, _ = _isolated
         # Pas besoin de wire — la validation tombe AVANT toute exécution.
@@ -228,9 +283,9 @@ class TestFullAuditValidation:
         Sinon, un agent obtiendrait la question push_mode avant de
         savoir qu'il lui manque adresse/auditeur."""
         sess, _ = _isolated
-        # push_mode défaut = ask, mais on n'a pas fourni adresse/auditeur
+        # Même avec push_mode=ask explicite, on n'a pas fourni adresse/auditeur
         # → on doit obtenir needs_context, pas needs_user_choice.
-        res = mcp_server.full_audit(phase="PRO")
+        res = mcp_server.full_audit(phase="PRO", push_mode="ask")
         assert res.get("status") == "needs_context"
         assert res.get("status") != "needs_user_choice"
 

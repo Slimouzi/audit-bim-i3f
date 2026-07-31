@@ -35,8 +35,8 @@ def test_push_mode_ask_returns_needs_user_choice():
     assert set(out["options"]) == {"bcf", "smartview", "both", "none"}
 
 
-def test_push_mode_default_none_is_ask():
-    assert ta._fa_resolve_push_mode("")["status"] == "needs_user_choice"
+def test_push_mode_default_empty_is_none():
+    assert ta._fa_resolve_push_mode("") == "none"
 
 
 @pytest.mark.parametrize("m", ["bcf", "smartview", "both", "none", "BCF", "Both"])
