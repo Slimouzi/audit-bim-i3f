@@ -30,3 +30,7 @@ I3F_NAMING_SPEC_XLSX = os.getenv("I3F_NAMING_SPEC_XLSX") or None
 
 # --- Sortie ---------------------------------------------------------------
 AUDIT_OUTPUT_DIR = Path(os.getenv("AUDIT_OUTPUT_DIR", "./out")).resolve()
+
+# --- Téléchargement du fichier IFC source (cache local) ------------------
+# Plafond de taille du .ifc téléchargé (streaming disque, jamais chargé en RAM).
+AUDIT_MAX_IFC_MB = int(os.getenv("AUDIT_MAX_IFC_MB", "500"))

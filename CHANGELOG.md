@@ -7,6 +7,17 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added (quantités calculées — Lot 1 : téléchargement du .ifc source)
+
+- **`download_model_ifc(cache_dir=".audit_cache", overwrite=False)`** — tool MCP
+  (lecture seule) : télécharge le **fichier .ifc** du modèle actif (URL signée
+  `document.file` de `get_model`) en **streaming disque** (jamais chargé en RAM),
+  sous plafond `AUDIT_MAX_IFC_MB` (défaut 500). Cache local `<cache_dir>/ifc/`
+  keyé `model_id` + `modified_date` (même invalidation que le cache snapshot).
+  Fondation du flux « quantités calculées » : fournit le .ifc au MCP
+  `ifc-geometry` (`complete_ifc_base_quantities`) pour combler les BaseQuantities
+  absentes. Nouveau `config.AUDIT_MAX_IFC_MB`.
+
 ### Changed (MCP I3F — full audit par défaut)
 
 - **`full_audit` ne demande plus le choix de publication par défaut côté MCP.**
