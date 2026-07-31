@@ -9,6 +9,11 @@ import requests
 
 from .. import config
 from ..extraction.client import BIMDataAuthError, BIMDataClient
+from ..extraction.computed_quantities import (
+    json_digest,
+    load_computed_quantities,
+    merge_into_snapshot,
+)
 from ..extraction.ifc_download import download_model_ifc as download_ifc
 from ..extraction.model_data import extract_snapshot
 from ..extraction.snapshot_cache import cached_extract_snapshot
@@ -516,7 +521,12 @@ def download_model_ifc(cache_dir: str = ".audit_cache", overwrite: bool = False)
 
 
 @mcp.tool()
-def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cache") -> dict:
+def extract_model_snapshot(
+    use_cache: bool = True,
+    cache_dir: str = ".audit_cache",
+    compute_missing_quantities: bool = False,
+    computed_quantities_json: str | None = None,
+) -> dict:
     """Récupère le snapshot du modèle (espaces, zones, éléments…) depuis BIMData.
 
     Args:
@@ -526,9 +536,22 @@ def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cach
             extraction complète (5-10s) + écriture du cache.
         cache_dir: Dossier du cache local. Défaut ``.audit_cache``
             (relatif au cwd).
+        compute_missing_quantities: si ``True``, **fusionne** les BaseQuantities
+            calculées géométriquement (JSON ``computed_base_quantities/v1`` du
+            MCP ``ifc-geometry``) dans le snapshot, en **gap-only** (ne comble que
+            les vides, ne remplace **jamais** une valeur BIMData native). La
+            provenance est conservée par valeur (``computed_base_quantities`` sur
+            l'élément, exposée par ``get_object_detail``). Exige
+            ``computed_quantities_json``. ``False`` (défaut) → comportement
+            historique **inchangé**.
+        computed_quantities_json: chemin du JSON de quantités calculées (sandbox
+            lecture ``safe_input_path``). Obligatoire si
+            ``compute_missing_quantities=True``.
 
     Returns:
-        Résumé du snapshot enrichi de ``from_cache: bool``.
+        Résumé du snapshot + ``from_cache: bool``. Si ``compute_missing_quantities``,
+        un bloc ``computed_quantities`` (schéma, ``json_sha``, clé de cache dédiée,
+        couverture : mergés / vides conservés / ignorés / uuid inconnus).
     """
     _State.ensure_client()
     # L'extraction est une **lecture** : elle ne doit pas dépendre d'un dossier de
@@ -551,10 +574,62 @@ def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cach
             _State.snapshot = extract_snapshot(_State.client)
     else:
         _State.snapshot = extract_snapshot(_State.client)
+
+    # Fusion des quantités calculées (gap-only) — appliquée **après** le cache
+    # snapshot (qui ne stocke QUE le brut BIMData) : un appel standard ne voit
+    # donc jamais un snapshot enrichi, et inversement. La fusion est ré-appliquée
+    # à chaque appel sur un snapshot brut frais → toujours cohérente avec le JSON
+    # courant (invalidation naturelle quand le JSON change).
+    computed_block = None
+    if compute_missing_quantities:
+        computed_block = _merge_computed_quantities(computed_quantities_json)
+
     summary = _State.snapshot.summary()
     summary.update(_snapshot_diagnostics(_State.snapshot))
     summary["from_cache"] = hit
+    if computed_block is not None:
+        summary["computed_quantities"] = computed_block
     return summary
+
+
+def _merge_computed_quantities(computed_quantities_json: str | None) -> dict:
+    """Valide + fusionne le JSON de quantités calculées dans ``_State.snapshot``.
+
+    Renvoie le bloc ``computed_quantities`` (schéma, json_sha, cache_key dédiée,
+    couverture). Lève ``ValueError`` clair si le JSON est absent / invalide.
+    """
+    if not computed_quantities_json:
+        raise ValueError(
+            "compute_missing_quantities=True exige `computed_quantities_json` "
+            "(JSON `computed_base_quantities/v1` produit par le MCP ifc-geometry "
+            "via export_computed_base_quantities)."
+        )
+    safe_json = safe_input_path(computed_quantities_json, allowed_extensions={".json"})
+    doc = load_computed_quantities(safe_json)  # valide le schéma (sinon ValueError)
+    coverage = merge_into_snapshot(_State.snapshot, doc)
+    sha = json_digest(safe_json)
+    model = _State.snapshot.model or {}
+    # Clé de cache dédiée : snapshot key + hash du JSON + flag compute. Garantit
+    # qu'un résultat « compute » n'est pas confondu avec un résultat standard, et
+    # change dès que le JSON change.
+    cache_key = ":".join(
+        str(x)
+        for x in (
+            _State.cloud_id,
+            _State.project_id,
+            _State.model_id,
+            model.get("modified_date") or "",
+            sha,
+            "compute",
+        )
+    )
+    return {
+        "schema": doc.get("schema"),
+        "json": Path(safe_json).name,
+        "json_sha": sha,
+        "cache_key": cache_key,
+        **coverage,
+    }
 
 
 @mcp.tool()
