@@ -217,6 +217,63 @@ def ensure_writes_allowed(action: str) -> None:
         )
 
 
+# ── Démarrage : diagnostic auth BIMData ──────────────────────────────────
+
+
+def _mask_secret(value: str | None) -> str:
+    """Empreinte non-divulgante d'un secret : ``…<4 derniers>``."""
+    if not value:
+        return "∅"
+    return f"…{value[-4:]}" if len(value) >= 4 else "…"
+
+
+def warn_bimdata_auth_mode() -> None:
+    """Logge le mode d'auth BIMData **effectif** et avertit si plusieurs modes
+    sont configurés en même temps.
+
+    Précédence (identique à ``bimdata_read._auth_headers`` et à
+    ``tools_session._active_auth``) : ``access_token`` → ``api_key`` → OAuth2
+    ``client_credentials``. Le premier disponible gagne — un credential de rang
+    supérieur **périmé masque silencieusement** un mode inférieur valide (cause
+    racine classique d'un 401 « inexplicable »). On logge donc, valeurs masquées,
+    lequel est retenu et lesquels sont ignorés.
+    """
+    access = os.getenv("BIMDATA_ACCESS_TOKEN")
+    api_key = os.getenv("BIMDATA_API_KEY")
+    client_id = os.getenv("BIMDATA_CLIENT_ID")
+    client_secret = os.getenv("BIMDATA_CLIENT_SECRET")
+
+    modes: list[tuple[str, str, str]] = []
+    if access:
+        modes.append(("BIMDATA_ACCESS_TOKEN", "Bearer", access))
+    if api_key:
+        modes.append(("BIMDATA_API_KEY", "ApiKey", api_key))
+    if client_id and client_secret:
+        modes.append(("BIMDATA_CLIENT_ID+SECRET", "Bearer(OAuth2)", client_id))
+
+    if not modes:
+        logger.warning(
+            "Aucune auth BIMData configurée (ni BIMDATA_API_KEY, ni ACCESS_TOKEN, "
+            "ni CLIENT_ID+SECRET) — tout appel BIMData échouera."
+        )
+        return
+
+    source, scheme, value = modes[0]
+    logger.info("Auth BIMData active : %s (%s, %s)", source, scheme, _mask_secret(value))
+    if len(modes) > 1:
+        ignored = ", ".join(m[0] for m in modes[1:])
+        logger.warning(
+            "Plusieurs modes d'auth BIMData définis → seul %s (%s, %s) est utilisé ; "
+            "ignoré(s) : %s. Un credential de rang supérieur périmé masquerait les "
+            "autres → n'en configurer qu'un seul (politique clé serveur : BIMDATA_API_KEY "
+            "uniquement).",
+            source,
+            scheme,
+            _mask_secret(value),
+            ignored,
+        )
+
+
 # ── Démarrage : fail-fast ────────────────────────────────────────────────
 
 
@@ -230,6 +287,10 @@ def assert_startup_config(*, transport: str, host: str | None = None) -> None:
     Raises:
         RuntimeError: Configuration prod incomplète ou risquée.
     """
+    # Diagnostic auth BIMData — tous transports (le 401 « inexplicable » vient
+    # le plus souvent d'ici : mode masqué / credential périmé).
+    warn_bimdata_auth_mode()
+
     if transport == "stdio":
         # stdio ne s'expose pas au réseau : aucune contrainte
         return

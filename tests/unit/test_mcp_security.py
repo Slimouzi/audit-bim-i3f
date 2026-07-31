@@ -8,6 +8,7 @@ from audit_bim.mcp.security import (
     API_KEY_ENV,
     REQUIRE_API_KEY_ENV,
     WritesDisabledError,
+    _mask_secret,
     assert_startup_config,
     ensure_writes_allowed,
     is_api_key_required,
@@ -16,6 +17,14 @@ from audit_bim.mcp.security import (
     scrub,
     set_runtime_transport,
     verify_api_key,
+    warn_bimdata_auth_mode,
+)
+
+_BIMDATA_AUTH_VARS = (
+    "BIMDATA_ACCESS_TOKEN",
+    "BIMDATA_API_KEY",
+    "BIMDATA_CLIENT_ID",
+    "BIMDATA_CLIENT_SECRET",
 )
 
 
@@ -104,6 +113,59 @@ class TestEnsureWritesAllowed:
         monkeypatch.setenv("AUDIT_BIM_ALLOW_WRITES", "false")
         with pytest.raises(PermissionError):
             ensure_writes_allowed("apply_classifications")
+
+
+# ── diagnostic auth BIMData ──────────────────────────────────────────────
+
+
+class TestWarnBimdataAuthMode:
+    """Avertissement de démarrage : mode d'auth BIMData effectif + masquage."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_bimdata_env(self, monkeypatch):
+        for var in _BIMDATA_AUTH_VARS:
+            monkeypatch.delenv(var, raising=False)
+
+    def test_mask_never_leaks_full_secret(self):
+        assert _mask_secret("aca13e04deadbeef") == "…beef"
+        assert _mask_secret(None) == "∅"
+        assert _mask_secret("ab") == "…"
+
+    def test_api_key_only_logs_active_no_warning(self, caplog, monkeypatch):
+        monkeypatch.setenv("BIMDATA_API_KEY", "svc-key-1234")
+        with caplog.at_level("INFO", logger="audit_bim.mcp.security"):
+            warn_bimdata_auth_mode()
+        assert any("BIMDATA_API_KEY" in r.message and "ApiKey" in r.message for r in caplog.records)
+        # Un seul mode → pas de warning d'ambiguïté.
+        assert not any(r.levelname == "WARNING" for r in caplog.records)
+        # Le secret n'apparaît jamais en clair.
+        assert "svc-key-1234" not in caplog.text
+
+    def test_multiple_modes_warns_and_names_ignored(self, caplog, monkeypatch):
+        # API key + OAuth : précédence → ApiKey gagne, OAuth ignoré.
+        monkeypatch.setenv("BIMDATA_API_KEY", "svc-key-1234")
+        monkeypatch.setenv("BIMDATA_CLIENT_ID", "client-id")
+        monkeypatch.setenv("BIMDATA_CLIENT_SECRET", "client-secret")
+        with caplog.at_level("WARNING", logger="audit_bim.mcp.security"):
+            warn_bimdata_auth_mode()
+        warns = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert warns and "BIMDATA_API_KEY" in warns[0].message
+        assert "BIMDATA_CLIENT_ID+SECRET" in warns[0].message  # nommé comme ignoré
+        assert "svc-key-1234" not in caplog.text
+
+    def test_access_token_wins_over_api_key(self, caplog, monkeypatch):
+        monkeypatch.setenv("BIMDATA_ACCESS_TOKEN", "tok-abcd")
+        monkeypatch.setenv("BIMDATA_API_KEY", "svc-key-1234")
+        with caplog.at_level("INFO", logger="audit_bim.mcp.security"):
+            warn_bimdata_auth_mode()
+        assert any(
+            "BIMDATA_ACCESS_TOKEN" in r.message and "Bearer" in r.message for r in caplog.records
+        )
+
+    def test_no_auth_configured_warns(self, caplog, monkeypatch):
+        with caplog.at_level("WARNING", logger="audit_bim.mcp.security"):
+            warn_bimdata_auth_mode()
+        assert any("Aucune auth BIMData" in r.message for r in caplog.records)
 
 
 # ── assert_startup_config ────────────────────────────────────────────────
