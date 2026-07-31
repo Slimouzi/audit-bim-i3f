@@ -607,6 +607,8 @@ def _merge_computed_quantities(computed_quantities_json: str | None) -> dict:
     safe_json = safe_input_path(computed_quantities_json, allowed_extensions={".json"})
     doc = load_computed_quantities(safe_json)  # valide le schéma (sinon ValueError)
     coverage = merge_into_snapshot(_State.snapshot, doc)
+    # Couverture stockée sur le snapshot → reprise par le rapport consolidé (.docx).
+    _State.snapshot.computed_coverage = dict(coverage)
     sha = json_digest(safe_json)
     model = _State.snapshot.model or {}
     # Clé de cache dédiée : snapshot key + hash du JSON + flag compute. Garantit

@@ -62,6 +62,17 @@ def _has_base_quantity(snap: ModelSnapshot, classes: tuple[str, ...], quantity: 
     return False
 
 
+def _uses_computed_quantity(snap: ModelSnapshot, classes: tuple[str, ...], quantity: str) -> bool:
+    """Vrai si la BaseQuantity nommée provient d'une **fusion calculée** (Lot 3)
+    sur au moins une entité des classes — signale un déblocage « partial_computed »."""
+    for cls in classes:
+        for el in snap.of_class(cls):
+            for c in _rich(snap, el).get("computed_base_quantities") or []:
+                if c.get("quantity") == quantity:
+                    return True
+    return False
+
+
 def _has_zone_space_relation(snap: ModelSnapshot) -> bool:
     """Vrai si au moins une IfcZone est rattachée à des espaces (liste directe,
     référence inverse espace→zone, ou arborescence spatiale)."""
@@ -137,7 +148,12 @@ def _identical_note(missing_external: list[str]) -> str:
     return note
 
 
-def _next_action(status: str, missing_core: list[str], missing_external: list[str]) -> str:
+def _next_action(
+    status: str,
+    missing_core: list[str],
+    missing_external: list[str],
+    computed_assisted: bool = False,
+) -> str:
     if status == "ready":
         return "Prêt : reproduction à l'identique possible."
     if status == "blocked":
@@ -149,12 +165,15 @@ def _next_action(status: str, missing_core: list[str], missing_external: list[st
             )
         # Bloqué par l'exigence stricte « à l'identique ».
         return "Listing strict : " + _identical_note(missing_external) + "."
-    # partial : rapport métier générable, mais pas à l'identique.
-    return (
-        "Rapport métier (charte BIMData) générable depuis la maquette ; "
-        + _identical_note(missing_external)
-        + "."
-    )
+    # partial / partial_computed : rapport métier générable, mais pas à l'identique.
+    prefix = "Rapport métier (charte BIMData) générable depuis la maquette"
+    if computed_assisted:
+        prefix += (
+            " grâce à des BaseQuantities **calculées** (IfcOpenShell, non "
+            "contractuelles) — un ré-export maquette avec BaseQuantities natives "
+            "reste recommandé"
+        )
+    return prefix + " ; " + _identical_note(missing_external) + "."
 
 
 def _availability_for_spec(
@@ -173,10 +192,19 @@ def _availability_for_spec(
     core_ok = True
     identical_ok = True
 
+    computed_assisted = False
     for req in spec.requirements:
         ok = _satisfied(req, snap, source_present, has_audit)
         if ok:
             available.append(req.label)
+            # Le déblocage vient-il d'une BaseQuantity **calculée** (fusion Lot 3) ?
+            if (
+                snap is not None
+                and not source_present
+                and req.kind == "base_quantity"
+                and _uses_computed_quantity(snap, req.ifc_classes, req.quantity or "")
+            ):
+                computed_assisted = True
         else:
             missing.append(req.label)
             identical_ok = False
@@ -196,6 +224,10 @@ def _availability_for_spec(
         status = "blocked"
     elif can_generate_identical:
         status = "ready"
+    elif computed_assisted:
+        # Générable grâce aux quantités **calculées** (non natives) — signalé
+        # distinctement, sans masquer les gaps externes restants.
+        status = "partial_computed"
     else:
         status = "partial"
     # Listing strict : un rapport « partial » ne satisfait pas l'exigence
@@ -213,7 +245,8 @@ def _availability_for_spec(
         missing_data=missing,
         template_path=spec.resolved_template_path(),
         source_xlsx_required_for_identical=spec.requires_external_for_identical,
-        next_action=_next_action(status, missing_core, missing_external),
+        next_action=_next_action(status, missing_core, missing_external, computed_assisted),
+        computed_assisted=computed_assisted,
     )
 
 

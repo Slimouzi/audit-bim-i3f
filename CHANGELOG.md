@@ -7,6 +7,22 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added (quantités calculées — Lot 4 : restitution & traçabilité)
+
+- **Colonne « Source quantité »** dans les 4 exports snapshot du scope DIEPPE (SHAB,
+  Zones/Espaces, Menuiseries, Plancher) : `Maquette` (BaseQuantity native BIMData) vs
+  `Calculée (IfcOpenShell)` (valeur fusionnée au Lot 3) — un **gap** reste `NOT_AVAILABLE`
+  (jamais masqué). Enveloppe **non** couverte (phase 2).
+- **Note méthodo** apposée sous les tables contenant des valeurs calculées : « Quantités
+  partiellement calculées par analyse géométrique IfcOpenShell — valeurs NON contractuelles,
+  en attente d'un ré-export maquette avec BaseQuantities natives. »
+- **`list_avp_i3f_xls_reports` : statut `partial_computed`** (+ champ `computed_assisted`)
+  quand un rapport n'est générable que grâce aux BaseQuantities calculées ; `next_action`
+  l'explicite. Les **gaps restants ne sont pas masqués** (`missing_data`).
+- **Rapport consolidé `.docx`** : bloc « Quantités calculées (IfcOpenShell) — couverture »
+  (`n_merged`, `n_gap_kept`, `n_skipped_status`, `n_unknown_uuid`, depuis
+  `snapshot.computed_coverage`).
+
 ### Added (quantités calculées — Lot 3 : fusion dans le snapshot)
 
 - **`extract_model_snapshot(compute_missing_quantities=True, computed_quantities_json=…)`**

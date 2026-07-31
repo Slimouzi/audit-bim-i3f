@@ -406,9 +406,30 @@ _SPACE_HEADERS = [
     "Type",
     "Surface IFC OpenShell (m²)",
     "Méthode IFC OpenShell",
+    "Source quantité",
 ]
 
 _MULTI_SEP = " / "
+
+# « Source quantité » : distingue une valeur **native BIMData** (« Maquette ») d'une
+# valeur **calculée géométriquement** puis fusionnée (« Calculée (IfcOpenShell) »).
+# Un gap (aucune valeur) n'est **jamais masqué** → NOT_AVAILABLE.
+_SRC_MODEL = "Maquette"
+_SRC_COMPUTED = "Calculée (IfcOpenShell)"
+
+
+def _computed_qty_names(el: dict) -> set[str]:
+    """Noms des BaseQuantities issues de la fusion géométrique (Lot 3)."""
+    return {
+        c.get("quantity") for c in (el.get("computed_base_quantities") or []) if c.get("quantity")
+    }
+
+
+def _quantity_source(el: dict, has_value: bool, qty_names: tuple[str, ...]) -> str:
+    """« Maquette » (natif) / « Calculée (IfcOpenShell) » (fusionnée) / NOT_AVAILABLE."""
+    if not has_value:
+        return NOT_AVAILABLE
+    return _SRC_COMPUTED if _computed_qty_names(el) & set(qty_names) else _SRC_MODEL
 
 
 def _spaces_grid(snap: ModelSnapshot, title: str) -> tuple[SheetGrid | None, float | None]:
@@ -443,6 +464,7 @@ def _spaces_grid(snap: ModelSnapshot, title: str) -> tuple[SheetGrid | None, flo
                 _ifc_type(el),
                 surf,
                 src or NOT_AVAILABLE,
+                _quantity_source(el, surf is not None, _SPACE_BQ_ORDER),
             ]
         )
     return SheetGrid(title=title, rows=rows), (round(total, 4) if any_surface else None)
@@ -463,7 +485,23 @@ _ZONE_HEADERS = [
     "Nombre de pièces",
     "Surface IFC OpenShell (m²)",
     "Méthode IFC OpenShell",
+    "Source quantité",
 ]
+
+
+def _zone_quantity_source(zel: dict, members: list, by_uuid: dict, has_value: bool) -> str:
+    """Source de la surface d'une zone : « Calculée » si la zone elle-même ou
+    **l'une de ses pièces** tire sa surface du calcul géométrique."""
+    if not has_value:
+        return NOT_AVAILABLE
+    order = set(_SPACE_BQ_ORDER)
+    if _computed_qty_names(zel) & order:
+        return _SRC_COMPUTED
+    for u in members:
+        sp = by_uuid.get(u)
+        if sp is not None and (_computed_qty_names(sp) & order):
+            return _SRC_COMPUTED
+    return _SRC_MODEL
 
 
 def _zones_grid(snap: ModelSnapshot) -> SheetGrid:
@@ -513,6 +551,7 @@ def _zones_grid(snap: ModelSnapshot) -> SheetGrid:
                 len(members) or None,
                 surf,
                 src or NOT_AVAILABLE,
+                _zone_quantity_source(zel, members, by_uuid, surf is not None),
             ]
         )
     return SheetGrid(title="Zones (depuis maquette)", rows=rows)
@@ -556,7 +595,9 @@ def build_menuiseries_from_snapshot(
         "Hauteur IFC OpenShell",
         "Surface IFC OpenShell (m²)",
         "Méthode IFC OpenShell",
+        "Source quantité",
     ]
+    _men_qty = ("Width", "Height", "OverallWidth", "OverallHeight")
     rows: list[list[Any]] = []
     total = 0.0
     any_area = False
@@ -573,7 +614,18 @@ def build_menuiseries_from_snapshot(
         ot = _ifc_type(w)
         if ot:
             types.add(ot)
-        rows.append([_attr(w, "Name"), ot, _material(w), width, height, surf, src or NOT_AVAILABLE])
+        rows.append(
+            [
+                _attr(w, "Name"),
+                ot,
+                _material(w),
+                width,
+                height,
+                surf,
+                src or NOT_AVAILABLE,
+                _quantity_source(w, (width is not None or height is not None), _men_qty),
+            ]
+        )
     table = SheetTable(title="Menuiseries", headers=headers, rows=rows)
     src = MenuiseriesSource(
         table=table,
@@ -632,6 +684,7 @@ _PLANCHER_HEADERS = [
     "Étage",
     "Surface IFC OpenShell (m²)",
     "Méthode IFC OpenShell",
+    "Source quantité",
 ]
 
 
@@ -657,7 +710,16 @@ def build_plancher_from_snapshot(snap: ModelSnapshot) -> MultiSheetSource | None
     for sl in slabs:
         el = _rich(snap, sl)
         surf, src = _surface_with_source(el, _SLAB_BQ_ORDER)
-        rows.append([_attr(el, "Name"), _ifc_type(el), _storey(el), surf, src or NOT_AVAILABLE])
+        rows.append(
+            [
+                _attr(el, "Name"),
+                _ifc_type(el),
+                _storey(el),
+                surf,
+                src or NOT_AVAILABLE,
+                _quantity_source(el, surf is not None, _SLAB_BQ_ORDER),
+            ]
+        )
     grid = SheetGrid(title="Planchers (depuis maquette)", rows=rows)
     return MultiSheetSource(grids=[grid])
 
