@@ -7,6 +7,25 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added (quantités calculées — Lot 3 : fusion dans le snapshot)
+
+- **`extract_model_snapshot(compute_missing_quantities=True, computed_quantities_json=…)`**
+  — fusionne les BaseQuantities calculées (JSON `computed_base_quantities/v1` du MCP
+  `ifc-geometry`) dans le snapshot BIMData, en **gap-only** :
+  - jointure par `BimObject.uuid == global_id` ; schéma validé (sinon erreur claire) ;
+  - **jamais d'écrasement** d'une valeur BIMData native ; entrées `status != "computed"`
+    ignorées ; `global_id` inconnu ignoré avec warning ;
+  - **provenance par valeur** conservée (`computed_base_quantities` sur l'élément :
+    `source="computed_ifcopenshell"`, `method`, `unit`, `status`), exposée par
+    `get_object_detail` (`object.computed_base_quantities`) ;
+  - la valeur est injectée dans les `property_sets` → lue à l'identique par les builders
+    AVP et `bim_object_from_element` (déblocage automatique des rapports) ;
+  - **clé de cache dédiée** (`cloud:project:model:modified:json_sha:compute`) dans le
+    résumé ; fusion ré-appliquée sur un snapshot brut frais à chaque appel (le cache
+    snapshot ne stocke que le brut → un appel standard ne voit jamais l'enrichi, et
+    inversement ; invalidation naturelle quand le JSON change) ;
+  - `compute_missing_quantities=False` (défaut) → comportement **historique inchangé**.
+
 ### Added (quantités calculées — Lot 1 : téléchargement du .ifc source)
 
 - **`download_model_ifc(cache_dir=".audit_cache", overwrite=False)`** — tool MCP

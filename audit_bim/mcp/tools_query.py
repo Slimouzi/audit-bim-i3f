@@ -276,6 +276,12 @@ def get_object_detail(
         data.pop("properties", None)
     if not include_quantities:
         data.pop("base_quantities", None)
+    else:
+        # Provenance des quantités **calculées** fusionnées (Lot 3) : valeur +
+        # source/method/unit/status par quantité (vide si aucune calculée).
+        computed = element.get("computed_base_quantities") or []
+        if computed:
+            data["computed_base_quantities"] = computed
 
     # Enrichissement contextuel : findings + suggestion sur cet UUID.
     related_findings: list[dict] = []
