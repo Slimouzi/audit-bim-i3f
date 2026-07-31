@@ -2,8 +2,7 @@
 
 Pour chaque rapport du catalogue (:mod:`avp_report_catalog`), on **sonde**
 réellement le ``ModelSnapshot`` (entités IFC, BaseQuantities, relations
-zone/espace, calque d'enveloppe) et les sources XLS éventuellement fournies,
-puis on rend un verdict orienté utilisateur :
+zone/espace, calque d'enveloppe) puis rend un verdict orienté utilisateur :
 
 - ``can_generate`` : un rapport **métier** (charte BIMData) est produisible ;
 - ``can_generate_identical`` : une reproduction MOA **stricte** (formules /
@@ -12,8 +11,8 @@ puis on rend un verdict orienté utilisateur :
 - ``available_data`` / ``missing_data`` : détail par donnée requise.
 
 Position CTO respectée (P1) : ``can_generate_identical`` **ne dépend pas que**
-de la disponibilité des colonnes. La génération courante lit les sources en
-``data_only`` et réécrit des tables **brandées** → formules / pivots / styles
+de la disponibilité des données IFC. La génération courante réécrit des tables
+**brandées** → formules / pivots / styles
 **non préservés**. Tant que le mode ``moa_template`` (copie du workbook) n'est
 pas livré, ``can_generate_identical`` est **toujours** ``False`` (cf.
 ``_MOA_TEMPLATE_MODE_AVAILABLE``) et un rapport générable reste ``partial``.
@@ -40,12 +39,12 @@ from .avp_snapshot import (
 # Reproduction « à l'identique » d'un classeur MOA = préservation des **formules
 # Excel natives, pivots, styles et formules critiques** du catalogue. Cela exige
 # un mode « template » qui **copie** le workbook source et n'en remplace que les
-# plages de données. Ce mode **n'existe pas encore** : la génération courante lit
-# les sources en ``data_only=True`` (valeurs figées) puis réécrit des tables
+# plages de données. Ce mode **n'existe pas encore** : la génération courante
+# réécrit des tables
 # **brandées BIMData** (``_build_multisheet_export_xlsx`` / builders) → formules,
 # pivots et styles **ne sont pas préservés**. Tant que ce mode n'est pas livré,
 # **aucun** rapport ne peut être annoncé « à l'identique », même avec toutes les
-# données (source Solibri comprise). Voir docs/instruct-mcp-xls-moa-reports.md
+# données IFC disponibles. Voir docs/instruct-mcp-xls-moa-reports.md
 # (mode ``moa_template``, priorité ultérieure).
 _MOA_TEMPLATE_MODE_AVAILABLE = False
 
@@ -83,8 +82,12 @@ def _has_zone_space_relation(snap: ModelSnapshot) -> bool:
 
 
 def _source_present(sources, deliverable_key: str) -> bool:
-    """Vrai si une source XLS MOA est chargée pour ce livrable (satisfait les
-    colonnes externes Solibri)."""
+    """Vrai si une source XLS MOA est chargée pour ce livrable.
+
+    Indication utile pour le futur mode template uniquement : la présence de la
+    source ne satisfait plus les données métier, qui doivent venir du snapshot
+    IFC/OpenShell.
+    """
     if sources is None:
         return False
     src = getattr(sources, deliverable_key, None)
@@ -103,18 +106,12 @@ def _source_present(sources, deliverable_key: str) -> bool:
 def _satisfied(
     req: DataRequirement,
     snap: ModelSnapshot | None,
-    source_present: bool,
+    source_present: bool,  # noqa: ARG001
     has_audit: bool,
 ) -> bool:
-    # Une source XLS MOA chargée pour ce rapport **porte toutes ses colonnes**
-    # (métier ET Solibri) : le pack sait la reproduire → toute donnée requise est
-    # satisfaite. (Corrige le faux « blocked » en source-only.)
-    if source_present:
-        return True
     if req.kind == "external_source":
         return False
     if req.kind == "audit_or_control_source":
-        # Source gérée ci-dessus ; reste l'AuditResult pour remplir la grille.
         return has_audit
     if snap is None:
         return False
@@ -190,11 +187,9 @@ def _availability_for_spec(
                 missing_core.append(req.label)
 
     can_generate = core_ok
-    # ``identical_ok`` = toutes les colonnes (Solibri comprises) sont *disponibles*.
-    # Mais la disponibilité des données ne suffit PAS : sans mode template (copie
+    # La disponibilité des données IFC ne suffit PAS : sans mode template (copie
     # du workbook, préservation formules/pivots/styles), la génération courante
-    # produit un rapport **brandé**, jamais une reproduction à l'identique. On ne
-    # promet donc « à l'identique » que si un tel mode existe.
+    # produit un rapport **brandé**, jamais une reproduction à l'identique.
     can_generate_identical = identical_ok and _MOA_TEMPLATE_MODE_AVAILABLE
 
     if not can_generate:
@@ -232,9 +227,9 @@ def inspect_avp_report_availability(
 
     Args:
         snapshot: snapshot BIMData courant (``None`` → tout rapport « blocked »).
-        sources: ``AvpSources`` déjà chargées. Une source XLS chargée pour un
-            rapport **porte toutes ses colonnes** (métier ET Solibri) → le
-            rapport est reproductible depuis la source. ``None`` → aucune source.
+        sources: ``AvpSources`` déjà chargées. Réservé au futur mode template ;
+            ne satisfait pas les exigences métier de surface/dimension, qui
+            viennent du snapshot IFC/OpenShell.
         require_identical: si ``True``, un rapport n'est ``ready`` que si la
             reproduction stricte est possible (toutes colonnes MOA).
         has_audit_result: un ``AuditResult`` est disponible dans la session

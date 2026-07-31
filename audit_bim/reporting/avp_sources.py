@@ -345,7 +345,7 @@ def read_plancher(path: str | Path) -> MultiSheetSource:
     """Lit l'export plancher I3F en **préservant tous ses onglets**.
 
     Le classeur MOA « plancher » porte deux onglets (« … Dalles Ok » et
-    « Planchers » avec totaux/écarts Solibri). Comme SHAB/Zones, on conserve la
+    « Planchers » avec totaux/écarts d'outil externe). Comme SHAB/Zones, on conserve la
     structure multi-onglets plutôt que d'aplatir sur le seul premier onglet.
     """
     return MultiSheetSource(grids=read_all_grids(path))

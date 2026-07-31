@@ -1,8 +1,8 @@
 """Catalogue + vérification de disponibilité des rapports XLS AVP I3F.
 
 Couvre l'exigence CTO : sonder réellement le snapshot (entités IFC,
-BaseQuantities, relations) et **ne pas promettre « à l'identique »** quand les
-colonnes Solibri/source externe sont absentes.
+BaseQuantities, relations) et **ne pas promettre « à l'identique »** sans mode
+template MOA, même quand les données IFC sont disponibles.
 """
 
 from __future__ import annotations
@@ -88,12 +88,13 @@ def test_catalog_has_six_reports_in_cto_order():
     ]
 
 
-def test_plancher_spec_targets_ifcslab_and_needs_solibri_for_identical():
+def test_plancher_spec_targets_ifcslab_and_ifc_openshell_surface():
     spec = REPORT_SPECS_BY_KEY["plancher"]
     assert spec.deliverable_key == "plancher"
     classes = {c for r in spec.requirements for c in r.ifc_classes}
     assert "IfcSlab" in classes
-    # Une colonne Solibri externe → repro à l'identique nécessite une source.
+    assert "Surface IFC OpenShell" in spec.headers
+    # La reproduction stricte nécessite un template MOA, pas une donnée Solibri.
     assert spec.requires_external_for_identical is True
 
 
@@ -105,15 +106,15 @@ def test_every_report_maps_to_a_deliverable_key():
 # ── Disponibilité snapshot-only ──────────────────────────────────────────
 
 
-def test_snapshot_only_generates_business_but_never_identical_when_solibri_needed():
+def test_snapshot_only_generates_business_but_never_identical_without_template_mode():
     avails = _by_key(inspect_avp_report_availability(_full_snapshot()))
-    # Rapports avec colonne Solibri : générables en métier, jamais à l'identique.
     for key in ("shab_maquette", "zones_espaces", "surface_enveloppe", "menuiseries", "plancher"):
         av = avails[key]
         assert av.can_generate is True, key
         assert av.can_generate_identical is False, key
         assert av.status == "partial", key
         assert av.source_xlsx_required_for_identical is True, key
+        assert not any("Solibri" in item for item in av.missing_data), key
 
 
 def test_controle_blocked_on_snapshot_without_audit_or_source():
@@ -139,7 +140,7 @@ def test_plancher_available_data_lists_slab_and_netarea():
     av = _by_key(inspect_avp_report_availability(_full_snapshot()))["plancher"]
     joined = " ".join(av.available_data)
     assert "IfcSlab" in joined and "NetArea" in joined
-    assert "Surface (Solibri)" in av.missing_data
+    assert av.missing_data == []
 
 
 def test_plancher_blocked_without_slab():
@@ -159,9 +160,9 @@ def test_no_snapshot_blocks_entity_reports():
 
 
 def test_source_present_generates_branded_not_identical():
-    # Une source XLS plancher chargée → générable, mais **pas** « à l'identique » :
-    # la génération lit en data_only et réécrit des tables brandées (formules /
-    # pivots / styles non préservés). P1 : plus de fausse promesse.
+    # Une source XLS plancher chargée ne remplace pas les données IFC : le
+    # snapshot reste la source métier, et la génération brandée n'est pas
+    # « à l'identique ».
     sources = AvpSources(
         plancher=MultiSheetSource(
             grids=[SheetGrid(title="Planchers", rows=[["Composant"], ["IfcSlab", 50.0]])]
@@ -175,7 +176,7 @@ def test_source_present_generates_branded_not_identical():
 
 
 def test_menuiseries_source_only_generates_without_snapshot():
-    # P2a : source XLS seule (pas de snapshot) → cœur + Solibri satisfaits.
+    # Source XLS seule (pas de snapshot) → pas de donnée métier IFC/OpenShell.
     sources = AvpSources(
         menuiseries=None,
     )
@@ -186,9 +187,9 @@ def test_menuiseries_source_only_generates_without_snapshot():
         table=SheetTable(title="Menuiseries", headers=["Composant"], rows=[["F1"]])
     )
     av = _by_key(inspect_avp_report_availability(None, sources=sources))["menuiseries"]
-    assert av.can_generate is True
-    assert av.can_generate_identical is False  # branded, pas à l'identique
-    assert av.status == "partial"
+    assert av.can_generate is False
+    assert av.can_generate_identical is False
+    assert av.status == "blocked"
 
 
 # ── require_identical ────────────────────────────────────────────────────

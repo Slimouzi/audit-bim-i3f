@@ -1,7 +1,7 @@
 """Pack de livrables AVP I3F (Tarare 0546L) — génération BIMData.
 
-Produit, à partir d'un ``AuditResult`` (snapshot/audit BIMData) **et** des
-fichiers sources I3F fournis (hybride), le pack de livrables AVP :
+Produit, à partir d'un ``AuditResult`` (snapshot/audit BIMData) et des
+quantités IFC extraites/calculées depuis la maquette, le pack de livrables AVP :
 
 1. ``… Contrôle Maquettes AVP.xlsx`` — grille de contrôle + stats conformité.
 2. ``… AVP - export SHAB maquette.xlsx``.
@@ -15,16 +15,15 @@ Principes :
 - **Réutilise** l'infra de reporting existante : ``xlsx_annex._build_formats``
   / ``write_safe`` (charte BIMData, anti-injection) pour l'Excel, et les
   helpers ``word_report`` pour le Word. Pas de stack parallèle.
-- **Ne jamais inventer** : donnée absente (snapshot ET source) →
-  ``NOT_AVAILABLE``. Une cellule vide d'une table source reste vide (elle
-  n'est pas « manquante »).
-- **Hybride, source-first** pour les exports (les .xlsx I3F sont
-  l'extraction autoritaire des outils externes Solibri/ArchiCAD) ;
-  l'audit BIMData fournit les stats de contrôle en repli et les
-  croisements agrégés du consolidé.
+- **Ne jamais inventer** : donnée absente du snapshot / des calculs IFC →
+  ``NOT_AVAILABLE``.
+- **Maquette-first** pour les exports : SHAB, zones/espaces, enveloppe,
+  menuiseries et plancher utilisent les valeurs extraites de la maquette ou
+  calculées via la chaîne IFC/OpenShell. Les .xlsx MOA éventuellement fournis
+  servent au contexte documentaire (identité projet, seuils, template futur),
+  pas de source autoritaire pour les surfaces issues d'outils externes.
 - **Fidélité « tables à plat »** : mêmes onglets, colonnes, ordre, unités
-  et vocabulaire que les sources ; les tableaux croisés / blocs de
-  synthèse sont rendus en tables structurées équivalentes.
+  et vocabulaire métier, avec colonnes IFC OpenShell explicites.
 """
 
 from __future__ import annotations
@@ -52,7 +51,13 @@ from .avp_snapshot import (
     count_planchers,
     snapshot_shab_total,
 )
-from .avp_sources import AvpSourcePaths, AvpSources, MultiSheetSource, SheetTable, load_sources
+from .avp_sources import (
+    AvpSourcePaths,
+    AvpSources,
+    ControleMaquettesSource,
+    SheetTable,
+    load_sources,
+)
 from .context import ReportProjectContext
 from .pdf_export import docx_to_pdf
 from .theming import (
@@ -299,7 +304,7 @@ def _build_controle_maquettes_xlsx(path, result, sources, meta) -> Path:
         f"{meta.project_name} {meta.project_code} — Contrôle Maquettes {meta.phase}",
     )
 
-    # Bloc entête projet (source I3F, sinon métadonnées d'appel).
+    # Bloc entête projet (métadonnées source si fournies, sinon appel).
     header = (src.header if src else {}) or {}
     fallbacks = {"projet": meta.project_name, "esi": meta.project_code, "phase": meta.phase}
     for label, key in (("Projet", "projet"), ("ESI", "esi"), ("Phase", "phase")):
@@ -325,28 +330,23 @@ def _build_controle_maquettes_xlsx(path, result, sources, meta) -> Path:
         row += 1
     row += 1
 
-    # Grille de contrôle. Source I3F « Contrôle » prioritaire ; à défaut, on
-    # génère une **vraie grille depuis l'audit** (points de contrôle évalués)
-    # plutôt qu'un tableau vide — sinon l'annexe Contrôle sort sans contenu réel.
+    # Grille de contrôle. L'audit est la source métier. Si le writer est appelé
+    # sans snapshot/audit (compat bas niveau), la source déjà chargée peut encore
+    # servir de repli ; le flux maquette-first nettoie cette source en amont.
     write_safe(ws, row, 0, "Grille de contrôle", fmts["h2"])
     row += 1
-    grille = src.grille if src else None
-    if grille is None or not grille.headers or not grille.rows:
-        grille = _audit_controle_table(result)
+    grille = _audit_controle_table(result)
+    if grille is None and src is not None:
+        grille = src.grille
     _write_flat_table(ws, fmts, grille, start_row=row)
 
-    # Onglets de stats conformité : synthèse KPI + **grille détaillée
-    # complète** (listes de contrôle exploitables I3F : noms, éléments…).
+    # Onglets de stats conformité : synthèse KPI depuis l'audit.
     for name in _CONTROLE_STATS_SHEETS:
         ws_s = wb.add_worksheet(name[:31])
         r = _write_banner(ws_s, fmts, "CONTRÔLE MAQUETTES AVP", name)
         stats = _controle_stats(name, result, src)
         write_safe(ws_s, r, 0, "Synthèse", fmts["h2"])
         _write_stats_block(ws_s, fmts, stats, start_row=r + 1)
-        grid = _controle_grid(name, src)
-        if grid:
-            write_safe(ws_s, r + 4, 0, "Détail", fmts["h2"])
-            _write_grid(ws_s, fmts, grid.rows, start_row=r + 5)
     wb.close()
     return path
 
@@ -362,16 +362,15 @@ def _controle_grid(name: str, src):
 
 
 def _controle_stats(name: str, result: AuditResult | None, src) -> dict | None:
-    """Stats conformité d'un onglet — source-first, audit en repli, sinon None."""
+    """Stats conformité d'un onglet — audit, puis source de repli sans snapshot."""
+    if result is not None:
+        return _audit_stats(name, result)
     if src and src.stats:
         # La clé source peut porter la faute d'origine ("ARC bsence…").
         for key, val in src.stats.items():
             if _norm(key) == _norm(name) or _norm(key).replace("bsence", "absence") == _norm(name):
                 if val:
                     return val
-    # Repli audit (si snapshot chargé) — comptage simple.
-    if result is not None:
-        return _audit_stats(name, result)
     return None
 
 
@@ -810,8 +809,9 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta, snap=None) -> Path:
         f"Analyse BIM de la maquette {meta.project_name} {meta.project_code} en phase "
         f"{meta.phase}, consolidant le contrôle des maquettes, les exports SHAB, "
         "zones/espaces, enveloppe et menuiseries. Les indicateurs ci-dessous "
-        "proviennent des livrables d'extraction ; toute donnée absente est "
-        "signalée « Information non disponible dans les documents fournis. »."
+        "proviennent de la maquette IFC et des calculs IFC OpenShell ; toute "
+        "donnée absente est signalée « Information non disponible dans les "
+        "documents fournis. »."
     )
     _write_audit_synthese(doc, result)
 
@@ -849,7 +849,7 @@ def _build_analyse_bim_avp_docx(path, result, sources, meta, snap=None) -> Path:
         ],
     )
 
-    # 5. Écarts (source vs snapshot BIMData quand disponible)
+    # 5. Écarts / traçabilité IFC OpenShell
     _add_heading(doc, "5. Écarts", level=1)
     _write_ecarts(doc, result, sources, snap)
 
@@ -1023,16 +1023,17 @@ def _write_stats_annex(doc, ctrl) -> None:
 
 def _write_ecarts(doc, result, sources, snap=None) -> None:
     env = sources.enveloppe if sources else None
-    src_shab = env.shab if env else None
     # SHAB snapshot avec le **même repli** que les annexes (BaseQuantities
     # puis « Superficie calculée ») — sinon l'écart reste NOT_AVAILABLE alors
     # que les annexes sont justes. Snapshot explicite prioritaire (audit non
     # encore lancé), sinon celui de l'``AuditResult``.
     eff_snap = snap if snap is not None else (result.snapshot if result is not None else None)
-    snap_shab = snapshot_shab_total(eff_snap)
+    ifc_shab = snapshot_shab_total(eff_snap)
+    if ifc_shab is None and env is not None:
+        ifc_shab = env.shab
     tbl = doc.add_table(rows=1, cols=4)
     tbl.style = "Light Grid Accent 1"
-    for i, txt in enumerate(["Indicateur", "Source I3F", "Snapshot BIMData", "Écart"]):
+    for i, txt in enumerate(["Indicateur", "IFC OpenShell", "Méthode", "Observation"]):
         cell = tbl.rows[0].cells[i]
         cell.text = txt
         _shade_cell(cell, BIMDATA_PRIMARY)
@@ -1040,17 +1041,15 @@ def _write_ecarts(doc, result, sources, snap=None) -> None:
             for r in p.runs:
                 r.font.color.rgb = RGBColor(255, 255, 255)
                 r.bold = True
-    ecart = ""
-    if isinstance(src_shab, (int, float)) and isinstance(snap_shab, (int, float)):
-        ecart = f"{src_shab - snap_shab:+.2f}"
     row = tbl.add_row().cells
     row[0].text = "SHAB totale (m²)"
-    row[1].text = f"{src_shab:.2f}" if isinstance(src_shab, (int, float)) else NOT_AVAILABLE
-    row[2].text = f"{snap_shab:.2f}" if isinstance(snap_shab, (int, float)) else NOT_AVAILABLE
-    row[3].text = ecart or NOT_AVAILABLE
+    row[1].text = f"{ifc_shab:.2f}" if isinstance(ifc_shab, (int, float)) else NOT_AVAILABLE
+    row[2].text = "Espaces IFC : BaseQuantities, puis Superficie calculée"
+    row[3].text = "Valeur issue de la maquette ; aucun écart d'outil externe n'est intégré."
     doc.add_paragraph(
-        "L'écart n'est calculé que lorsque la valeur source ET la valeur "
-        "snapshot BIMData sont disponibles.",
+        "Les valeurs métier intégrées au pack sont extraites de la maquette "
+        "ou calculées via la chaîne IFC OpenShell ; les colonnes d'outil "
+        "externe ne sont pas utilisées comme source de données.",
         style="Intense Quote",
     )
 
@@ -1123,6 +1122,57 @@ def _stat_lookup(ctrl, name: str) -> dict:
     return {}
 
 
+def _controle_from_audit_or_metadata(
+    result: AuditResult | None, src: ControleMaquettesSource | None
+) -> ControleMaquettesSource | None:
+    """Construit la source Contrôle utilisée par les livrables.
+
+    Les données métier (grille + stats) viennent de l'``AuditResult``. La
+    source MOA éventuelle ne fournit que l'entête projet et la légende, utiles
+    au contexte documentaire mais pas aux contrôles.
+    """
+    header = dict(src.header) if src and src.header else {}
+    legend = dict(src.legend) if src and src.legend else {}
+    grille = _audit_controle_table(result)
+    stats: dict[str, dict] = {}
+    if result is not None:
+        for name in _CONTROLE_STATS_SHEETS:
+            value = _audit_stats(name, result)
+            if value:
+                stats[name] = value
+    if not header and not legend and grille is None and not stats:
+        return None
+    return ControleMaquettesSource(header=header, legend=legend, grille=grille, stats=stats)
+
+
+def _ifc_first_sources(
+    *,
+    model_sources: AvpSources,
+    source_inputs: AvpSources | None,
+    result: AuditResult | None,
+) -> AvpSources:
+    """Assemble les sources de génération en donnant priorité à la maquette.
+
+    Les cinq exports métriques sont ceux calculés depuis le snapshot IFC. Les
+    fichiers MOA fournis ne sont conservés que pour les métadonnées non
+    métriques qui ne se déduisent pas de la géométrie (ex. seuil 3F).
+    """
+    ctrl_src = source_inputs.controle if source_inputs else None
+    env = model_sources.enveloppe
+    if env is not None and source_inputs and source_inputs.enveloppe:
+        # Le seuil est une règle/paramètre documentaire, pas une mesure externe.
+        if source_inputs.enveloppe.seuil_3f is not None:
+            env.seuil_3f = source_inputs.enveloppe.seuil_3f
+    return AvpSources(
+        controle=_controle_from_audit_or_metadata(result, ctrl_src),
+        shab=model_sources.shab,
+        zones_espaces=model_sources.zones_espaces,
+        enveloppe=env,
+        menuiseries=model_sources.menuiseries,
+        plancher=model_sources.plancher,
+    )
+
+
 # ── Orchestrateur ──────────────────────────────────────────────────────────
 
 
@@ -1152,12 +1202,13 @@ def write_avp_i3f_report_pack(
     ``YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>``.
 
     Args:
-        result: ``AuditResult`` BIMData (peut être ``None`` : le pack se
-            limite alors aux données sources fournies).
+        result: ``AuditResult`` BIMData (peut être ``None`` si ``snapshot`` est
+            fourni explicitement).
         output_dir: dossier de sortie (créé si besoin).
         sources: chemins des .xlsx I3F (``AvpSourcePaths``) ou sources déjà
-            chargées (``AvpSources``). ``None`` → pack sans données externes
-            (colonnes → ``NOT_AVAILABLE``).
+            chargées (``AvpSources``). Quand un snapshot existe, ces sources
+            ne fournissent pas les surfaces : les exports métriques sont
+            recalculés depuis la maquette IFC.
         project_name, project_code, phase: identité projet **confirmée**
             injectée dans les noms de livrables (et les entêtes).
         date: préfixe daté ``YYMMDD`` des noms de livrables. ``None`` →
@@ -1221,38 +1272,21 @@ def write_avp_i3f_report_pack(
 
     if isinstance(sources, AvpSourcePaths):
         sources = load_sources(sources)
-    # sources est désormais AvpSources | None
+    source_inputs = sources
 
-    # ── Source-first, snapshot en repli ─────────────────────────────────
-    # Les fichiers I3F priment (extraction autoritaire des outils externes).
-    # Pour chaque export absent/vide, on génère depuis la maquette afin de
-    # ne jamais livrer une annexe réduite au seul bandeau. Le snapshot est
-    # pris explicitement (``snapshot=``, ex. après ``verify_active_model``
-    # sans audit), sinon depuis ``result.snapshot`` — l'un ou l'autre suffit.
+    # ── Maquette-first / IFC OpenShell ──────────────────────────────────
+    # Le snapshot est pris explicitement (``snapshot=``, ex. après
+    # ``verify_active_model`` sans audit), sinon depuis ``result.snapshot``.
+    # Dès qu'il existe, il devient la source autoritaire des exports métriques.
     snap = snapshot if snapshot is not None else (result.snapshot if result is not None else None)
     if snap is not None:
-        fallback = build_sources_from_snapshot(snap)
-        if sources is None:
-            sources = AvpSources()
-        if _multisheet_is_empty(sources.shab):
-            sources.shab = fallback.shab
-        # Zones/Espaces : l'enrichissement maquette (IfcZone + étage(s)) est
-        # **toujours** exposé. Source absente → il constitue l'export ;
-        # source présente → il est ajouté (onglets « … (depuis maquette) »)
-        # après les onglets I3F fidèles, pour que les IfcZone et les étages
-        # de la maquette soient visibles même si la source ne les porte pas.
-        if _multisheet_is_empty(sources.zones_espaces):
-            sources.zones_espaces = fallback.zones_espaces
-        elif fallback.zones_espaces is not None and fallback.zones_espaces.grids:
-            sources.zones_espaces = MultiSheetSource(
-                grids=list(sources.zones_espaces.grids) + list(fallback.zones_espaces.grids)
-            )
-        if _tabular_is_empty(sources.enveloppe):
-            sources.enveloppe = fallback.enveloppe
-        if _tabular_is_empty(sources.menuiseries):
-            sources.menuiseries = fallback.menuiseries
-        if _multisheet_is_empty(sources.plancher):
-            sources.plancher = fallback.plancher
+        sources = _ifc_first_sources(
+            model_sources=build_sources_from_snapshot(snap),
+            source_inputs=source_inputs,
+            result=result,
+        )
+    elif sources is None:
+        sources = AvpSources()
 
     controle = _build_controle_maquettes_xlsx(out / fn_controle, result, sources, meta)
     shab = _build_multisheet_export_xlsx(
@@ -1325,8 +1359,10 @@ def _qa_empty_deliverables(
     # 5ᵉ annexe : quand un audit est disponible, la « Grille de contrôle » doit
     # porter des points de contrôle réels (comptés SOUS son titre, hors entête/
     # légende/NOT_AVAILABLE). Vide malgré un audit = livrable non exploitable.
-    if result is not None and _count_controle_rows(pack.controle_xlsx) == 0:
-        problems.append("Contrôle")
+    if result is not None:
+        expected_controle = _audit_controle_table(result) is not None or not result.findings
+        if expected_controle and _count_controle_rows(pack.controle_xlsx) == 0:
+            problems.append("Contrôle")
     has_spaces_or_zones = bool(getattr(snap, "spaces", None)) or bool(getattr(snap, "zones", None))
     if has_spaces_or_zones:
         if _count_business_rows(pack.shab_xlsx) == 0:

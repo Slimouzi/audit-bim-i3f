@@ -71,7 +71,7 @@ def list_avp_i3f_xls_reports(
       pivots / styles préservés) est produisible. **Actuellement toujours
       ``False``** : la génération réécrit des tables brandées (valeurs figées),
       le mode template MOA (copie du workbook) n'est pas encore livré — on ne
-      promet donc **jamais** « à l'identique », même sources Solibri fournies ;
+      promet donc **jamais** « à l'identique », même avec les classeurs MOA ;
     - ``status`` : ``ready`` (jamais atteint sans mode template) / ``partial``
       (générable en brandé) / ``blocked`` + ``next_action``.
 
@@ -142,11 +142,11 @@ def generate_avp_i3f_pack(
 
     Produit les 6 Excel (Contrôle Maquettes, SHAB, Zones/Espaces, Enveloppe,
     Menuiseries, Plancher) + le rapport consolidé « Analyse BIM AVP » (.docx,
-    + .pdf best-effort). **Hybride** : données natives de l'audit courant
-    (``_State.result``, si disponible) + lecture des .xlsx sources I3F
-    fournis pour les colonnes d'outils externes. Toute donnée absente →
-    « Information non disponible dans les documents fournis. » (jamais
-    inventée).
+    + .pdf best-effort). Les données métier sont **maquette-first** : elles
+    viennent du snapshot/audit courant et des quantités IFC extraites ou
+    calculées via la chaîne IFC OpenShell. Les .xlsx MOA éventuellement fournis
+    servent au contexte documentaire (identité projet, seuils, templates
+    futurs), pas à remplir des colonnes issues d'outils externes.
 
     Nommage des livrables — convention documentaire I3F **générée à partir
     de données projet confirmées** :
@@ -161,10 +161,10 @@ def generate_avp_i3f_pack(
 
     Args:
         output_dir: sous-dossier d'export (sandbox ``AUDIT_OUTPUT_DIR``).
-        controle_xlsx … plancher_xlsx: chemins des .xlsx sources I3F
-            (optionnels, sandbox lecture ``safe_input_path``). ``plancher_xlsx``
-            = export dalles/planchers (IfcSlab), généré depuis la maquette en
-            repli si non fourni.
+        controle_xlsx … plancher_xlsx: chemins des .xlsx MOA/I3F de référence
+            (optionnels, sandbox lecture ``safe_input_path``). Ils peuvent
+            aider à résoudre l'identité projet ou des paramètres de contrôle,
+            mais les surfaces/dimensions exportées viennent de la maquette IFC.
         project_name, project_code, phase: identité projet pour le nommage.
             ``None`` → résolus depuis la maquette / les sources / la phase
             d'audit confirmée ; nom ou code introuvable → ``needs_context``.
@@ -186,6 +186,28 @@ def generate_avp_i3f_pack(
     """
     from ..reporting.avp_i3f import write_avp_i3f_report_pack
     from ..reporting.avp_sources import AvpSourcePaths, load_sources
+
+    if _State.snapshot is None and _State.result is None:
+        return {
+            "status": "needs_context",
+            "missing": ["snapshot"],
+            "questions": [
+                {
+                    "key": "snapshot",
+                    "question": (
+                        "Extraire la maquette active avant de générer le pack "
+                        "AVP I3F (set_active_model puis extract_model_snapshot, "
+                        "ou full_audit)."
+                    ),
+                }
+            ],
+            "next_step": (
+                "Appeler set_active_model(...), puis extract_model_snapshot "
+                "ou full_audit. Relancer ensuite generate_avp_i3f_pack : les "
+                "Excel utiliseront les données IFC/OpenShell plutôt que les "
+                "colonnes d'outils externes des sources."
+            ),
+        }
 
     def _src(p: str | None) -> str | None:
         return str(safe_input_path(p, allowed_extensions={".xlsx", ".xlsm"})) if p else None

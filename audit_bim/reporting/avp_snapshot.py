@@ -1,17 +1,15 @@
-"""Extraction AVP **source-first, snapshot en repli**.
+"""Extraction AVP depuis la maquette IFC.
 
-Quand les fichiers sources I3F (Solibri/ArchiCAD) sont absents, on génère
-néanmoins les exports SHAB, Zones/Espaces, Enveloppe et Menuiseries à partir
-du ``ModelSnapshot`` de l'``AuditResult`` — pour ne jamais livrer une annexe
-client qui ne contient que le bandeau.
+Les exports SHAB, Zones/Espaces, Enveloppe, Menuiseries et Plancher sont
+construits à partir du ``ModelSnapshot`` de l'``AuditResult``. Les surfaces
+proviennent des quantités IFC extraites de la maquette, ou de valeurs calculées
+équivalentes exposées dans les propriétés de snapshot.
 
 Principes :
 
-- **Source-first** : ce module ne fabrique un export que si la source I3F
-  correspondante est absente/vide (arbitrage fait par l'orchestrateur).
 - **Jamais inventer** : une surface introuvable reste ``None`` (rendue
-  ``NOT_AVAILABLE``) ; la **source** de chaque valeur (BaseQuantities vs
-  « Superficie calculée ») est tracée dans une colonne dédiée.
+  ``NOT_AVAILABLE``) ; la **méthode IFC/OpenShell** de chaque valeur est tracée
+  dans une colonne dédiée.
 - **Tolérance** casse / accents / espaces sur les layers et les noms de
   propriétés (normalisation ``_norm``).
 """
@@ -58,6 +56,8 @@ _WALL_BQ_ORDER = ("NetSideArea", "GrossSideArea", "NetArea", "GrossArea")
 _SPACE_BQ_ORDER = ("NetFloorArea", "GrossFloorArea", "NetArea", "GrossArea")
 _WINDOW_BQ_AREA = ("Area", "NetArea", "GrossArea")
 _SUPERFICIE_PROP = "Superficie calculée"
+_IFC_OPEN_SHELL_BQ = "IFC OpenShell - BaseQuantities"
+_IFC_OPEN_SHELL_PROP = "IFC OpenShell - Superficie calculée"
 
 # Classes de menuiseries : IFC2x3 (IfcWindow/IfcDoor) **et** IFC4
 # (…StandardCase). Sans les StandardCase, un modèle IFC4 sortirait une
@@ -168,10 +168,10 @@ def _surface_with_source(el: dict, bq_order: tuple[str, ...]) -> tuple[float | N
     """Surface + traçabilité : BaseQuantities (ordre) → « Superficie calculée »."""
     v = _base_quantity_ordered(el, bq_order)
     if v is not None:
-        return v, "BaseQuantities"
+        return v, _IFC_OPEN_SHELL_BQ
     v = _prop_any_pset(el, _SUPERFICIE_PROP)
     if v is not None:
-        return v, "Superficie calculée"
+        return v, _IFC_OPEN_SHELL_PROP
     return None, None
 
 
@@ -404,8 +404,8 @@ _SPACE_HEADERS = [
     "Zone",
     "Étage",
     "Type",
-    "Surface (m²)",
-    "Source surface",
+    "Surface IFC OpenShell (m²)",
+    "Méthode IFC OpenShell",
 ]
 
 _MULTI_SEP = " / "
@@ -461,8 +461,8 @@ _ZONE_HEADERS = [
     "Libellé",
     "Étage(s)",
     "Nombre de pièces",
-    "Surface (m²)",
-    "Source surface",
+    "Surface IFC OpenShell (m²)",
+    "Méthode IFC OpenShell",
 ]
 
 
@@ -504,7 +504,7 @@ def _zones_grid(snap: ModelSnapshot) -> SheetGrid:
                     acc += v
                     found = True
             if found:
-                surf, src = round(acc, 4), "Somme des espaces rattachés"
+                surf, src = round(acc, 4), "IFC OpenShell - somme des espaces rattachés"
         rows.append(
             [
                 _attr(z, "Name"),
@@ -552,10 +552,10 @@ def build_menuiseries_from_snapshot(
         "Composant",
         "Type",
         "Matériau",
-        "Largeur",
-        "Hauteur",
-        "Surface (m²)",
-        "Source surface",
+        "Largeur IFC OpenShell",
+        "Hauteur IFC OpenShell",
+        "Surface IFC OpenShell (m²)",
+        "Méthode IFC OpenShell",
     ]
     rows: list[list[Any]] = []
     total = 0.0
@@ -566,7 +566,7 @@ def build_menuiseries_from_snapshot(
         height = _base_quantity_ordered(w, ("Height", "OverallHeight"))
         surf, src = _surface_with_source(w, _WINDOW_BQ_AREA)
         if surf is None and width is not None and height is not None:
-            surf, src = round(width * height, 4), "L×H (BaseQuantities)"
+            surf, src = round(width * height, 4), "IFC OpenShell - LxH BaseQuantities"
         if surf is not None:
             total += surf
             any_area = True
@@ -583,7 +583,14 @@ def build_menuiseries_from_snapshot(
     return src, (round(total, 4) if any_area else None)
 
 
-_ENV_HEADERS = ["Composant", "Type", "Étage", "Layer", "Surface (m²)", "Source surface"]
+_ENV_HEADERS = [
+    "Composant",
+    "Type",
+    "Étage",
+    "Layer",
+    "Surface IFC OpenShell (m²)",
+    "Méthode IFC OpenShell",
+]
 
 
 def build_enveloppe_from_snapshot(snap: ModelSnapshot) -> EnveloppeSource | None:
@@ -619,7 +626,13 @@ def build_enveloppe_from_snapshot(snap: ModelSnapshot) -> EnveloppeSource | None
 
 _SLAB_CLASSES = ("IfcSlab", "IfcCovering")
 _SLAB_BQ_ORDER = ("NetArea", "GrossArea", "NetSideArea")
-_PLANCHER_HEADERS = ["Composant", "Type", "Étage", "Surface (m²)", "Source surface"]
+_PLANCHER_HEADERS = [
+    "Composant",
+    "Type",
+    "Étage",
+    "Surface IFC OpenShell (m²)",
+    "Méthode IFC OpenShell",
+]
 
 
 def count_planchers(snap: ModelSnapshot | None) -> int:
@@ -635,8 +648,8 @@ def build_plancher_from_snapshot(snap: ModelSnapshot) -> MultiSheetSource | None
     « Superficie calculée »). ``None`` si aucune dalle.
 
     Multi-onglets (comme SHAB/Zones) pour rester homogène avec le classeur MOA à
-    deux onglets ; le snapshot ne peut reproduire que l'onglet « Planchers » (les
-    colonnes Solibri du 2ᵉ onglet exigent une source externe)."""
+    deux onglets ; le snapshot produit l'onglet métier « Planchers » avec des
+    colonnes IFC OpenShell."""
     slabs = [el for cls in _SLAB_CLASSES for el in snap.of_class(cls)]
     if not slabs:
         return None
