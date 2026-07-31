@@ -700,12 +700,21 @@ def _build_enveloppe_xlsx(path, sources, meta) -> Path:
     )
     row = _write_flat_table(ws, fmts, src.table if src else None, start_row=row)
     row += 1
-    # Bloc synthèse.
+    # Bloc synthèse (logique Tarare, sans Solibri).
     write_safe(ws, row, 0, "Synthèse", fmts["h2"])
     row += 1
     synth = [
         ("Superficie des façades", src.superficie_facades if src else None),
+        ("écart IFC OpenShell vs Archicad BQ", _env_ecart(src)),
         ("Superficie des menuiseries", src.superficie_menuiseries if src else None),
+        (
+            "IFC OpenShell Surface des Fenêtres",
+            getattr(src, "superficie_fenetres", None) if src else None,
+        ),
+        (
+            "IFC OpenShell Surface des Portes",
+            getattr(src, "superficie_portes", None) if src else None,
+        ),
         ("SHAB", src.shab if src else None),
         ("ratio FAC/SHAB", src.ratio_fac_shab if src else None),
         ("Seuil 3F 2026", src.seuil_3f if src else None),
@@ -714,8 +723,34 @@ def _build_enveloppe_xlsx(path, sources, meta) -> Path:
         write_safe(ws, row, 0, label, fmts["kpi_key"])
         write_safe(ws, row, 1, NOT_AVAILABLE if val is None else val, fmts["kpi_val"])
         row += 1
+
+    # Diagnostic « hors filtre » : NE POLLUE PAS le total métier — noté à part.
+    hors = getattr(src, "hors_filtre_type", None) if src else None
+    if hors:
+        row += 1
+        write_safe(ws, row, 0, "Hors filtre (diagnostic — hors total métier)", fmts["h2"])
+        row += 1
+        tot = round(sum(h.get("netsidearea_m2") or 0 for h in hors), 2)
+        write_safe(
+            ws,
+            row,
+            0,
+            f"{len(hors)} type(s) de murs non retenus — Σ NetSideArea {tot} m² "
+            "(exclu du total façade).",
+            fmts["row"],
+        )
     wb.close()
     return path
+
+
+def _env_ecart(src) -> float | None:
+    """Écart Σ « Surface IFC OpenShell » (col E) − Σ « Archicad BQ NetSideArea »
+    (col D) de la table enveloppe. Nul quand une source unique alimente D et E."""
+    if not src or not getattr(src, "table", None) or not src.table.rows:
+        return None
+    d = sum(r[3] for r in src.table.rows if len(r) > 3 and isinstance(r[3], (int, float)))
+    e = sum(r[4] for r in src.table.rows if len(r) > 4 and isinstance(r[4], (int, float)))
+    return round(e - d, 2)
 
 
 def _build_menuiseries_xlsx(path, sources, meta) -> Path:

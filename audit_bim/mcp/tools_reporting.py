@@ -124,6 +124,7 @@ def generate_avp_i3f_pack(
     shab_xlsx: str | None = None,
     zones_espaces_xlsx: str | None = None,
     enveloppe_xlsx: str | None = None,
+    envelope_json: str | None = None,
     menuiseries_xlsx: str | None = None,
     plancher_xlsx: str | None = None,
     project_name: str | None = None,
@@ -185,7 +186,7 @@ def generate_avp_i3f_pack(
         ``{status: needs_context, missing, questions}``.
     """
     from ..reporting.avp_i3f import write_avp_i3f_report_pack
-    from ..reporting.avp_sources import AvpSourcePaths, load_sources
+    from ..reporting.avp_sources import AvpSourcePaths, load_sources, read_envelope_json
 
     if _State.snapshot is None and _State.result is None:
         return {
@@ -222,6 +223,12 @@ def generate_avp_i3f_pack(
     )
     # Chargement unique des sources (lues aussi pour résoudre le code ESI).
     sources = load_sources(source_paths)
+    # Enveloppe « logique MOA » : source structurée envelope.json (MCP ifc-geometry)
+    # → onglet par_type (8 lignes métier), prioritaire sur le repli snapshot (484
+    # murs) et sur le .xlsx source.
+    if envelope_json:
+        safe_env = safe_input_path(envelope_json, allowed_extensions={".json"})
+        sources.enveloppe = read_envelope_json(safe_env)
     ctrl_header = (sources.controle.header if sources.controle else {}) or {}
 
     def _hdr(key: str) -> str | None:
