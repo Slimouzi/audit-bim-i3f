@@ -11,33 +11,48 @@ from audit_bim.extraction.ifc_download import download_model_ifc
 
 
 class _FakeResp:
-    def __init__(self, chunks: list[bytes]):
+    def __init__(self, chunks: list[bytes], raise_after: int | None = None):
         self._chunks = chunks
+        self._raise_after = raise_after  # lève une erreur réseau après N chunks
 
     def raise_for_status(self):
         return None
 
     def iter_content(self, chunk_size=None):
-        yield from self._chunks
+        for i, c in enumerate(self._chunks):
+            if self._raise_after is not None and i >= self._raise_after:
+                raise ConnectionError("réseau interrompu au milieu du streaming")
+            yield c
 
     def close(self):
         return None
 
 
 class _FakeSession:
-    def __init__(self, chunks: list[bytes]):
+    def __init__(self, chunks: list[bytes], raise_after: int | None = None):
         self._chunks = chunks
+        self._raise_after = raise_after
         self.calls = 0
 
     def get(self, url, stream=False, timeout=None):
         self.calls += 1
-        return _FakeResp(self._chunks)
+        return _FakeResp(self._chunks, raise_after=self._raise_after)
 
 
 class _FakeClient:
-    def __init__(self, model: dict, chunks: list[bytes]):
+    def __init__(
+        self,
+        model: dict,
+        chunks: list[bytes],
+        *,
+        cloud_id: str = "34140",
+        project_id: str = "3281472",
+        raise_after: int | None = None,
+    ):
         self._model = model
-        self.session = _FakeSession(chunks)
+        self.session = _FakeSession(chunks, raise_after=raise_after)
+        self.cloud_id = cloud_id
+        self.project_id = project_id
         self.model_id = model.get("id")
         self.timeout = 60
 
@@ -102,6 +117,29 @@ def test_cache_key_invalidated_on_new_modified_date(tmp_path):
     p1 = download_model_ifc(c1, cache_dir=str(tmp_path), max_mb=500)["path"]
     p2 = download_model_ifc(c2, cache_dir=str(tmp_path), max_mb=500)["path"]
     assert p1 != p2  # une republication = nouvelle clé de cache
+
+
+def test_cache_key_no_inter_project_collision(tmp_path):
+    # Même model_id + modified_date, projets/clouds différents → clés distinctes.
+    a = _FakeClient(_MODEL, [b"A"], cloud_id="34140", project_id="3281472")
+    b = _FakeClient(_MODEL, [b"BB"], cloud_id="33617", project_id="2698917")
+    ra = download_model_ifc(a, cache_dir=str(tmp_path), max_mb=500)
+    rb = download_model_ifc(b, cache_dir=str(tmp_path), max_mb=500)
+    assert ra["path"] != rb["path"]
+    # Chacun a bien son propre contenu (pas d'écrasement croisé).
+    assert Path(ra["path"]).read_bytes() == b"A"
+    assert Path(rb["path"]).read_bytes() == b"BB"
+
+
+def test_midstream_error_cleans_part_and_raises(tmp_path):
+    # iter_content lève après le 1er chunk → exception propagée, .part nettoyé,
+    # aucune cible matérialisée.
+    client = _FakeClient(_MODEL, [b"x" * 1024, b"y" * 1024], raise_after=1)
+    with pytest.raises(ConnectionError):
+        download_model_ifc(client, cache_dir=str(tmp_path), max_mb=500)
+    ifc_dir = tmp_path / "ifc"
+    assert list(ifc_dir.glob("*.part")) == []
+    assert list(ifc_dir.glob("*.ifc")) == []
 
 
 def test_tool_registered_and_reexported():
