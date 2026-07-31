@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+from audit_bim.extraction.client import BIMDataAuthError
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp import tools_audit, tools_session
@@ -183,20 +184,32 @@ class TestCheckBimdataAccess:
         assert out["project_name"] == "Projet X"
         assert out["model_name"] == "M.ifc"
 
-    def test_401_reports_credential_rejected(self, _isolated_session):
-        # Formulation prudente : « credential rejetée », pas de conclusion de droits.
+    def test_401_returns_dict_not_raises(self, _isolated_session):
+        # bimdata_read lève BIMDataAuthError (PermissionError), PAS requests.HTTPError,
+        # pour 401/403 → le tool doit l'attraper et renvoyer un dict, pas remonter brut.
         client = MagicMock()
-        resp = MagicMock()
-        resp.status_code = 401
-        client.get_project.side_effect = requests.HTTPError(response=resp)
+        client.get_project.side_effect = BIMDataAuthError(
+            "BIMData 401 on /cloud/34140/project/3281472"
+        )
+        _wire_client(_isolated_session, client)
+        out = tools_session.check_bimdata_access()  # ne doit PAS lever
+        assert out["ok"] is False
+        assert "rejeté" in out["error"] and "401" in out["error"]
+        # Diagnostic honnête : la source/le schéma d'auth sont remontés.
+        assert "auth_source" in out and "auth_scheme" in out
+
+    def test_403_reports_missing_rights(self, _isolated_session):
+        client = MagicMock()
+        client.get_project.side_effect = BIMDataAuthError(
+            "BIMData 403 on /cloud/34140/project/3281472"
+        )
         _wire_client(_isolated_session, client)
         out = tools_session.check_bimdata_access()
         assert out["ok"] is False
-        assert "rejeté" in out["error"] and "401" in out["error"]
-        # On ne prétend PAS que la credential est « non autorisée » de façon absolue.
-        assert "not authorized" not in out["error"]
+        assert "403" in out["error"] and "droits" in out["error"]
 
     def test_404_reports_target_not_found(self, _isolated_session):
+        # 404 passe par raise_for_status → requests.HTTPError (pas BIMDataAuthError).
         client = MagicMock()
         resp = MagicMock()
         resp.status_code = 404
@@ -227,16 +240,16 @@ class TestCheckBimdataAccess:
     def test_reports_auth_even_on_401(self, _isolated_session, monkeypatch):
         _set_config_auth(monkeypatch, api_key="svc-key")
         client = MagicMock()
-        resp = MagicMock()
-        resp.status_code = 401
-        client.get_project.side_effect = requests.HTTPError(response=resp)
+        client.get_project.side_effect = BIMDataAuthError("BIMData 401 on /cloud/1/project/2")
         _wire_client(_isolated_session, client)
         out = tools_session.check_bimdata_access()
         assert out["ok"] is False
         assert out["auth_source"] == "BIMDATA_API_KEY"
         assert out["auth_scheme"] == "ApiKey"
-        # Le 401 dit « credential rejetée », pas « non autorisé ».
+        # Le 401 nomme le schéma rejeté (ApiKey) → diagnostic « clé morte » évident.
         assert "rejeté" in out["error"] and "401" in out["error"]
+        assert "ApiKey" in out["error"]
+        assert "svc-key" not in str(out)
 
 
 def _set_config_auth(

@@ -8,7 +8,7 @@ from pathlib import Path
 import requests
 
 from .. import config
-from ..extraction.client import BIMDataClient
+from ..extraction.client import BIMDataAuthError, BIMDataClient
 from ..extraction.model_data import extract_snapshot
 from ..extraction.snapshot_cache import cached_extract_snapshot
 from ..requirements.catalog import build_catalog, catalog_usable
@@ -423,15 +423,26 @@ def check_bimdata_access() -> dict:
     try:
         project = _State.client.get_project()
         model = _State.client.get_model()
+    except BIMDataAuthError as exc:
+        # bimdata_read lève ``BIMDataAuthError`` (PermissionError) pour 401/403,
+        # AVANT ``raise_for_status`` — ce n'est donc PAS une ``requests.HTTPError``.
+        # Sans cette branche, un 401 remonterait brut (« BIMData 401 on … »), sans
+        # ``auth_source``/``auth_scheme``, masquant le vrai diagnostic (clé morte).
+        is_403 = "403" in str(exc)
+        if is_403:
+            diagnostic = "Authentifié mais sans droits sur ce cloud/projet (HTTP 403)."
+        else:
+            diagnostic = (
+                f"BIMData a rejeté la credential du processus MCP (HTTP 401, schéma "
+                f"{auth['auth_scheme']}, source {auth['auth_source']}) — causes "
+                "typiques : clé API périmée/révoquée, ou valeur mal résolue "
+                "(ex. ${BIMDATA_API_KEY} non substitué par le client). Vérifie / "
+                "régénère BIMDATA_API_KEY."
+            )
+        return {"ok": False, **ids, **auth, "error": diagnostic}
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else None
         diagnostic = {
-            401: (
-                "BIMData a rejeté la credential utilisée par le processus MCP pour "
-                "cette cible (HTTP 401) — ni une conclusion de droits ni une preuve "
-                "que la clé est invalide ailleurs."
-            ),
-            403: "Authentifié mais sans droits sur ce cloud/projet (HTTP 403).",
             404: "Cible introuvable (HTTP 404) — vérifie cloud_id / project_id / model_id.",
         }.get(status, f"Accès BIMData refusé (HTTP {status}).")
         return {"ok": False, **ids, **auth, "error": diagnostic}

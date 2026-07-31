@@ -7,6 +7,27 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (diagnostic auth honnête)
+
+- **`check_bimdata_access` renvoyait un dict sur 404 mais **remontait une exception
+  brute** sur 401/403.** `bimdata_read._get` lève `BIMDataAuthError` (une
+  `PermissionError`) pour 401/403 *avant* `raise_for_status`, alors que le tool
+  n'attrapait que `requests.HTTPError` → un 401 remontait « BIMData 401 on … » sans
+  `auth_source`/`auth_scheme`, masquant la vraie cause (clé API périmée). Ajout d'une
+  branche `except BIMDataAuthError` qui renvoie `{ok: False, auth_source, auth_scheme,
+  error}` ; le message 401 nomme le schéma rejeté et pointe les causes typiques (clé
+  révoquée, `${BIMDATA_API_KEY}` non substitué). Le mapping 401 de la branche
+  `requests.HTTPError` (code mort) est retiré.
+
+### Added (avertissement d'auth au démarrage)
+
+- **`warn_bimdata_auth_mode()`** (appelé par `assert_startup_config`, **tous
+  transports**) : logge le mode d'auth BIMData **effectif** (précédence
+  `access_token → api_key → OAuth2`, sans journaliser de valeur de credential), et **avertit** quand
+  plusieurs modes sont configurés simultanément — un credential de rang supérieur périmé
+  masque silencieusement un mode inférieur valide (cause racine d'un 401 « inexplicable »).
+  Transforme une panne d'exécution opaque en signal de configuration au boot.
+
 ### Changed (ciblage explicite + auth non ambiguë)
 
 - **Le runtime cible BIMData par IDs explicites uniquement.** `set_active_model` et
