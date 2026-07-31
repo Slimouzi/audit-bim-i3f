@@ -66,6 +66,7 @@ from .tools_reporting import (  # noqa: F401  (ré-export compat)
     generate_avp_i3f_pack,
     generate_word_report,
     generate_xlsx_annex,
+    list_avp_i3f_xls_reports,
 )
 from .tools_session import (  # noqa: F401  (ré-export compat)
     extract_model_snapshot,

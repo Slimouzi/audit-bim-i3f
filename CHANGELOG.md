@@ -45,7 +45,12 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
     Solibri) → plus de faux `blocked` en source-only ;
   - `controle_maquettes` requiert un **AuditResult** (audit lancé) **ou** une source
     Contrôle I3F pour remplir la grille — le seul snapshot ne suffit pas (nouveau
-    paramètre `has_audit_result`, câblé sur `_State.result`).
+    paramètre `has_audit_result`, câblé sur `_State.result`) ;
+  - **`can_generate_identical` n'est jamais `True`** tant que le mode `moa_template`
+    (copie du workbook, préservation formules/pivots/styles) n'est pas livré : la
+    génération courante lit en `data_only` et réécrit des tables brandées → on ne
+    promet **pas** « à l'identique », même sources Solibri fournies (garde
+    `_MOA_TEMPLATE_MODE_AVAILABLE = False`). Rapport générable ⇒ statut `partial`.
 
 ### Fixed (diagnostic auth honnête)
 

@@ -124,13 +124,15 @@ def test_controle_blocked_on_snapshot_without_audit_or_source():
     assert av.status == "blocked"
 
 
-def test_controle_ready_when_audit_result_available():
+def test_controle_generatable_but_not_identical_with_audit():
+    # Contrôle : générable dès qu'un audit a tourné, mais JAMAIS « à l'identique »
+    # (grille brandée BIMData dérivée de l'audit, pas une copie du classeur MOA).
     av = _by_key(inspect_avp_report_availability(_full_snapshot(), has_audit_result=True))[
         "controle_maquettes"
     ]
     assert av.can_generate is True
-    assert av.can_generate_identical is True  # aucune colonne externe requise
-    assert av.status == "ready"
+    assert av.can_generate_identical is False
+    assert av.status == "partial"
 
 
 def test_plancher_available_data_lists_slab_and_netarea():
@@ -156,17 +158,20 @@ def test_no_snapshot_blocks_entity_reports():
 # ── Sources externes / hybride ───────────────────────────────────────────
 
 
-def test_source_present_unlocks_identical_for_plancher():
-    # Une source XLS plancher chargée porte toutes les colonnes (Solibri comprises)
-    # → générable ET à l'identique.
+def test_source_present_generates_branded_not_identical():
+    # Une source XLS plancher chargée → générable, mais **pas** « à l'identique » :
+    # la génération lit en data_only et réécrit des tables brandées (formules /
+    # pivots / styles non préservés). P1 : plus de fausse promesse.
     sources = AvpSources(
         plancher=MultiSheetSource(
             grids=[SheetGrid(title="Planchers", rows=[["Composant"], ["IfcSlab", 50.0]])]
         )
     )
     av = _by_key(inspect_avp_report_availability(_full_snapshot(), sources=sources))["plancher"]
-    assert av.can_generate_identical is True
-    assert av.status == "ready"
+    assert av.can_generate is True
+    assert av.can_generate_identical is False
+    assert av.status == "partial"
+    assert "template" in av.next_action.lower()
 
 
 def test_menuiseries_source_only_generates_without_snapshot():
@@ -182,19 +187,27 @@ def test_menuiseries_source_only_generates_without_snapshot():
     )
     av = _by_key(inspect_avp_report_availability(None, sources=sources))["menuiseries"]
     assert av.can_generate is True
-    assert av.status == "ready"
+    assert av.can_generate_identical is False  # branded, pas à l'identique
+    assert av.status == "partial"
 
 
 # ── require_identical ────────────────────────────────────────────────────
 
 
-def test_require_identical_blocks_partial_reports():
+def test_require_identical_blocks_everything_without_template_mode():
     avails = _by_key(
         inspect_avp_report_availability(
             _full_snapshot(), require_identical=True, has_audit_result=True
         )
     )
-    # Sans Solibri, menuiseries ne peut PAS être « à l'identique » → blocked.
+    # Aucun mode template → « à l'identique » impossible → tout bloqué en strict,
+    # y compris le contrôle (grille brandée, jamais une copie du classeur MOA).
     assert avails["menuiseries"].status == "blocked"
-    # Contrôle (audit lancé, pas de colonne externe) reste ready.
-    assert avails["controle_maquettes"].status == "ready"
+    assert avails["controle_maquettes"].status == "blocked"
+
+
+def test_no_report_ever_promises_identical():
+    # Verrou P1 : tant que le mode template MOA n'existe pas, AUCUN rapport
+    # n'annonce « à l'identique » — même audit lancé et sources présentes.
+    for av in inspect_avp_report_availability(_full_snapshot(), has_audit_result=True):
+        assert av.can_generate_identical is False, av.key

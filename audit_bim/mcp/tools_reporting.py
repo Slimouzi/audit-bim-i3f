@@ -66,21 +66,24 @@ def list_avp_i3f_xls_reports(
     courante (entités IFC, BaseQuantities, relations zone/espace, calque
     d'enveloppe) et rend, pour chacun des 6 rapports MOA, un verdict :
 
-    - ``can_generate`` : un rapport **métier** exploitable est produisible ;
-    - ``can_generate_identical`` : la reproduction MOA **stricte** (toutes
-      colonnes, y compris Solibri) est possible ; **False** tant qu'aucune
-      source externe n'est fournie — on ne promet pas « à l'identique » sur le
-      seul snapshot ;
-    - ``status`` : ``ready`` / ``partial`` / ``blocked`` + ``next_action``.
+    - ``can_generate`` : un rapport **métier** (charte BIMData) est produisible ;
+    - ``can_generate_identical`` : une reproduction MOA **stricte** (formules /
+      pivots / styles préservés) est produisible. **Actuellement toujours
+      ``False``** : la génération réécrit des tables brandées (valeurs figées),
+      le mode template MOA (copie du workbook) n'est pas encore livré — on ne
+      promet donc **jamais** « à l'identique », même sources Solibri fournies ;
+    - ``status`` : ``ready`` (jamais atteint sans mode template) / ``partial``
+      (générable en brandé) / ``blocked`` + ``next_action``.
 
     C'est l'étape à appeler **avant** ``generate_avp_i3f_pack`` : elle explique
-    pourquoi un rapport est prêt, partiel ou bloqué.
+    pourquoi un rapport est générable (partiel) ou bloqué.
 
     Args:
         include_templates: inclure le chemin du classeur MOA de référence
             (``template_path``) quand il existe sur le poste.
         require_identical: si ``True``, un rapport n'est ``ready`` que si la
-            reproduction stricte est possible (colonnes Solibri comprises).
+            reproduction stricte est possible — donc **aucun** tant que le mode
+            template MOA n'existe pas (tout passe ``blocked``).
 
     Returns:
         ``{status, project, reports: [...]}`` — ``reports`` dans l'ordre CTO.

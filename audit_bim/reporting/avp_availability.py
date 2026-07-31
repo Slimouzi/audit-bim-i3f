@@ -5,15 +5,18 @@ réellement le ``ModelSnapshot`` (entités IFC, BaseQuantities, relations
 zone/espace, calque d'enveloppe) et les sources XLS éventuellement fournies,
 puis on rend un verdict orienté utilisateur :
 
-- ``can_generate`` : un rapport **métier** exploitable est produisible ;
-- ``can_generate_identical`` : la reproduction MOA **stricte** est possible
-  (toutes les colonnes, y compris Solibri/source externe, disponibles) ;
+- ``can_generate`` : un rapport **métier** (charte BIMData) est produisible ;
+- ``can_generate_identical`` : une reproduction MOA **stricte** (formules /
+  pivots / styles préservés) est produisible — voir ci-dessous ;
 - ``status`` : ``ready`` / ``partial`` / ``blocked`` ;
 - ``available_data`` / ``missing_data`` : détail par donnée requise.
 
-Position CTO respectée : on **ne promet pas** « à l'identique » quand une
-donnée ``external`` (Solibri) est absente — ``can_generate_identical`` reste
-``False`` et le rapport passe au mieux en ``partial``.
+Position CTO respectée (P1) : ``can_generate_identical`` **ne dépend pas que**
+de la disponibilité des colonnes. La génération courante lit les sources en
+``data_only`` et réécrit des tables **brandées** → formules / pivots / styles
+**non préservés**. Tant que le mode ``moa_template`` (copie du workbook) n'est
+pas livré, ``can_generate_identical`` est **toujours** ``False`` (cf.
+``_MOA_TEMPLATE_MODE_AVAILABLE``) et un rapport générable reste ``partial``.
 """
 
 from __future__ import annotations
@@ -33,6 +36,18 @@ from .avp_snapshot import (
     _zone_members_from_tree,
     count_envelope_walls,
 )
+
+# Reproduction « à l'identique » d'un classeur MOA = préservation des **formules
+# Excel natives, pivots, styles et formules critiques** du catalogue. Cela exige
+# un mode « template » qui **copie** le workbook source et n'en remplace que les
+# plages de données. Ce mode **n'existe pas encore** : la génération courante lit
+# les sources en ``data_only=True`` (valeurs figées) puis réécrit des tables
+# **brandées BIMData** (``_build_multisheet_export_xlsx`` / builders) → formules,
+# pivots et styles **ne sont pas préservés**. Tant que ce mode n'est pas livré,
+# **aucun** rapport ne peut être annoncé « à l'identique », même avec toutes les
+# données (source Solibri comprise). Voir docs/instruct-mcp-xls-moa-reports.md
+# (mode ``moa_template``, priorité ultérieure).
+_MOA_TEMPLATE_MODE_AVAILABLE = False
 
 
 def _has_ifc_entity(snap: ModelSnapshot, classes: tuple[str, ...]) -> bool:
@@ -114,9 +129,20 @@ def _satisfied(
     return False
 
 
+def _identical_note(missing_external: list[str]) -> str:
+    """Raison(s) pour lesquelles la repro « à l'identique » est indisponible."""
+    note = (
+        "reproduction à l'identique NON disponible : le mode template MOA "
+        "(préservation formules/pivots/styles) n'est pas encore implémenté"
+    )
+    if missing_external:
+        note += " ; données externes aussi manquantes : " + ", ".join(missing_external)
+    return note
+
+
 def _next_action(status: str, missing_core: list[str], missing_external: list[str]) -> str:
     if status == "ready":
-        return "Prêt : toutes les données requises sont disponibles."
+        return "Prêt : reproduction à l'identique possible."
     if status == "blocked":
         if missing_core:
             return (
@@ -124,15 +150,13 @@ def _next_action(status: str, missing_core: list[str], missing_external: list[st
                 + ", ".join(missing_core)
                 + ". Extraire un snapshot complet (status C) ou compléter la maquette."
             )
-        return (
-            "Reproduction à l'identique requise mais données externes absentes : "
-            + ", ".join(missing_external)
-            + ". Fournir l'export Solibri / la source MOA."
-        )
-    # partial
+        # Bloqué par l'exigence stricte « à l'identique ».
+        return "Listing strict : " + _identical_note(missing_external) + "."
+    # partial : rapport métier générable, mais pas à l'identique.
     return (
-        "Rapport métier générable depuis la maquette. Pour la reproduction à "
-        "l'identique, fournir : " + ", ".join(missing_external) + " (export Solibri / source MOA)."
+        "Rapport métier (charte BIMData) générable depuis la maquette ; "
+        + _identical_note(missing_external)
+        + "."
     )
 
 
@@ -166,7 +190,12 @@ def _availability_for_spec(
                 missing_core.append(req.label)
 
     can_generate = core_ok
-    can_generate_identical = identical_ok
+    # ``identical_ok`` = toutes les colonnes (Solibri comprises) sont *disponibles*.
+    # Mais la disponibilité des données ne suffit PAS : sans mode template (copie
+    # du workbook, préservation formules/pivots/styles), la génération courante
+    # produit un rapport **brandé**, jamais une reproduction à l'identique. On ne
+    # promet donc « à l'identique » que si un tel mode existe.
+    can_generate_identical = identical_ok and _MOA_TEMPLATE_MODE_AVAILABLE
 
     if not can_generate:
         status = "blocked"
