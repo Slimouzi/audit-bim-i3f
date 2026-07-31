@@ -143,9 +143,12 @@ def _find_row(ws, anchor):
 # ── Structure ──────────────────────────────────────────────────────────
 
 
-def test_pack_generates_six_deliverables(tmp_path, sources):
+def test_pack_generates_seven_deliverables(tmp_path, sources):
+    # 6 Excel (Contrôle, SHAB, Zones/Espaces, Enveloppe, Menuiseries, Plancher)
+    # + le consolidé .docx = 7 (sans PDF).
     pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
-    assert len(pack.paths()) == 6
+    assert len(pack.paths()) == 7
+    assert pack.plancher_xlsx in pack.paths()
     for p in pack.paths():
         assert p.exists() and p.stat().st_size > 0
 

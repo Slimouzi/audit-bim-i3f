@@ -49,6 +49,7 @@ from .avp_snapshot import (
     build_sources_from_snapshot,
     count_envelope_walls,
     count_menuiseries,
+    count_planchers,
     snapshot_shab_total,
 )
 from .avp_sources import AvpSourcePaths, AvpSources, MultiSheetSource, SheetTable, load_sources
@@ -83,6 +84,7 @@ _DELIVERABLE_LABELS: dict[str, tuple[str, str]] = {
     "zones_espaces": ("Export Zones et Espaces", "xlsx"),
     "enveloppe": ("Extraction surface enveloppe", "xlsx"),
     "menuiseries": ("export Menuiseries", "xlsx"),
+    "plancher": ("export plancher", "xlsx"),
     "analyse": ("Rapport analyse BIM", "docx"),
 }
 
@@ -152,6 +154,7 @@ class AvpReportPack:
     zones_espaces_xlsx: Path
     enveloppe_xlsx: Path
     menuiseries_xlsx: Path
+    plancher_xlsx: Path
     analyse_docx: Path
     analyse_pdf: Path | None = None
 
@@ -162,6 +165,7 @@ class AvpReportPack:
             self.zones_espaces_xlsx,
             self.enveloppe_xlsx,
             self.menuiseries_xlsx,
+            self.plancher_xlsx,
             self.analyse_docx,
         ]
         if self.analyse_pdf is not None:
@@ -717,6 +721,22 @@ def _build_menuiseries_xlsx(path, sources, meta) -> Path:
     return path
 
 
+def _build_plancher_xlsx(path, sources, meta) -> Path:
+    """Export plancher (dalles ``IfcSlab``) — **multi-onglets** comme SHAB/Zones.
+
+    Reproduit **tous** les onglets de la source I3F (« … Dalles Ok », « Planchers »
+    avec totaux/écarts) ; repli maquette (un seul onglet « Planchers ») câblé par
+    l'orchestrateur. Aucune valeur inventée : onglet source vide préservé tel quel.
+    """
+    return _build_multisheet_export_xlsx(
+        path,
+        "EXPORT PLANCHER",
+        "Export plancher",
+        (sources.plancher if sources else None),
+        meta,
+    )
+
+
 # ── Consolidé « Analyse BIM AVP » (.docx, helpers word_report réutilisés) ───
 
 
@@ -1196,6 +1216,7 @@ def write_avp_i3f_report_pack(
     fn_zones = _name("zones_espaces")
     fn_env = _name("enveloppe")
     fn_men = _name("menuiseries")
+    fn_plancher = _name("plancher")
     fn_analyse = _name("analyse")
 
     if isinstance(sources, AvpSourcePaths):
@@ -1230,6 +1251,8 @@ def write_avp_i3f_report_pack(
             sources.enveloppe = fallback.enveloppe
         if _tabular_is_empty(sources.menuiseries):
             sources.menuiseries = fallback.menuiseries
+        if _multisheet_is_empty(sources.plancher):
+            sources.plancher = fallback.plancher
 
     controle = _build_controle_maquettes_xlsx(out / fn_controle, result, sources, meta)
     shab = _build_multisheet_export_xlsx(
@@ -1248,6 +1271,7 @@ def write_avp_i3f_report_pack(
     )
     enveloppe = _build_enveloppe_xlsx(out / fn_env, sources, meta)
     menuiseries = _build_menuiseries_xlsx(out / fn_men, sources, meta)
+    plancher = _build_plancher_xlsx(out / fn_plancher, sources, meta)
     analyse = _build_analyse_bim_avp_docx(out / fn_analyse, result, sources, meta, snap)
 
     pdf = docx_to_pdf(analyse) if export_pdf else None
@@ -1258,6 +1282,7 @@ def write_avp_i3f_report_pack(
         zones_espaces_xlsx=zones,
         enveloppe_xlsx=enveloppe,
         menuiseries_xlsx=menuiseries,
+        plancher_xlsx=plancher,
         analyse_docx=analyse,
         analyse_pdf=pdf,
     )
@@ -1312,4 +1337,6 @@ def _qa_empty_deliverables(
         problems.append("Enveloppe")
     if count_menuiseries(snap) > 0 and _count_business_rows(pack.menuiseries_xlsx) == 0:
         problems.append("Menuiseries")
+    if count_planchers(snap) > 0 and _count_business_rows(pack.plancher_xlsx) == 0:
+        problems.append("Plancher")
     return problems

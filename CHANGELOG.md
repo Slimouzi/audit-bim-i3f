@@ -19,6 +19,39 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   propositions de correctifs de classification passent dans un deuxième temps,
   sur demande, via le workflow `list → accept/reject → prepare → apply`.
 
+### Added (catalogue des rapports XLS MOA + rapport plancher)
+
+- **`list_avp_i3f_xls_reports(include_templates=True, require_identical=False)`** — tool
+  MCP **sans effet de bord** : sonde le snapshot courant (entités IFC, BaseQuantities,
+  relations zone/espace, calque d'enveloppe) et rend, pour les 6 rapports MOA AVP, un
+  verdict `{can_generate, can_generate_identical, status, available_data, missing_data,
+  next_action}`. Étape à appeler **avant** `generate_avp_i3f_pack`. **Ne promet pas « à
+  l'identique »** sur le seul snapshot : toute colonne Solibri/source externe absente →
+  `can_generate_identical=False` (statut `partial`).
+- **Catalogue déclaratif** `reporting/avp_report_catalog.py` (`ReportSpec` /
+  `DataRequirement` / `ReportAvailability`) + vérif `reporting/avp_availability.py`
+  (`inspect_avp_report_availability`).
+- **Rapport `plancher`** (dalles `IfcSlab`, repli `IfcCovering`) ajouté au catalogue **et
+  au pack** : `AvpSources.plancher` / `AvpSourcePaths.plancher` / `read_plancher` /
+  `build_plancher_from_snapshot` / `_DELIVERABLE_LABELS["plancher"]` /
+  `AvpReportPack.plancher_xlsx` / QA gate dédiée. `generate_avp_i3f_pack` gagne le
+  paramètre `plancher_xlsx` et produit désormais **6 Excel** (comportement des 5 autres
+  livrables **inchangé**). Le classeur plancher étant **à deux onglets** (« … Dalles Ok »,
+  « Planchers »), il est modélisé en `MultiSheetSource` (tous les onglets source préservés,
+  comme SHAB/Zones).
+
+  Justesse du verdict de disponibilité (revue CTO) :
+  - une **source XLS** chargée pour un rapport **satisfait toutes ses colonnes** (métier ET
+    Solibri) → plus de faux `blocked` en source-only ;
+  - `controle_maquettes` requiert un **AuditResult** (audit lancé) **ou** une source
+    Contrôle I3F pour remplir la grille — le seul snapshot ne suffit pas (nouveau
+    paramètre `has_audit_result`, câblé sur `_State.result`) ;
+  - **`can_generate_identical` n'est jamais `True`** tant que le mode `moa_template`
+    (copie du workbook, préservation formules/pivots/styles) n'est pas livré : la
+    génération courante lit en `data_only` et réécrit des tables brandées → on ne
+    promet **pas** « à l'identique », même sources Solibri fournies (garde
+    `_MOA_TEMPLATE_MODE_AVAILABLE = False`). Rapport générable ⇒ statut `partial`.
+
 ### Fixed (diagnostic auth honnête)
 
 - **`check_bimdata_access` renvoyait un dict sur 404 mais **remontait une exception

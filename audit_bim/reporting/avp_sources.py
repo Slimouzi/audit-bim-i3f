@@ -109,6 +109,9 @@ class AvpSources:
     zones_espaces: MultiSheetSource | None = None
     enveloppe: EnveloppeSource | None = None
     menuiseries: MenuiseriesSource | None = None
+    # Le classeur MOA « plancher » a **deux onglets** (« … Dalles Ok », « Planchers »
+    # avec totaux/formules) → multi-onglets préservés, comme SHAB/Zones.
+    plancher: MultiSheetSource | None = None
 
 
 # ── Helpers de lecture ────────────────────────────────────────────────────
@@ -338,6 +341,16 @@ def read_menuiseries(path: str | Path) -> MenuiseriesSource:
     return src
 
 
+def read_plancher(path: str | Path) -> MultiSheetSource:
+    """Lit l'export plancher I3F en **préservant tous ses onglets**.
+
+    Le classeur MOA « plancher » porte deux onglets (« … Dalles Ok » et
+    « Planchers » avec totaux/écarts Solibri). Comme SHAB/Zones, on conserve la
+    structure multi-onglets plutôt que d'aplatir sur le seul premier onglet.
+    """
+    return MultiSheetSource(grids=read_all_grids(path))
+
+
 @dataclass
 class AvpSourcePaths:
     """Chemins des 5 .xlsx sources I3F (tous optionnels)."""
@@ -347,6 +360,7 @@ class AvpSourcePaths:
     zones_espaces: str | Path | None = None
     enveloppe: str | Path | None = None
     menuiseries: str | Path | None = None
+    plancher: str | Path | None = None
 
 
 def load_sources(paths: AvpSourcePaths) -> AvpSources:
@@ -362,4 +376,6 @@ def load_sources(paths: AvpSourcePaths) -> AvpSources:
         out.enveloppe = read_enveloppe(paths.enveloppe)
     if paths.menuiseries:
         out.menuiseries = read_menuiseries(paths.menuiseries)
+    if paths.plancher:
+        out.plancher = read_plancher(paths.plancher)
     return out

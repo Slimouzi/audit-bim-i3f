@@ -617,6 +617,38 @@ def build_enveloppe_from_snapshot(snap: ModelSnapshot) -> EnveloppeSource | None
     )
 
 
+_SLAB_CLASSES = ("IfcSlab", "IfcCovering")
+_SLAB_BQ_ORDER = ("NetArea", "GrossArea", "NetSideArea")
+_PLANCHER_HEADERS = ["Composant", "Type", "Étage", "Surface (m²)", "Source surface"]
+
+
+def count_planchers(snap: ModelSnapshot | None) -> int:
+    """Nombre de dalles/planchers exploitables (IfcSlab, repli IfcCovering)."""
+    if snap is None:
+        return 0
+    return sum(len(snap.of_class(cls)) for cls in _SLAB_CLASSES)
+
+
+def build_plancher_from_snapshot(snap: ModelSnapshot) -> MultiSheetSource | None:
+    """Export plancher depuis la maquette : dalles ``IfcSlab`` (repli
+    ``IfcCovering``) avec type, étage et surface (BaseQuantities.NetArea, repli
+    « Superficie calculée »). ``None`` si aucune dalle.
+
+    Multi-onglets (comme SHAB/Zones) pour rester homogène avec le classeur MOA à
+    deux onglets ; le snapshot ne peut reproduire que l'onglet « Planchers » (les
+    colonnes Solibri du 2ᵉ onglet exigent une source externe)."""
+    slabs = [el for cls in _SLAB_CLASSES for el in snap.of_class(cls)]
+    if not slabs:
+        return None
+    rows: list[list[Any]] = [list(_PLANCHER_HEADERS)]
+    for sl in slabs:
+        el = _rich(snap, sl)
+        surf, src = _surface_with_source(el, _SLAB_BQ_ORDER)
+        rows.append([_attr(el, "Name"), _ifc_type(el), _storey(el), surf, src or NOT_AVAILABLE])
+    grid = SheetGrid(title="Planchers (depuis maquette)", rows=rows)
+    return MultiSheetSource(grids=[grid])
+
+
 def build_sources_from_snapshot(snap: ModelSnapshot) -> AvpSources:
     """Construit un jeu de sources AVP **cohérent** depuis la maquette.
 
@@ -627,6 +659,7 @@ def build_sources_from_snapshot(snap: ModelSnapshot) -> AvpSources:
     zones_ms = build_zones_espaces_from_snapshot(snap)
     men_src, men_area = build_menuiseries_from_snapshot(snap)
     env_src = build_enveloppe_from_snapshot(snap)
+    plancher_src = build_plancher_from_snapshot(snap)
 
     if env_src is not None:
         env_src.shab = shab_total
@@ -639,4 +672,5 @@ def build_sources_from_snapshot(snap: ModelSnapshot) -> AvpSources:
         zones_espaces=zones_ms,
         enveloppe=env_src,
         menuiseries=men_src,
+        plancher=plancher_src,
     )
