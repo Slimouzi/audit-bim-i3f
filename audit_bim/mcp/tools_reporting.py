@@ -56,6 +56,65 @@ def generate_xlsx_annex(output_path: str | None = None, overwrite: bool = False)
 
 
 @mcp.tool()
+def list_avp_i3f_xls_reports(
+    include_templates: bool = True,
+    require_identical: bool = False,
+) -> dict:
+    """Liste les rapports XLS AVP I3F **préparables** et leur disponibilité.
+
+    Tool **sans effet de bord** : il sonde le snapshot BIMData de la session
+    courante (entités IFC, BaseQuantities, relations zone/espace, calque
+    d'enveloppe) et rend, pour chacun des 6 rapports MOA, un verdict :
+
+    - ``can_generate`` : un rapport **métier** exploitable est produisible ;
+    - ``can_generate_identical`` : la reproduction MOA **stricte** (toutes
+      colonnes, y compris Solibri) est possible ; **False** tant qu'aucune
+      source externe n'est fournie — on ne promet pas « à l'identique » sur le
+      seul snapshot ;
+    - ``status`` : ``ready`` / ``partial`` / ``blocked`` + ``next_action``.
+
+    C'est l'étape à appeler **avant** ``generate_avp_i3f_pack`` : elle explique
+    pourquoi un rapport est prêt, partiel ou bloqué.
+
+    Args:
+        include_templates: inclure le chemin du classeur MOA de référence
+            (``template_path``) quand il existe sur le poste.
+        require_identical: si ``True``, un rapport n'est ``ready`` que si la
+            reproduction stricte est possible (colonnes Solibri comprises).
+
+    Returns:
+        ``{status, project, reports: [...]}`` — ``reports`` dans l'ordre CTO.
+    """
+    from ..reporting.avp_availability import inspect_avp_report_availability
+
+    snap = _State.snapshot
+    availabilities = inspect_avp_report_availability(
+        snap,
+        sources=None,
+        require_identical=require_identical,
+        has_audit_result=_State.result is not None,
+    )
+    reports: list[dict] = []
+    for av in availabilities:
+        d = av.to_dict()
+        if not include_templates:
+            d.pop("template_path", None)
+        reports.append(d)
+
+    phase = _State.phase.value if _State.phase else None
+    return {
+        "status": "ok",
+        "project": {
+            "name": (snap.project or {}).get("name") if snap else None,
+            "model": (snap.model or {}).get("name") if snap else None,
+            "phase": phase,
+        },
+        "require_identical": require_identical,
+        "reports": reports,
+    }
+
+
+@mcp.tool()
 def generate_avp_i3f_pack(
     output_dir: str | None = None,
     controle_xlsx: str | None = None,
@@ -63,6 +122,7 @@ def generate_avp_i3f_pack(
     zones_espaces_xlsx: str | None = None,
     enveloppe_xlsx: str | None = None,
     menuiseries_xlsx: str | None = None,
+    plancher_xlsx: str | None = None,
     project_name: str | None = None,
     project_code: str | None = None,
     phase: str | None = None,
@@ -77,9 +137,9 @@ def generate_avp_i3f_pack(
 ) -> dict:
     """Génère le pack de livrables AVP I3F (charte BIMData).
 
-    Produit les 5 Excel (Contrôle Maquettes, SHAB, Zones/Espaces, Enveloppe,
-    Menuiseries) + le rapport consolidé « Analyse BIM AVP » (.docx, + .pdf
-    best-effort). **Hybride** : données natives de l'audit courant
+    Produit les 6 Excel (Contrôle Maquettes, SHAB, Zones/Espaces, Enveloppe,
+    Menuiseries, Plancher) + le rapport consolidé « Analyse BIM AVP » (.docx,
+    + .pdf best-effort). **Hybride** : données natives de l'audit courant
     (``_State.result``, si disponible) + lecture des .xlsx sources I3F
     fournis pour les colonnes d'outils externes. Toute donnée absente →
     « Information non disponible dans les documents fournis. » (jamais
@@ -98,8 +158,10 @@ def generate_avp_i3f_pack(
 
     Args:
         output_dir: sous-dossier d'export (sandbox ``AUDIT_OUTPUT_DIR``).
-        controle_xlsx … menuiseries_xlsx: chemins des .xlsx sources I3F
-            (optionnels, sandbox lecture ``safe_input_path``).
+        controle_xlsx … plancher_xlsx: chemins des .xlsx sources I3F
+            (optionnels, sandbox lecture ``safe_input_path``). ``plancher_xlsx``
+            = export dalles/planchers (IfcSlab), généré depuis la maquette en
+            repli si non fourni.
         project_name, project_code, phase: identité projet pour le nommage.
             ``None`` → résolus depuis la maquette / les sources / la phase
             d'audit confirmée ; nom ou code introuvable → ``needs_context``.
@@ -131,6 +193,7 @@ def generate_avp_i3f_pack(
         zones_espaces=_src(zones_espaces_xlsx),
         enveloppe=_src(enveloppe_xlsx),
         menuiseries=_src(menuiseries_xlsx),
+        plancher=_src(plancher_xlsx),
     )
     # Chargement unique des sources (lues aussi pour résoudre le code ESI).
     sources = load_sources(source_paths)

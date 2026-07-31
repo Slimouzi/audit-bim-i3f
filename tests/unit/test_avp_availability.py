@@ -1,0 +1,200 @@
+"""Catalogue + vérification de disponibilité des rapports XLS AVP I3F.
+
+Couvre l'exigence CTO : sonder réellement le snapshot (entités IFC,
+BaseQuantities, relations) et **ne pas promettre « à l'identique »** quand les
+colonnes Solibri/source externe sont absentes.
+"""
+
+from __future__ import annotations
+
+from audit_bim.extraction.model_data import ModelSnapshot
+from audit_bim.reporting.avp_availability import inspect_avp_report_availability
+from audit_bim.reporting.avp_report_catalog import (
+    REPORT_SPECS,
+    REPORT_SPECS_BY_KEY,
+)
+from audit_bim.reporting.avp_sources import AvpSources, MultiSheetSource, SheetGrid
+
+
+def _bq(name: str, value: float) -> dict:
+    return {
+        "name": "BaseQuantities",
+        "properties": [{"definition": {"name": name}, "value": value}],
+    }
+
+
+def _full_snapshot() -> ModelSnapshot:
+    """Maquette riche : slab+NetArea, fenêtre+W/H, espace+NetFloorArea, zone
+    rattachée, mur d'enveloppe+NetSideArea."""
+    slab = {
+        "uuid": "SL1",
+        "type": "IfcSlab",
+        "name": "Dalle RDC",
+        "property_sets": [_bq("NetArea", 80.0)],
+    }
+    window = {
+        "uuid": "WIN1",
+        "type": "IfcWindow",
+        "name": "F1",
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [
+                    {"definition": {"name": "Width"}, "value": 1.2},
+                    {"definition": {"name": "Height"}, "value": 1.0},
+                ],
+            }
+        ],
+    }
+    wall = {
+        "uuid": "W1",
+        "type": "IfcWall",
+        "name": "Mur ext",
+        "layers": [{"name": "MURS - Extérieurs périphériques.Exnd"}],
+        "property_sets": [_bq("NetSideArea", 25.0)],
+    }
+    space = {
+        "uuid": "S1",
+        "type": "IfcSpace",
+        "name": "CHAMBRE",
+        "property_sets": [_bq("NetFloorArea", 12.0)],
+    }
+    zone = {"uuid": "Z1", "type": "IfcZone", "name": "0546L-LOGT1", "spaces": ["S1"]}
+    return ModelSnapshot(
+        project={"name": "Programme"},
+        model={"name": "M.ifc"},
+        spaces=[space],
+        zones=[zone],
+        elements=[slab, window, wall],
+    ).index()
+
+
+def _by_key(avails):
+    return {a.key: a for a in avails}
+
+
+# ── Catalogue ────────────────────────────────────────────────────────────
+
+
+def test_catalog_has_six_reports_in_cto_order():
+    keys = [s.key for s in REPORT_SPECS]
+    assert keys == [
+        "controle_maquettes",
+        "shab_maquette",
+        "zones_espaces",
+        "surface_enveloppe",
+        "menuiseries",
+        "plancher",
+    ]
+
+
+def test_plancher_spec_targets_ifcslab_and_needs_solibri_for_identical():
+    spec = REPORT_SPECS_BY_KEY["plancher"]
+    assert spec.deliverable_key == "plancher"
+    classes = {c for r in spec.requirements for c in r.ifc_classes}
+    assert "IfcSlab" in classes
+    # Une colonne Solibri externe → repro à l'identique nécessite une source.
+    assert spec.requires_external_for_identical is True
+
+
+def test_every_report_maps_to_a_deliverable_key():
+    valid = {"controle", "shab", "zones_espaces", "enveloppe", "menuiseries", "plancher"}
+    assert all(s.deliverable_key in valid for s in REPORT_SPECS)
+
+
+# ── Disponibilité snapshot-only ──────────────────────────────────────────
+
+
+def test_snapshot_only_generates_business_but_never_identical_when_solibri_needed():
+    avails = _by_key(inspect_avp_report_availability(_full_snapshot()))
+    # Rapports avec colonne Solibri : générables en métier, jamais à l'identique.
+    for key in ("shab_maquette", "zones_espaces", "surface_enveloppe", "menuiseries", "plancher"):
+        av = avails[key]
+        assert av.can_generate is True, key
+        assert av.can_generate_identical is False, key
+        assert av.status == "partial", key
+        assert av.source_xlsx_required_for_identical is True, key
+
+
+def test_controle_blocked_on_snapshot_without_audit_or_source():
+    # P1 : la grille de contrôle a besoin d'un AuditResult ou d'une source
+    # Contrôle. Le seul snapshot (ex. après verify_active_model) ne suffit pas.
+    av = _by_key(inspect_avp_report_availability(_full_snapshot()))["controle_maquettes"]
+    assert av.can_generate is False
+    assert av.status == "blocked"
+
+
+def test_controle_ready_when_audit_result_available():
+    av = _by_key(inspect_avp_report_availability(_full_snapshot(), has_audit_result=True))[
+        "controle_maquettes"
+    ]
+    assert av.can_generate is True
+    assert av.can_generate_identical is True  # aucune colonne externe requise
+    assert av.status == "ready"
+
+
+def test_plancher_available_data_lists_slab_and_netarea():
+    av = _by_key(inspect_avp_report_availability(_full_snapshot()))["plancher"]
+    joined = " ".join(av.available_data)
+    assert "IfcSlab" in joined and "NetArea" in joined
+    assert "Surface (Solibri)" in av.missing_data
+
+
+def test_plancher_blocked_without_slab():
+    snap = ModelSnapshot(spaces=[{"uuid": "S1", "type": "IfcSpace"}]).index()
+    av = _by_key(inspect_avp_report_availability(snap))["plancher"]
+    assert av.can_generate is False
+    assert av.status == "blocked"
+
+
+def test_no_snapshot_blocks_entity_reports():
+    avails = _by_key(inspect_avp_report_availability(None))
+    assert avails["menuiseries"].status == "blocked"
+    assert avails["menuiseries"].can_generate is False
+
+
+# ── Sources externes / hybride ───────────────────────────────────────────
+
+
+def test_source_present_unlocks_identical_for_plancher():
+    # Une source XLS plancher chargée porte toutes les colonnes (Solibri comprises)
+    # → générable ET à l'identique.
+    sources = AvpSources(
+        plancher=MultiSheetSource(
+            grids=[SheetGrid(title="Planchers", rows=[["Composant"], ["IfcSlab", 50.0]])]
+        )
+    )
+    av = _by_key(inspect_avp_report_availability(_full_snapshot(), sources=sources))["plancher"]
+    assert av.can_generate_identical is True
+    assert av.status == "ready"
+
+
+def test_menuiseries_source_only_generates_without_snapshot():
+    # P2a : source XLS seule (pas de snapshot) → cœur + Solibri satisfaits.
+    sources = AvpSources(
+        menuiseries=None,
+    )
+    # simulate a loaded menuiseries source via the tabular attribute
+    from audit_bim.reporting.avp_sources import MenuiseriesSource, SheetTable
+
+    sources.menuiseries = MenuiseriesSource(
+        table=SheetTable(title="Menuiseries", headers=["Composant"], rows=[["F1"]])
+    )
+    av = _by_key(inspect_avp_report_availability(None, sources=sources))["menuiseries"]
+    assert av.can_generate is True
+    assert av.status == "ready"
+
+
+# ── require_identical ────────────────────────────────────────────────────
+
+
+def test_require_identical_blocks_partial_reports():
+    avails = _by_key(
+        inspect_avp_report_availability(
+            _full_snapshot(), require_identical=True, has_audit_result=True
+        )
+    )
+    # Sans Solibri, menuiseries ne peut PAS être « à l'identique » → blocked.
+    assert avails["menuiseries"].status == "blocked"
+    # Contrôle (audit lancé, pas de colonne externe) reste ready.
+    assert avails["controle_maquettes"].status == "ready"
