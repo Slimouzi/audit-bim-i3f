@@ -20,6 +20,7 @@ Aucune écriture ; ``read_only``.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -78,6 +79,12 @@ class EnveloppeSource:
     shab: float | None = None
     ratio_fac_shab: float | None = None
     seuil_3f: float | None = None
+    # Enrichissements « logique MOA IfcOpenShell » (source structurée envelope.json).
+    superficie_facades_nette: float | None = None
+    superficie_calque_total: float | None = None  # total brut (hors filtre inclus)
+    superficie_fenetres: float | None = None
+    superficie_portes: float | None = None
+    hors_filtre_type: list[dict] | None = None  # diagnostic, hors total métier
 
 
 @dataclass
@@ -329,6 +336,69 @@ def read_enveloppe(path: str | Path) -> EnveloppeSource:
     src.seuil_3f = _scan_value(ws, "seuil 3f")
     wb.close()
     return src
+
+
+# Onglet + colonnes MOA « Extraction surface enveloppe » (logique Tarare, sans
+# Solibri : les colonnes Solibri deviennent des colonnes IFC OpenShell).
+ENVELOPPE_MOA_SHEET = "TDB 2022 04.2 - Extraction s..."
+ENVELOPPE_MOA_HEADERS = [
+    "Composant",  # A
+    "Type",  # B
+    "Étages",  # C
+    "Archicad BQ NetSideArea",  # D
+    "Surface IFC OpenShell",  # E (ex-« Surface Solibri »)
+    "ArchiCAD Superficie des ouvertures sur face extérieure",  # F
+    "IFC OpenShell Surface des Fenêtres",  # G (ex-« Solibri … »)
+    "IFC OpenShell Surface des Portes",  # H (ex-« Solibri … »)
+    "Nombre",  # I
+    "Couleur",  # J
+]
+
+
+def read_envelope_json(path: str | Path) -> EnveloppeSource:
+    """Construit la source enveloppe MOA depuis le JSON structuré ``envelope.json``
+    (MCP ifc-geometry) : **une ligne métier par type** (``par_type``), et non par
+    mur élémentaire. ``hors_filtre_type`` reste hors du total métier (diagnostic).
+    """
+    doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    par = doc.get("par_type") or []
+    fenetres = doc.get("superficie_menuiseries_fenetres_m2")
+    portes = doc.get("superficie_menuiseries_portes_m2")
+    rows: list[list[Any]] = []
+    for i, e in enumerate(par):
+        area = e.get("netsidearea_m2")
+        rows.append(
+            [
+                "IfcWall",  # A Composant
+                e.get("type"),  # B Type
+                e.get("etages"),  # C Étages
+                area,  # D Archicad BQ NetSideArea
+                area,  # E Surface IFC OpenShell (source unique → = D)
+                None,  # F ArchiCAD ouvertures ext. (non fourni)
+                fenetres if i == 0 else None,  # G total fenêtres (1re ligne)
+                portes if i == 0 else None,  # H total portes
+                e.get("nombre"),  # I Nombre
+                None,  # J Couleur
+            ]
+        )
+    table = SheetTable(title=ENVELOPPE_MOA_SHEET, headers=list(ENVELOPPE_MOA_HEADERS), rows=rows)
+    seuil = doc.get("seuil_i3f")
+    if seuil is None:
+        seuil = doc.get("seuil_3f")
+    return EnveloppeSource(
+        table=table,
+        sheet_title=ENVELOPPE_MOA_SHEET,
+        superficie_facades=doc.get("superficie_facades_m2"),
+        superficie_menuiseries=doc.get("superficie_menuiseries_m2"),
+        shab=doc.get("shab_m2"),
+        ratio_fac_shab=doc.get("ratio_fac_shab"),
+        seuil_3f=seuil,
+        superficie_facades_nette=doc.get("superficie_facades_nette_m2"),
+        superficie_calque_total=doc.get("superficie_calque_total_m2"),
+        superficie_fenetres=fenetres,
+        superficie_portes=portes,
+        hors_filtre_type=doc.get("hors_filtre_type") or [],
+    )
 
 
 def read_menuiseries(path: str | Path) -> MenuiseriesSource:

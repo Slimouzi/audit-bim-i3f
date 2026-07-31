@@ -7,6 +7,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed (Extraction surface enveloppe — logique MOA IfcOpenShell)
+
+- **L'annexe « Extraction surface enveloppe » ne somme plus les murs élémentaires du
+  snapshot.** Nouveau `read_envelope_json` (source structurée `envelope.json` du MCP
+  ifc-geometry) : **une ligne métier par type** (`par_type`) et non par mur → onglet
+  « TDB 2022 04.2 - Extraction s... », colonnes A-J au format MOA. Les colonnes **Solibri
+  deviennent IFC OpenShell** (« Surface IFC OpenShell », « IFC OpenShell Surface des
+  Fenêtres / des Portes »). `hors_filtre_type` reste **hors du total métier** (diagnostic).
+  Synthèse type Tarare (Superficie des façades, écart IFC OpenShell vs Archicad BQ,
+  menuiseries, SHAB, ratio FAC/SHAB, Seuil 3F). `generate_avp_i3f_pack` gagne
+  `envelope_json` (prioritaire sur le repli snapshot et le `.xlsx`).
+
 ### Added (quantités calculées — Lot 4 : restitution & traçabilité)
 
 - **Colonne « Source quantité »** dans les 4 exports snapshot du scope DIEPPE (SHAB,
