@@ -14,11 +14,11 @@ Les exemples de reference sont dans `/Users/stani/code/MCP/Documents maître d'
 - `260201 Tatare 0546L AVP - export SHAB maquette.xlsx`
 - `260203 Tatare 0546L AVP - export plancher.xlsx`
 
-Le repo sait deja generer un pack AVP via `generate_avp_i3f_pack`, mais ce pack est actuellement en mode hybride source-first + repli snapshot avec une presentation BIMData. Ce n'est pas encore une reproduction stricte des fichiers MOA.
+Le repo sait deja generer un pack AVP via `generate_avp_i3f_pack`. Le mode courant doit etre maquette-first: les donnees metier integrees aux rapports viennent du snapshot IFC et des quantites extraites ou calculees via IFC OpenShell. Les fichiers MOA servent de references/templates et de contexte documentaire, pas de source autoritaire des surfaces.
 
 ## Position CTO
 
-Ne pas presenter "generation a l'identique" comme disponible si le MCP n'a que le snapshot BIMData. Le snapshot permet de produire des rapports metier utiles, mais pas de reconstruire strictement les valeurs calculees par Solibri ni les tableaux croises Excel natifs sans une source equivalente.
+Ne pas presenter "generation a l'identique" comme disponible si le MCP n'a que le snapshot BIMData. Le snapshot permet de produire des rapports metier utiles avec donnees IFC/OpenShell, mais pas de reconstruire strictement les tableaux croises Excel natifs, formules et styles MOA sans mode template.
 
 La generation a l'identique doit etre un mode separe, par exemple `mode="moa_template"`, fonde sur:
 
@@ -47,7 +47,7 @@ Le MCP doit exposer ces rapports, dans cet ordre:
 - Onglet: `TDB 2022 05.1 - Fenêtres Ok`
 - Zone utile: lignes 1 a 20, colonnes A a N
 - En-tetes ligne 1:
-  `Composant`, `Type`, `Matériau`, `BaseQuantities.Width`, `BaseQuantities.Height`, `Surface Natif`, `Nombre`, `Largeur`, `Hauteur`, `Surface Solibri`, `Ecart de largeur`, `Ecart de heuteur`, cellule vide, `Couleur`
+  `Composant`, `Type`, `Matériau`, `BaseQuantities.Width`, `BaseQuantities.Height`, `Surface Natif`, `Nombre`, `Largeur`, `Hauteur`, `Surface IFC OpenShell`, `Ecart de largeur`, `Ecart de heuteur`, cellule vide, `Couleur`
 - Formules:
   - `K2:K16 = IF(Hn-Dn=0,"",Hn-Dn)`
   - `L2:L16 = IF(In-En=0,"",In-En)`
@@ -55,10 +55,10 @@ Le MCP doit exposer ces rapports, dans cet ordre:
 - Donnees obligatoires:
   - composants `IfcWindow`, `IfcWindowStandardCase`, `IfcDoor`, `IfcDoorStandardCase`;
   - type, materiau, largeur, hauteur, surface native, nombre;
-  - largeur, hauteur et surface Solibri pour une reproduction complete des ecarts.
+  - largeur, hauteur et surface IFC OpenShell pour une reproduction metier des ecarts.
 - Verdict disponibilite:
-  - BIMData snapshot: partiel, suffisant pour largeur/hauteur/surface native si BaseQuantities presentes;
-  - Solibri/source XLS: requis pour colonnes Solibri et ecarts a l'identique.
+  - BIMData snapshot: suffisant pour largeur/hauteur/surface native si BaseQuantities presentes;
+  - mode template MOA: requis pour les pivots/formules/styles a l'identique.
 
 ### Zones et Espaces
 
@@ -70,24 +70,24 @@ Le MCP doit exposer ces rapports, dans cet ordre:
   - ligne 32: total general, total attendu dans l'exemple `2164.98`.
 - `TDB 2022 01.3 - Export Zones...`:
   - table lignes 1 a 301, colonnes A a L;
-  - en-tetes: `Composant`, `Nom Zone`, `Type de Zone`, `Groupes`, `Pièce (Nombre)`, `Type Pièce`, `Surface (Solibri)`, `Surface Nette (Qté de Base)`, `Étage`, `Surface Brute (Qté de Base)`, `Couleur`, `écarts`;
+  - en-tetes: `Composant`, `Nom Zone`, `Type de Zone`, `Groupes`, `Pièce (Nombre)`, `Type Pièce`, `Surface IFC OpenShell`, `Surface Nette (Qté de Base)`, `Étage`, `Surface Brute (Qté de Base)`, `Couleur`, `écarts`;
   - formules de recopie en A/B/C sur de nombreuses lignes;
   - formule d'ecart colonne L: `IF(Hn/Gn-1=0,"",Hn/Gn-1)`.
 - `Feuil1`: onglet vide a conserver.
 - Donnees obligatoires:
   - zones `IfcZone`, espaces `IfcSpace`, rattachements zone-espace, etages;
   - typologie zone/logement, nom/type de piece;
-  - surfaces Solibri, surfaces nettes/brutes BaseQuantities.
+  - surfaces IFC OpenShell, surfaces nettes/brutes BaseQuantities.
 - Verdict disponibilite:
   - BIMData snapshot: bon pour espaces, zones, etages et BaseQuantities si extraits;
-  - Solibri/source XLS: requis pour `Surface (Solibri)` et pour reproduire le pivot Excel strictement.
+  - mode template MOA: requis pour reproduire le pivot Excel strictement.
 
 ### Surface enveloppe
 
 - Onglet: `TDB 2022 04.2 - Extraction s...`
 - Zone utile: lignes 1 a 18, colonnes A a J
 - En-tetes ligne 1:
-  `Composant`, `Type`, `Étages`, `Archicad BQ NetSideArea`, `Surface Solibri`, `ArchiCAD Superficie des ouvertures sur face extérieure`, `Solibri Surface des Fenêtres`, `Solibri Surface des Portes`, `Nombre`, `Couleur`
+  `Composant`, `Type`, `Étages`, `Archicad BQ NetSideArea`, `Surface IFC OpenShell`, `ArchiCAD Superficie des ouvertures sur face extérieure`, `IFC OpenShell Surface des Fenêtres`, `IFC OpenShell Surface des Portes`, `Nombre`, `Couleur`
 - Formules et synthese:
   - `D11 = SUM(D2:D10)`
   - `E11 = SUM(E2:E10)`
@@ -99,11 +99,11 @@ Le MCP doit exposer ces rapports, dans cet ordre:
 - Donnees obligatoires:
   - murs d'enveloppe `IfcWall` et `IfcWallStandardCase` sur layer contenant `Extérieurs périphériques`;
   - type, etage, `BaseQuantities.NetSideArea`, nombre;
-  - surfaces Solibri, ouvertures exterieures Archicad, surfaces fenetres/portes Solibri;
+  - surfaces IFC OpenShell, ouvertures exterieures, surfaces fenetres/portes IFC OpenShell;
   - SHAB issue du pivot zones/SHAB pour `GETPIVOTDATA`.
 - Verdict disponibilite:
   - BIMData snapshot: partiel a bon pour murs, layers et surfaces natives;
-  - Solibri/source XLS ou moteur geo: requis pour surfaces Solibri et `GETPIVOTDATA` strict.
+  - mode template MOA: requis pour `GETPIVOTDATA` strict.
 
 ### SHAB maquette
 
@@ -115,15 +115,15 @@ Le MCP doit exposer ces rapports, dans cet ordre:
   - ligne 32: total general, total attendu dans l'exemple `2164.98`.
 - `TDB 2022 01.3 - Export Zones...`:
   - table lignes 1 a 303, colonnes A a L;
-  - en-tetes: `Composant`, `Nom Zone`, `Type de Zone`, `Groupes`, `Pièce`, `Type Pièce`, `Surface (Solibri)`, `Surface Nette (Qté de Base)`, `Étage`, `Surface Brute (Qté de Base)`, `Couleur`, `écarts`;
+  - en-tetes: `Composant`, `Nom Zone`, `Type de Zone`, `Groupes`, `Pièce`, `Type Pièce`, `Surface IFC OpenShell`, `Surface Nette (Qté de Base)`, `Étage`, `Surface Brute (Qté de Base)`, `Couleur`, `écarts`;
   - formule d'ecart colonne L: `IF(Gn-Hn=0,"",Gn-Hn)`.
 - Donnees obligatoires:
   - espaces, zones/logements, types de pieces, etages;
   - `Surface Nette (Qté de Base)` et `Surface Brute (Qté de Base)`;
-  - surface Solibri pour calcul d'ecart exact.
+  - surface IFC OpenShell pour calcul d'ecart metier.
 - Verdict disponibilite:
   - BIMData snapshot: bon pour surfaces BaseQuantities et relations si elles sont extraites;
-  - Solibri/source XLS: requis pour surface Solibri et pivot Excel strict.
+  - mode template MOA: requis pour le pivot Excel strict.
 
 ### Plancher
 
@@ -133,16 +133,16 @@ Le MCP doit exposer ces rapports, dans cet ordre:
   - en-tetes: `Composant`, `Type`, `Étage`, `BaseQuantities.NetArea`, `Surface`, `Nombre`, `Couleur`.
 - `Planchers`:
   - table lignes 1 a 23, colonnes A a H;
-  - en-tetes: `Composant`, `Type`, `Étage`, `BaseQuantities.NetArea`, `Surface\nSolibri`, `Ecart`, `Nombre`, `Couleur`;
+  - en-tetes: `Composant`, `Type`, `Étage`, `BaseQuantities.NetArea`, `Surface IFC OpenShell`, `Ecart`, `Nombre`, `Couleur`;
   - formules `F2:F20 = IF(En-Dn=0,"",En/Dn-1)`;
   - `D22 = SUM(D2:D21)`, `E22 = SUM(E2:E21)`, `E23 = E22/D22-1`.
 - Donnees obligatoires:
   - dalles/planchers, principalement `IfcSlab`, eventuellement `IfcCovering` si la maquette code certains planchers ainsi;
-  - type, etage, `BaseQuantities.NetArea`, surface Solibri, nombre.
+  - type, etage, `BaseQuantities.NetArea`, surface IFC OpenShell, nombre.
 - Verdict disponibilite:
   - BIMData snapshot: probablement bon pour `IfcSlab` + `NetArea` si les quantites sont presentes;
-  - Solibri/source XLS: requis pour `Surface Solibri`;
-  - code actuel: rapport absent du pack, a implementer.
+  - mode template MOA: requis pour la reproduction stricte;
+  - code actuel: rapport inclus dans le pack.
 
 ## Contrat MCP a ajouter
 
@@ -171,10 +171,10 @@ Sortie attendue:
       "can_generate_identical": false,
       "status": "partial",
       "available_data": ["IfcWindow", "BaseQuantities.Width", "BaseQuantities.Height"],
-      "missing_data": ["Surface Solibri"],
+      "missing_data": [],
       "template_path": "/.../260130 Tarare export Menuiseries.xlsx",
       "source_xlsx_required_for_identical": true,
-      "next_action": "Fournir l'export Solibri ou lancer le mode template depuis la source MOA."
+      "next_action": "Rapport metier generable depuis la maquette ; reproduction a l'identique indisponible sans mode template MOA."
     }
   ]
 }
@@ -195,10 +195,10 @@ def generate_avp_i3f_pack(
 
 Regles:
 
-- `bimdata_branded`: comportement actuel, avec ajout de `plancher`.
+- `bimdata_branded`: maquette-first ; les surfaces/dimensions proviennent du snapshot IFC/OpenShell.
 - `moa_template`: copie le workbook template, remplace uniquement les plages de donnees, conserve feuilles, largeurs, hauteurs, styles, formules, formats, tableaux croises et onglets vides.
 - `strict_identical=True`: echoue si une colonne requise n'est pas disponible. Ne pas remplir avec `NOT_AVAILABLE` dans ce mode.
-- Si `require_identical=True` dans le listing, un rapport est `ready` seulement si toutes les colonnes MOA, y compris Solibri/source externe, sont disponibles.
+- Si `require_identical=True` dans le listing, un rapport est `ready` seulement si le mode template MOA peut preserver formules, pivots, styles et signatures.
 
 ## Architecture a implementer
 
@@ -246,7 +246,7 @@ Regles:
 | Menuiseries portes/fenetres | Oui | `IfcWindow`, `IfcDoor` et variantes StandardCase deja gerees |
 | Materiaux | Oui partiel | Depend de `material_list`/`materials` |
 | Dalles/planchers | Non dans le pack AVP | A ajouter via `IfcSlab` |
-| Surfaces et dimensions Solibri | Non garanties | Source XLS ou extraction externe requise |
+| Surfaces et dimensions IFC OpenShell | Oui si quantites IFC extraites/calculables | Source metier des rapports generes |
 | Tableaux croises Excel natifs | Non reconstruits strictement | Utiliser template ou source XLS |
 | Styles MOA exacts | Non | Generation actuelle applique la charte BIMData |
 
@@ -260,7 +260,7 @@ Un rapport `moa_template` est accepte seulement si:
 - les largeurs/hauteurs principales sont conservees;
 - les onglets vides de reference restent presents;
 - le nombre de lignes metier est coherent avec les donnees source;
-- le mode strict echoue explicitement si une donnee Solibri requise est absente;
+- le mode strict echoue explicitement si une donnee IFC ou une signature template requise est absente;
 - aucune valeur metier n'est inventee.
 
 Ajouter des tests unitaires de signature workbook a partir de mini-fixtures:

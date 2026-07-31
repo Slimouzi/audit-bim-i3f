@@ -1,20 +1,20 @@
-"""Catalogue des rapports XLS AVP I3F (Tarare 0546L) et de leurs données requises.
+"""Catalogue des rapports XLS AVP I3F et de leurs données requises.
 
 Ce module est **déclaratif** : il décrit, pour chaque rapport que le MCP peut
 proposer, la signature du classeur MOA de référence (onglets, en-têtes, formules
 critiques) et la liste des **données requises** — chacune qualifiée par ce qui la
 satisfait (entité IFC, BaseQuantity, relation zone/espace, calque d'enveloppe, ou
-**source externe** Solibri/XLS).
+calcul IFC/OpenShell).
 
 Il ne lit **aucune** donnée et ne génère **aucun** fichier : la vérification de
 disponibilité vit dans :mod:`avp_availability`, la génération dans
 :mod:`avp_i3f`. Le catalogue est la source de vérité partagée entre les deux et
 le tool MCP ``list_avp_i3f_xls_reports``.
 
-Distinction clé (position CTO) : une donnée ``external=True`` (surface Solibri,
-tableau croisé natif) **n'est jamais** fournie par le snapshot BIMData. Tant
-qu'aucune source équivalente n'est fournie, la reproduction « à l'identique »
-n'est **pas** disponible — on ne la promet pas.
+Distinction clé (position CTO) : les données métier générées doivent venir de
+la maquette IFC ou de calculs IFC/OpenShell. Les classeurs MOA de référence
+restent utiles pour une future reproduction « à l'identique » (formules /
+pivots / styles), mais pas comme source autoritaire des surfaces.
 """
 
 from __future__ import annotations
@@ -43,11 +43,11 @@ class DataRequirement:
       classes ;
     - ``relation_zone_space`` — au moins une IfcZone rattachée à des espaces ;
     - ``envelope_layer`` — au moins un mur sur le calque d'enveloppe ;
-    - ``external_source`` — donnée d'un outil externe (Solibri) / d'un XLS
-      source : **jamais** dans le snapshot (``external`` forcé à ``True``).
+    - ``external_source`` — réservé à un futur besoin template/source ;
+      les rapports métier courants ne l'utilisent pas.
 
     ``identical_only`` : la donnée n'est requise que pour la reproduction MOA
-    stricte (colonnes Solibri, écarts). Un rapport reste générable en version
+    stricte (pivots / formules / styles). Un rapport reste générable en version
     métier sans elle.
     """
 
@@ -96,7 +96,10 @@ class ReportSpec:
 
     @property
     def requires_external_for_identical(self) -> bool:
-        return any(r.external for r in self.requirements)
+        # Une reproduction stricte d'un classeur MOA suppose un mode template
+        # basé sur le classeur de référence. Cela ne signifie pas que les valeurs
+        # métier viennent du XLS : elles restent IFC/OpenShell.
+        return True
 
     def core_requirements(self) -> tuple[DataRequirement, ...]:
         """Données nécessaires pour un rapport **métier** (hors « à l'identique »)."""
@@ -139,13 +142,6 @@ _MENUISERIE_CLASSES = ("IfcWindow", "IfcWindowStandardCase", "IfcDoor", "IfcDoor
 _ENVELOPE_WALL_CLASSES = ("IfcWall", "IfcWallStandardCase")
 _SLAB_CLASSES = ("IfcSlab", "IfcCovering")
 
-_R_SURFACE_SOLIBRI = DataRequirement(
-    key="Surface Solibri",
-    label="Surface (Solibri)",
-    kind="external_source",
-)
-
-
 # ── Catalogue ────────────────────────────────────────────────────────────────
 #
 # Ordre imposé par le CTO (cf. docs/instruct-mcp-xls-moa-reports.md).
@@ -162,13 +158,12 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
         requirements=(
             DataRequirement("IfcSpace", "Espaces (IfcSpace)", "ifc_entity", ("IfcSpace",)),
             DataRequirement("IfcZone", "Zones (IfcZone)", "ifc_entity", ("IfcZone",)),
-            # La grille de contrôle est remplie soit par un AuditResult (audit
-            # lancé), soit par la source « Contrôle Maquettes » I3F. Le seul
-            # snapshot (ex. après verify_active_model) ne suffit pas : sans l'un
-            # des deux, la grille sort vide / NOT_AVAILABLE.
+            # La grille de contrôle est remplie par l'AuditResult. Le seul
+            # snapshot (ex. après verify_active_model) ne suffit pas : sans
+            # audit lancé, la grille sort vide / NOT_AVAILABLE.
             DataRequirement(
                 "controle_grille",
-                "Grille de contrôle (audit lancé ou source Contrôle I3F)",
+                "Grille de contrôle (audit lancé)",
                 "audit_or_control_source",
             ),
         ),
@@ -185,7 +180,7 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
             "Type de Zone",
             "Pièce",
             "Type Pièce",
-            "Surface (Solibri)",
+            "Surface IFC OpenShell",
             "Surface Nette (Qté de Base)",
             "Étage",
             "Surface Brute (Qté de Base)",
@@ -203,7 +198,6 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
             DataRequirement(
                 "zone_space", "Rattachement zone/espace", "relation_zone_space", ("IfcZone",)
             ),
-            _R_SURFACE_SOLIBRI,
         ),
     ),
     ReportSpec(
@@ -219,7 +213,7 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
             "Groupes",
             "Pièce (Nombre)",
             "Type Pièce",
-            "Surface (Solibri)",
+            "Surface IFC OpenShell",
             "Surface Nette (Qté de Base)",
             "Étage",
             "Surface Brute (Qté de Base)",
@@ -238,7 +232,6 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
                 ("IfcSpace",),
                 quantity="NetFloorArea",
             ),
-            _R_SURFACE_SOLIBRI,
         ),
     ),
     ReportSpec(
@@ -252,10 +245,10 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
             "Type",
             "Étages",
             "Archicad BQ NetSideArea",
-            "Surface Solibri",
+            "Surface IFC OpenShell",
             "ArchiCAD Superficie des ouvertures sur face extérieure",
-            "Solibri Surface des Fenêtres",
-            "Solibri Surface des Portes",
+            "IFC OpenShell Surface des Fenêtres",
+            "IFC OpenShell Surface des Portes",
             "Nombre",
         ),
         critical_formulas=("SUM(D2:D10)", "E11/D11-1", 'GETPIVOTDATA("Surface Nette (Qté de Base)'),
@@ -273,7 +266,6 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
                 _ENVELOPE_WALL_CLASSES,
                 quantity="NetSideArea",
             ),
-            _R_SURFACE_SOLIBRI,
         ),
     ),
     ReportSpec(
@@ -292,7 +284,7 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
             "Nombre",
             "Largeur",
             "Hauteur",
-            "Surface Solibri",
+            "Surface IFC OpenShell",
             "Ecart de largeur",
             "Ecart de heuteur",
         ),
@@ -318,7 +310,6 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
                 _MENUISERIE_CLASSES,
                 quantity="Height",
             ),
-            _R_SURFACE_SOLIBRI,
         ),
     ),
     ReportSpec(
@@ -332,7 +323,7 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
             "Type",
             "Étage",
             "BaseQuantities.NetArea",
-            "Surface",
+            "Surface IFC OpenShell",
             "Nombre",
         ),
         critical_formulas=('IF(En-Dn=0,"",En/Dn-1)', "SUM(D2:D21)", "E22/D22-1"),
@@ -345,7 +336,6 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
                 _SLAB_CLASSES,
                 quantity="NetArea",
             ),
-            _R_SURFACE_SOLIBRI,
         ),
     ),
 )

@@ -58,7 +58,7 @@ def test_plancher_partial_and_not_identical_snapshot_only(_isolated):
     out = tools_reporting.list_avp_i3f_xls_reports()
     plancher = next(r for r in out["reports"] if r["key"] == "plancher")
     assert plancher["can_generate"] is True
-    # Snapshot seul : jamais « à l'identique » (colonne Solibri absente).
+    # Snapshot seul : jamais « à l'identique » sans mode template MOA.
     assert plancher["can_generate_identical"] is False
     assert plancher["status"] == "partial"
     assert plancher["source_xlsx_required_for_identical"] is True

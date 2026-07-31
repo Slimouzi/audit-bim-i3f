@@ -14,7 +14,7 @@ from audit_bim.audit.engine import AuditResult
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.reporting import avp_i3f
 from audit_bim.reporting.avp_i3f import AvpQaError, write_avp_i3f_report_pack
-from audit_bim.reporting.avp_sources import AvpSources
+from audit_bim.reporting.avp_sources import AvpSources, MultiSheetSource, SheetGrid
 from audit_bim.requirements.models import BIMPhase, RequirementsCatalog
 
 
@@ -235,16 +235,15 @@ def test_zones_espaces_first_tab_has_ifczone_and_storey(tmp_path):
     assert "R+1 / R+2" in flat
 
 
-def test_zones_espaces_appends_snapshot_enrichment_with_sources(tmp_path):
-    """Sources I3F présentes : l'enrichissement maquette (IfcZone + étage)
-    est ajouté à l'export en plus des onglets source fidèles."""
+def test_zones_espaces_uses_snapshot_instead_of_source_with_snapshot(tmp_path):
+    """Sources I3F présentes + snapshot : l'export métier vient de la maquette."""
     from audit_bim.reporting.avp_sources import AvpSources, MultiSheetSource, SheetGrid
 
     result = _duplex_result()
-    # Source I3F « fidèle » minimale (onglet pivot sans IfcZone/étage).
+    # Source I3F minimale avec une valeur qui ne doit pas être recopiée.
     src_grid = SheetGrid(
         title="TDB 2022 01.3 - Export Zones",
-        rows=[["Composant", "Nom Zone"], ["Zone", "0546L-1101"]],
+        rows=[["Composant", "Nom Zone"], ["Zone", "SOURCE-A-IGNORER"]],
     )
     sources = AvpSources(zones_espaces=MultiSheetSource(grids=[src_grid]))
 
@@ -266,11 +265,42 @@ def test_zones_espaces_appends_snapshot_enrichment_with_sources(tmp_path):
         if c is not None
     )
     wb.close()
-    # L'onglet source est préservé + l'enrichissement maquette est ajouté.
-    assert any("Export Zones" in t for t in titles)
+    # La source n'est pas ajoutée : les onglets exportés sont ceux du snapshot.
+    assert not any("Export Zones" in t for t in titles)
     assert any("depuis maquette" in t.lower() for t in titles)
     assert "Zone (IfcZone)" in flat
     assert "Logement Duplex A101" in flat
+    assert "SOURCE-A-IGNORER" not in flat
+
+
+def test_generated_snapshot_reports_replace_solibri_columns(tmp_path):
+    result = _duplex_result()
+    sources = AvpSources(
+        shab=MultiSheetSource(
+            grids=[
+                SheetGrid(
+                    title="TDB source",
+                    rows=[
+                        ["Composant", "Surface Solibri"],
+                        ["IfcSpace", 9999.0],
+                    ],
+                )
+            ]
+        )
+    )
+    pack = write_avp_i3f_report_pack(
+        result,
+        tmp_path / "out",
+        sources=sources,
+        project_name="X",
+        project_code="Y",
+        export_pdf=False,
+    )
+    txt = _all_text(pack.shab_xlsx)
+    assert "Surface IFC OpenShell (m²)" in txt
+    assert "Méthode IFC OpenShell" in txt
+    assert "Surface Solibri" not in txt
+    assert "9999" not in txt
 
 
 def test_shab_space_multiple_storeys_joined(tmp_path):
