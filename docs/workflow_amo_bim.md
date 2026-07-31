@@ -45,11 +45,12 @@ extract_model_snapshot(use_cache=True)
 
 Orchestrateur : parse les 3 documents MOA, extrait le snapshot (si pas
 déjà fait), exécute les 6 règles, produit Word + XLSX. Avec
-`push_mode="ask"` (défaut), ne pousse **rien** dans BIMData — c'est le
-workflow AMO qui décide en étapes 7/9/11.
+`push_mode="none"` (défaut), ne prépare aucune publication BIMData :
+c'est le chemin nominal d'audit complet + livrables. Les propositions de
+correctifs de classification se traitent dans un deuxième temps.
 
 ```python
-full_audit(phase="PRO", push_mode="ask")
+full_audit(phase="PRO")
 # → {"summary": {...}, "deliverables": {"word": "...", "xlsx": "...", ...}}
 ```
 
