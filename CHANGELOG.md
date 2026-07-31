@@ -23,7 +23,7 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 - **`warn_bimdata_auth_mode()`** (appelé par `assert_startup_config`, **tous
   transports**) : logge le mode d'auth BIMData **effectif** (précédence
-  `access_token → api_key → OAuth2`, valeurs **masquées** `…<4>`), et **avertit** quand
+  `access_token → api_key → OAuth2`, sans journaliser de valeur de credential), et **avertit** quand
   plusieurs modes sont configurés simultanément — un credential de rang supérieur périmé
   masque silencieusement un mode inférieur valide (cause racine d'un 401 « inexplicable »).
   Transforme une panne d'exécution opaque en signal de configuration au boot.

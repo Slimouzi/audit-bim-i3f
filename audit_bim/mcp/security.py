@@ -220,13 +220,6 @@ def ensure_writes_allowed(action: str) -> None:
 # ── Démarrage : diagnostic auth BIMData ──────────────────────────────────
 
 
-def _mask_secret(value: str | None) -> str:
-    """Empreinte non-divulgante d'un secret : ``…<4 derniers>``."""
-    if not value:
-        return "∅"
-    return f"…{value[-4:]}" if len(value) >= 4 else "…"
-
-
 def warn_bimdata_auth_mode() -> None:
     """Logge le mode d'auth BIMData **effectif** et avertit si plusieurs modes
     sont configurés en même temps.
@@ -235,21 +228,21 @@ def warn_bimdata_auth_mode() -> None:
     ``tools_session._active_auth``) : ``access_token`` → ``api_key`` → OAuth2
     ``client_credentials``. Le premier disponible gagne — un credential de rang
     supérieur **périmé masque silencieusement** un mode inférieur valide (cause
-    racine classique d'un 401 « inexplicable »). On logge donc, valeurs masquées,
-    lequel est retenu et lesquels sont ignorés.
+    racine classique d'un 401 « inexplicable »). On logge donc quel mode est
+    retenu et lesquels sont ignorés, sans journaliser de valeur de credential.
     """
     access = os.getenv("BIMDATA_ACCESS_TOKEN")
     api_key = os.getenv("BIMDATA_API_KEY")
     client_id = os.getenv("BIMDATA_CLIENT_ID")
     client_secret = os.getenv("BIMDATA_CLIENT_SECRET")
 
-    modes: list[tuple[str, str, str]] = []
+    modes: list[tuple[str, str]] = []
     if access:
-        modes.append(("BIMDATA_ACCESS_TOKEN", "Bearer", access))
+        modes.append(("BIMDATA_ACCESS_TOKEN", "Bearer"))
     if api_key:
-        modes.append(("BIMDATA_API_KEY", "ApiKey", api_key))
+        modes.append(("BIMDATA_API_KEY", "ApiKey"))
     if client_id and client_secret:
-        modes.append(("BIMDATA_CLIENT_ID+SECRET", "Bearer(OAuth2)", client_id))
+        modes.append(("OAuth2 client credentials", "Bearer(OAuth2)"))
 
     if not modes:
         logger.warning(
@@ -258,18 +251,17 @@ def warn_bimdata_auth_mode() -> None:
         )
         return
 
-    source, scheme, value = modes[0]
-    logger.info("Auth BIMData active : %s (%s, %s)", source, scheme, _mask_secret(value))
+    source, scheme = modes[0]
+    logger.info("Auth BIMData active : %s (%s)", source, scheme)
     if len(modes) > 1:
         ignored = ", ".join(m[0] for m in modes[1:])
         logger.warning(
-            "Plusieurs modes d'auth BIMData définis → seul %s (%s, %s) est utilisé ; "
+            "Plusieurs modes d'auth BIMData définis → seul %s (%s) est utilisé ; "
             "ignoré(s) : %s. Un credential de rang supérieur périmé masquerait les "
             "autres → n'en configurer qu'un seul (politique clé serveur : BIMDATA_API_KEY "
             "uniquement).",
             source,
             scheme,
-            _mask_secret(value),
             ignored,
         )
 
