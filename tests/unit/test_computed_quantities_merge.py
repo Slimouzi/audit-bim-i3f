@@ -102,7 +102,8 @@ def test_provenance_recorded_per_value():
 def test_schema_mismatch_refused(tmp_path):
     p = tmp_path / "bad.json"
     p.write_text(json.dumps({"schema": "other/v9", "quantities": []}), encoding="utf-8")
-    with pytest.raises(ValueError, match="Schéma inattendu"):
+    # Message porté par le contrat partagé (bim-core) depuis la centralisation.
+    with pytest.raises(ValueError, match="Schéma non reconnu"):
         load_computed_quantities(p)
 
 

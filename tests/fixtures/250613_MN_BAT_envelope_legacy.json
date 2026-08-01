@@ -1,0 +1,242 @@
+{
+  "layer_pattern": "221|ext[ée]rieurs?\\s+p[ée]riph[ée]riques",
+  "type_pattern": "^ME[ _]",
+  "n_murs_calque": 484,
+  "n_murs_sans_calque": 0,
+  "par_type": [
+    {
+      "type": "ME_R+1_Enduit_recoupement 530 x 2850",
+      "n": 24,
+      "etages": [
+        "R+1_A/B",
+        "R+1_C/D",
+        "R+1_E/F & TOITURE_C",
+        "R+2_B & TOITURE_A",
+        "R+2_C & RDC_E/F & TOITURE D",
+        "R+2_E & TOITURE_F"
+      ],
+      "net_side_area_m2": 872.01,
+      "menuiseries_m2": 57.6
+    },
+    {
+      "type": "ME_RDC_36ep_Enduit Chaux_sans bavette 509 x 2850",
+      "n": 10,
+      "etages": [
+        "R+2_C & RDC_E/F & TOITURE D",
+        "RDC_A/B",
+        "RDC_C/D & TOITURE B"
+      ],
+      "net_side_area_m2": 379.72,
+      "menuiseries_m2": 141.96
+    },
+    {
+      "type": "ME 8+36+6 : Fin ext + Bois Paille + Fin int 500",
+      "n": 24,
+      "etages": [
+        "R+1_E/F & TOITURE_C",
+        "R+2_B & TOITURE_A",
+        "R+2_C & RDC_E/F & TOITURE D",
+        "R+2_E & TOITURE_F",
+        "RDC_C/D & TOITURE B",
+        "TOITURE_E"
+      ],
+      "net_side_area_m2": 313.14,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "ME_RDC_36ep_soubassement 509 x 2980",
+      "n": 6,
+      "etages": [
+        "R+1_A/B",
+        "R+1_C/D"
+      ],
+      "net_side_area_m2": 181.44,
+      "menuiseries_m2": 37.2
+    },
+    {
+      "type": "ME_RDC_36ep 509 x 2980",
+      "n": 3,
+      "etages": [
+        "R+1_C/D",
+        "R+1_E/F & TOITURE_C"
+      ],
+      "net_side_area_m2": 168.24,
+      "menuiseries_m2": 72.59
+    },
+    {
+      "type": "ME_RDC_36ep_Enduit Chaux_sans bavette 509 x 3020",
+      "n": 2,
+      "etages": [
+        "RDC_A/B"
+      ],
+      "net_side_area_m2": 53.19,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "ME_RDC_36ep_soubassement 509 x 2850",
+      "n": 2,
+      "etages": [
+        "R+1_E/F & TOITURE_C"
+      ],
+      "net_side_area_m2": 52.29,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "ME_RDC_36ep 509 x 2850",
+      "n": 1,
+      "etages": [],
+      "net_side_area_m2": 51.16,
+      "menuiseries_m2": 39.1
+    }
+  ],
+  "hors_filtre_type": [
+    {
+      "type": "RE 20 : béton 200",
+      "n": 10,
+      "etages": [
+        "R+2_C & RDC_E/F & TOITURE D",
+        "RDC_A/B",
+        "RDC_C/D & TOITURE B"
+      ],
+      "net_side_area_m2": 367.89,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "Métal - Aluminium 25",
+      "n": 66,
+      "etages": [
+        "R+1_A/B",
+        "R+1_C/D",
+        "R+1_E/F & TOITURE_C",
+        "R+2_C & RDC_E/F & TOITURE D",
+        "RDC_C/D & TOITURE B"
+      ],
+      "net_side_area_m2": 201.42,
+      "menuiseries_m2": 50.3
+    },
+    {
+      "type": "Béton 200",
+      "n": 2,
+      "etages": [
+        "RDC_A/B",
+        "RDC_C/D & TOITURE B"
+      ],
+      "net_side_area_m2": 126.25,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "Métal - Zinc 50",
+      "n": 108,
+      "etages": [
+        "R+1_E/F & TOITURE_C",
+        "R+2_B & TOITURE_A",
+        "R+2_C & RDC_E/F & TOITURE D",
+        "R+2_E & TOITURE_F",
+        "RDC_C/D & TOITURE B",
+        "TOITURE_E"
+      ],
+      "net_side_area_m2": 109.73,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "Bois - Massif 300",
+      "n": 38,
+      "etages": [
+        "R+1_A/B",
+        "R+1_C/D",
+        "R+1_E/F & TOITURE_C",
+        "R+2_B & TOITURE_A",
+        "R+2_C & RDC_E/F & TOITURE D",
+        "R+2_E & TOITURE_F"
+      ],
+      "net_side_area_m2": 66.8,
+      "menuiseries_m2": 194.8
+    },
+    {
+      "type": "  GENERIQUE - STRUCTURE 100",
+      "n": 132,
+      "etages": [
+        "R+1_A/B",
+        "R+1_C/D",
+        "R+1_E/F & TOITURE_C",
+        "R+2_C & RDC_E/F & TOITURE D",
+        "RDC_A/B",
+        "RDC_C/D & TOITURE B"
+      ],
+      "net_side_area_m2": 60.22,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "Béton 180",
+      "n": 10,
+      "etages": [
+        "R+1_A/B",
+        "R+1_C/D",
+        "R+1_E/F & TOITURE_C"
+      ],
+      "net_side_area_m2": 25.72,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "  GENERIQUE - STRUCTURE 200",
+      "n": 24,
+      "etages": [
+        "R+1_A/B",
+        "R+1_C/D",
+        "R+1_E/F & TOITURE_C",
+        "R+2_C & RDC_E/F & TOITURE D",
+        "RDC_A/B",
+        "RDC_C/D & TOITURE B"
+      ],
+      "net_side_area_m2": 14.19,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "  GENERIQUE - STRUCTURE 180",
+      "n": 2,
+      "etages": [
+        "RDC_A/B"
+      ],
+      "net_side_area_m2": 4.6,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "  GENERIQUE - STRUCTURE 350",
+      "n": 8,
+      "etages": [
+        "R+1_C/D",
+        "RDC_C/D & TOITURE B"
+      ],
+      "net_side_area_m2": 2.88,
+      "menuiseries_m2": 0.0
+    },
+    {
+      "type": "Béton 100",
+      "n": 12,
+      "etages": [
+        "R+1_A/B",
+        "RDC_A/B"
+      ],
+      "net_side_area_m2": 2.61,
+      "menuiseries_m2": 0.0
+    }
+  ],
+  "superficie_facades_m2": 2071.18,
+  "superficie_calque_total_m2": 3053.49,
+  "superficie_menuiseries_m2": 348.45,
+  "superficie_menuiseries_calque_m2": 593.55,
+  "n_menuiseries": 209,
+  "shab_m2": 2164.68,
+  "shab_exclusions_m2": 82.38,
+  "shab_types_exclus": [
+    "balcon",
+    "cave",
+    "cellier",
+    "escalier",
+    "garage",
+    "local"
+  ],
+  "ratio_fac_shab": 0.9568,
+  "seuil_i3f": 0.9,
+  "conforme_seuil": false
+}

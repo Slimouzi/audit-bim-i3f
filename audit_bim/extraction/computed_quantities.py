@@ -21,38 +21,39 @@ La valeur calculée est injectée dans les ``property_sets`` de l'élément (pse
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
-EXPORT_SCHEMA = "computed_base_quantities/v1"
-SOURCE_COMPUTED = "computed_ifcopenshell"
+from bim_core.contracts import (
+    SCHEMA_COMPUTED_BASE_QUANTITIES_V1,
+    SOURCE_COMPUTED,
+    load_computed_base_quantities,
+)
+
+EXPORT_SCHEMA = SCHEMA_COMPUTED_BASE_QUANTITIES_V1
 
 # Préfixes de pset reconnus comme BaseQuantities (aligné bim_query / avp).
 _BQ_PREFIXES = ("basequantities", "qto_", "quantit")
 
 
 def load_computed_quantities(json_path: str | Path) -> dict[str, Any]:
-    """Charge et **valide** le JSON ``computed_base_quantities/v1``.
+    """Charge et **valide** le contrat ``computed_base_quantities/v1``.
+
+    La validation est déléguée à
+    :func:`bim_core.contracts.load_computed_base_quantities` — politique de
+    schéma commune à tous les MCP : document V1 accepté, schéma inconnu ou
+    invalide **refusé**, fichier historique sans ``schema`` migré vers V1 avec
+    l'avertissement ``legacy_schema_missing``.
+
+    Renvoie le **document** (dict) : la fusion en aval lit ``quantities`` telle
+    quelle, indépendamment de la source du fichier.
 
     Raises:
-        ValueError: fichier absent, illisible, ou schéma inattendu.
+        ContractError: fichier absent, illisible, schéma inconnu/invalide ou
+            forme non reconnue. Sous-classe de ``ValueError`` — les appelants
+            qui attrapaient ``ValueError`` restent compatibles.
     """
-    p = Path(json_path)
-    if not p.is_file():
-        raise ValueError(f"JSON de quantités calculées introuvable : {json_path}")
-    try:
-        doc = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"JSON de quantités calculées illisible : {exc}") from exc
-    if not isinstance(doc, dict) or doc.get("schema") != EXPORT_SCHEMA:
-        raise ValueError(
-            f"Schéma inattendu : {doc.get('schema') if isinstance(doc, dict) else type(doc).__name__!r} "
-            f"(attendu {EXPORT_SCHEMA!r})."
-        )
-    if not isinstance(doc.get("quantities"), list):
-        raise ValueError("Champ `quantities` manquant ou invalide dans le JSON.")
-    return doc
+    return load_computed_base_quantities(str(json_path)).to_document()
 
 
 def json_digest(json_path: str | Path) -> str:

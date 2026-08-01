@@ -7,6 +7,41 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed (contrats JSON — validation centralisée dans bim-core)
+
+- **Les JSON échangés avec le MCP géométrique sont désormais des contrats
+  versionnés** (`bim-core>=0.2.0`, sous-package `bim_core.contracts`) :
+  `envelope_quantities/v1` et `computed_base_quantities/v1`. Audit-bim ne
+  réimplémente plus ni la validation ni la normalisation.
+- **Politique de schéma appliquée AVANT toute fusion / génération** :
+  document V1 accepté ; `schema` présent mais inconnu ou invalide (`null`,
+  `""`, `0`, `False`, autre famille de contrat) **refusé** ; fichier
+  historique **sans** `schema` accepté uniquement s'il correspond à une forme
+  legacy connue, migré explicitement vers V1 avec l'avertissement
+  `legacy_schema_missing`.
+- **`BIM_CORE_JSON_STRICT_SCHEMA=true`** supprime la tolérance legacy — de quoi
+  vérifier qu'un parc de fichiers est entièrement migré. Ce mode deviendra le
+  défaut ; la compat sans `schema` est temporaire.
+- **`read_envelope_json`** (annexe « Extraction surface enveloppe ») et
+  **`load_computed_quantities`** (fusion gap-only) délèguent à
+  `load_envelope_quantities` / `load_computed_base_quantities`. La
+  normalisation des alias de clés (`netsidearea_m2`, `nombre`, `etages` en
+  chaîne, `seuil_3f`) **disparaît d'audit-bim** : elle vit dans le contrat.
+- **Compatibilité préservée** : toutes les erreurs de contrat héritent de
+  `ContractError`, elle-même une `ValueError` — les appelants qui attrapaient
+  `ValueError` fonctionnent sans changement. Seul le libellé change
+  (« Schéma non reconnu »).
+- Bump des pins first-party : bim-core v0.2.0, bimdata-read v0.1.6,
+  bimdata-write v0.1.4, bim-query v0.1.3, bim-publication v0.1.3,
+  bim-audit-engine v0.1.4. Ces briques n'ont pas besoin des contrats, mais uv
+  refuse deux URLs Git différentes pour un même paquet : toutes doivent pointer
+  le même tag bim-core.
+- Tests : `test_json_contract_consumption.py` (22) — fichier **réel**
+  `250613_MN_BAT_envelope.json` (sans `schema`) accepté via migration, document
+  V1 producteur accepté sans avertissement, schémas invalides refusés avant
+  fusion, mode strict refusant le legacy, et livrable enveloppe non vide dans
+  les deux cas.
+
 ### Changed (reporting AVP — découpage interne, façade conservée)
 
 - **`audit_bim/reporting/avp_i3f.py` (2 527 lignes) découpé** en package interne
