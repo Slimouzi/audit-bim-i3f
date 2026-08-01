@@ -4,18 +4,18 @@ Pour chaque rapport du catalogue (:mod:`avp_report_catalog`), on **sonde**
 réellement le ``ModelSnapshot`` (entités IFC, BaseQuantities, relations
 zone/espace, calque d'enveloppe) puis rend un verdict orienté utilisateur :
 
-- ``can_generate`` : un rapport **métier** (charte BIMData) est produisible ;
+- ``can_generate`` : un rapport **métier** au format MOA reconstruit est produisible ;
 - ``can_generate_identical`` : une reproduction MOA **stricte** (formules /
   pivots / styles préservés) est produisible — voir ci-dessous ;
 - ``status`` : ``ready`` / ``partial`` / ``blocked`` ;
 - ``available_data`` / ``missing_data`` : détail par donnée requise.
 
 Position CTO respectée (P1) : ``can_generate_identical`` **ne dépend pas que**
-de la disponibilité des données IFC. La génération courante réécrit des tables
-**brandées** → formules / pivots / styles
-**non préservés**. Tant que le mode ``moa_template`` (copie du workbook) n'est
-pas livré, ``can_generate_identical`` est **toujours** ``False`` (cf.
-``_MOA_TEMPLATE_MODE_AVAILABLE``) et un rapport générable reste ``partial``.
+de la disponibilité des données IFC. La génération courante reconstruit les
+onglets/colonnes/formules principales au format MOA, mais ne préserve pas les
+pivots et styles natifs Excel. Tant que le mode ``moa_template`` (copie du
+workbook) n'est pas livré, ``can_generate_identical`` est **toujours** ``False``
+(cf. ``_MOA_TEMPLATE_MODE_AVAILABLE``) et un rapport générable reste ``partial``.
 """
 
 from __future__ import annotations
@@ -40,9 +40,8 @@ from .avp_snapshot import (
 # Excel natives, pivots, styles et formules critiques** du catalogue. Cela exige
 # un mode « template » qui **copie** le workbook source et n'en remplace que les
 # plages de données. Ce mode **n'existe pas encore** : la génération courante
-# réécrit des tables
-# **brandées BIMData** (``_build_multisheet_export_xlsx`` / builders) → formules,
-# pivots et styles **ne sont pas préservés**. Tant que ce mode n'est pas livré,
+# reconstruit des feuilles MOA plutôt que de copier le workbook source → pivots
+# et styles natifs **ne sont pas préservés**. Tant que ce mode n'est pas livré,
 # **aucun** rapport ne peut être annoncé « à l'identique », même avec toutes les
 # données IFC disponibles. Voir docs/instruct-mcp-xls-moa-reports.md
 # (mode ``moa_template``, priorité ultérieure).
@@ -166,7 +165,7 @@ def _next_action(
         # Bloqué par l'exigence stricte « à l'identique ».
         return "Listing strict : " + _identical_note(missing_external) + "."
     # partial / partial_computed : rapport métier générable, mais pas à l'identique.
-    prefix = "Rapport métier (charte BIMData) générable depuis la maquette"
+    prefix = "Rapport métier au format MOA reconstruit générable depuis la maquette"
     if computed_assisted:
         prefix += (
             " grâce à des BaseQuantities **calculées** (IfcOpenShell, non "
@@ -217,7 +216,7 @@ def _availability_for_spec(
     can_generate = core_ok
     # La disponibilité des données IFC ne suffit PAS : sans mode template (copie
     # du workbook, préservation formules/pivots/styles), la génération courante
-    # produit un rapport **brandé**, jamais une reproduction à l'identique.
+    # reconstruit un rapport MOA mais pas une reproduction stricte.
     can_generate_identical = identical_ok and _MOA_TEMPLATE_MODE_AVAILABLE
 
     if not can_generate:

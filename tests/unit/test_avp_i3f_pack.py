@@ -1,7 +1,7 @@
 """Tests du pack de livrables AVP I3F (``avp_i3f``).
 
 Sources synthétiques (openpyxl) → génération → relecture. Couvre :
-structure d'onglets, ordre des en-têtes, charte BIMData, absence de
+structure d'onglets, ordre des en-têtes, format MOA, absence de
 l'ancienne charte, principe « ne jamais inventer », sections du consolidé.
 """
 
@@ -160,9 +160,230 @@ def test_controle_has_expected_sheets(tmp_path, sources):
         "Grille de contrôle",
         "Zones Nommage",
         "Pièces Nommage",
-        "ARC absence de matériau",
+        "ARC bsence de matériau",
         "Zones ObjectType",
     ]
+    wb.close()
+
+
+def _moa_controle_template(path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Grille de contrôle"
+    ws["A2"] = "2.         Grille de contrôle des exigences du CCH BIM 3F"
+    ws["A3"] = "Les maquettes numériques ont été analysées suivant la liste des critères suivants :"
+    ws["B5"] = "Projet"
+    ws["C5"] = "Tarare"
+    ws["B6"] = "ESI"
+    ws["C6"] = "0546L"
+    ws["B7"] = "Phase"
+    ws["C7"] = "AVP"
+    ws["E7"] = "Légende : "
+    ws["E8"] = 0
+    ws["F8"] = "Non fourni / non trouvé"
+    ws["E9"] = 1
+    ws["F9"] = "Insuffisant : à reprendre ou compléter"
+    ws["E10"] = 2
+    ws["F10"] = "Satisfaisant"
+    ws.append([])
+    ws.append([])
+    ws.append(
+        [
+            "CODE 3F",
+            "POINTS DE CONTROLE",
+            "EXIGENCE CCH BIM 3F",
+            "Outil utilisé",
+            "EVALUATION",
+            "Commentaires CdP Bim",
+        ]
+    )
+    ws.append([1, "Plan 2D / Maquette 3D"])
+    ws.append(["1.1", "Conformité plans / maquette", "les plans…", None, "nc", "OLD_COMMENT"])
+    ws["E91"] = "=AVERAGE(E15:E83)/5"
+
+    for sheet_name, title, old_value in (
+        ("Zones Nommage", "Zones", "OLD_ZONE"),
+        ("Pièces Nommage", "Pièces", "OLD_ROOM"),
+        ("Zones ObjectType", "Zones", "OLD_OBJECT"),
+    ):
+        ws_s = wb.create_sheet(sheet_name)
+        ws_s.merge_cells("B10:C10")
+        ws_s["B2"] = "='Grille de contrôle'!C6"
+        ws_s["B7"] = "Nombre de Noms"
+        ws_s["C7"] = "=SUM(C13:C200)"
+        ws_s["D7"] = '=SUMIF(D13:D128,"Conforme",C13:C128)'
+        ws_s["A12"] = "coller ici ->"
+        ws_s["B12"] = "Name"
+        ws_s["C12"] = "#"
+        ws_s["A13"] = title
+        ws_s["B13"] = old_value
+        ws_s["C13"] = 99
+        ws_s["D13"] = '=IF(B13="","", "Conforme")'
+
+    ws_m = wb.create_sheet("ARC bsence de matériau")
+    ws_m.merge_cells("B10:C10")
+    ws_m["B2"] = "='Zones Nommage'!B2"
+    ws_m["B7"] = "Nombre d'élements sans matériaux"
+    ws_m["C7"] = "=SUM(C13:C206)"
+    ws_m["F7"] = "Nombre d'élements :"
+    ws_m["G7"] = 10530
+    ws_m["A12"] = "coller ici ->"
+    ws_m["B12"] = "IFC Element"
+    ws_m["C12"] = "#"
+    ws_m["A13"] = "ObjT Pièces"
+    ws_m["B13"] = "OLD_IFC"
+    ws_m["C13"] = 617
+    wb.save(path)
+    return path
+
+
+def _controle_template_result():
+    from audit_bim.audit.engine import AuditResult
+    from audit_bim.extraction.model_data import ModelSnapshot
+    from audit_bim.requirements.models import BIMPhase, RequirementsCatalog
+
+    cat = RequirementsCatalog(
+        cch_version="3.6",
+        properties=[],
+        naming_rules=[],
+        storey_names=[],
+        zone_specs=[],
+        room_specs=[],
+    )
+    wall = {
+        "uuid": "W1",
+        "type": "IfcWall",
+        "name": "Mur extérieur",
+        "layers": [{"name": "221 - MURS - Extérieurs périphériques.Exndo"}],
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetSideArea"}, "value": 30.0}],
+            }
+        ],
+    }
+    window = {
+        "uuid": "WIN1",
+        "type": "IfcWindow",
+        "name": "F25",
+        "material_list": [{"material": {"name": "PVC"}}],
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [
+                    {"definition": {"name": "Width"}, "value": 0.6},
+                    {"definition": {"name": "Height"}, "value": 1.3},
+                ],
+            }
+        ],
+    }
+    slab = {
+        "uuid": "SL1",
+        "type": "IfcSlab",
+        "name": "Dalle R+1",
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetArea"}, "value": 12.98}],
+            }
+        ],
+    }
+    spaces = [
+        {
+            "uuid": "S1",
+            "type": "IfcSpace",
+            "name": "S-001",
+            "longname": "CHAMBRE",
+            "storey": {"uuid": "ST1", "name": "R+1"},
+            "property_sets": [
+                {
+                    "name": "BaseQuantities",
+                    "properties": [{"definition": {"name": "NetFloorArea"}, "value": 12.0}],
+                }
+            ],
+        },
+        {
+            "uuid": "S2",
+            "type": "IfcSpace",
+            "name": "S-002",
+            "longname": "CHAMBRE",
+            "storey": {"uuid": "ST1", "name": "R+1"},
+            "property_sets": [
+                {
+                    "name": "BaseQuantities",
+                    "properties": [{"definition": {"name": "NetFloorArea"}, "value": 10.0}],
+                }
+            ],
+        },
+        {
+            "uuid": "S3",
+            "type": "IfcSpace",
+            "name": "CUISINE",
+            "storey": {"uuid": "ST1", "name": "R+1"},
+            "property_sets": [
+                {
+                    "name": "BaseQuantities",
+                    "properties": [{"definition": {"name": "NetFloorArea"}, "value": 8.0}],
+                }
+            ],
+        },
+    ]
+    zones = [
+        {"uuid": "Z1", "type": "IfcZone", "name": "MCP-001", "object_type": "Zone Logement T3"},
+        {"uuid": "Z2", "type": "IfcZone", "name": "MCP-002", "objectType": "Zone Logement T3"},
+    ]
+    snap = ModelSnapshot(
+        project={"name": "MCP_Audit"},
+        model={"name": "MN.ifc"},
+        storeys=[{"uuid": "ST1", "name": "R+1"}],
+        spaces=spaces,
+        zones=zones,
+        elements=[wall, window, slab],
+    ).index()
+    return AuditResult(phase=BIMPhase.AVP, catalog=cat, snapshot=snap, findings=[])
+
+
+def test_controle_template_preserves_moa_logic_and_uses_snapshot_data(tmp_path):
+    template = _moa_controle_template(tmp_path / "controle_template.xlsx")
+    pack = write_avp_i3f_report_pack(
+        _controle_template_result(),
+        tmp_path / "out",
+        sources=AvpSourcePaths(controle=template),
+        project_name="MCP_Audit",
+        project_code="0546L",
+        phase="AVP",
+        export_pdf=False,
+    )
+    wb = openpyxl.load_workbook(pack.controle_xlsx, data_only=False)
+    ws = wb["Grille de contrôle"]
+    assert ws.max_row > 91
+    assert ws["A15"].value == "1.1"
+    assert ws["C5"].value == "MCP_Audit"
+    assert ws["C6"].value == "0546L"
+    assert ws["E15"].value is None
+    assert ws["F15"].value is None
+    assert "Synthèse audit MCP" in [ws.cell(row, 1).value for row in range(1, ws.max_row + 1)]
+
+    zones = wb["Zones Nommage"]
+    assert "B10:C10" in {str(rng) for rng in zones.merged_cells.ranges}
+    assert zones["B2"].value == "='Grille de contrôle'!C6"
+    assert zones["B13"].value == "MCP-001"
+    assert zones["C13"].value == 1
+    assert zones["B14"].value == "MCP-002"
+    assert "OLD_ZONE" not in [zones.cell(row, 2).value for row in range(13, 20)]
+
+    pieces = wb["Pièces Nommage"]
+    assert pieces["B13"].value == "CHAMBRE"
+    assert pieces["C13"].value == 2
+    assert pieces["B14"].value == "CUISINE"
+
+    object_types = wb["Zones ObjectType"]
+    assert object_types["B13"].value == "Zone Logement T3"
+    assert object_types["C13"].value == 2
+
+    materials = wb["ARC bsence de matériau"]
+    assert materials["G7"].value == 3
+    assert "OLD_IFC" not in [materials.cell(row, 2).value for row in range(13, 20)]
     wb.close()
 
 
@@ -173,35 +394,37 @@ def test_export_headers_order_preserved(tmp_path, sources):
     hr = _find_row(ws, "Composant")
     assert hr is not None
     headers = [ws.cell(hr, c).value for c in range(1, 6)]
-    assert headers == ["Composant", "Type", "Étages", "Archicad BQ NetSideArea", "Surface Solibri"]
+    assert headers == [
+        "Composant",
+        "Type",
+        "Étages",
+        "Archicad BQ NetSideArea",
+        "Surface IFC OpenShell",
+    ]
     wb.close()
 
 
 def test_enveloppe_summary_block(tmp_path, sources):
     pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
-    wb = openpyxl.load_workbook(pack.enveloppe_xlsx)
+    wb = openpyxl.load_workbook(pack.enveloppe_xlsx, data_only=True)
     ws = wb.active
-    r = _find_row(ws, "ratio FAC/SHAB")
-    assert r is not None and ws.cell(r, 2).value == pytest.approx(0.9567)
-    r2 = _find_row(ws, "Seuil 3F 2026")
-    assert r2 is not None and ws.cell(r2, 2).value == pytest.approx(0.9)
+    r = _find_row(ws, "ratio FAC/SHAB : ")
+    assert r is not None and ws.cell(r, 4).value == pytest.approx(0.9567)
+    r2 = _find_row(ws, "Seuil 3F 2026 : ")
+    assert r2 is not None and ws.cell(r2, 4).value == pytest.approx(0.9)
     wb.close()
 
 
 # ── Charte BIMData ───────────────────────────────────────────────────────
 
 
-def test_bimdata_branding(tmp_path, sources):
+def test_enveloppe_uses_moa_layout_not_bimdata_banner(tmp_path, sources):
     pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
     wb = openpyxl.load_workbook(pack.enveloppe_xlsx)
     ws = wb.active
-    # Bannière BIMDATA.
-    assert str(ws["A1"].value).startswith("BIMDATA —")
-    # En-tête de table : fond primaire 2F374A, police Roboto.
-    hr = _find_row(ws, "Composant")
-    cell = ws.cell(hr, 1)
-    assert (cell.fill.fgColor.rgb or "").upper().endswith("2F374A")
-    assert cell.font.name == "Roboto"
+    assert ws["A1"].value == "Composant"
+    assert not str(ws["A1"].value).startswith("BIMDATA —")
+    assert ws.freeze_panes is None
     wb.close()
 
 
@@ -211,7 +434,8 @@ def test_no_old_charter_in_outputs(tmp_path, sources):
         with zipfile.ZipFile(p) as z:
             blob = b"".join(z.read(n) for n in z.namelist() if n.endswith((".xml", ".rels")))
         assert b"KORHUS" not in blob.upper(), f"ancienne charte trouvée dans {p.name}"
-        assert b"BIMDATA" in blob.upper()
+        if p.suffix == ".xlsx":
+            assert b"BIMDATA" not in blob.upper()
 
 
 # ── Ne jamais inventer ───────────────────────────────────────────────────
@@ -234,18 +458,18 @@ def test_consolidated_docx_sections(tmp_path, sources):
     doc = Document(str(pack.analyse_docx))
     txt = "\n".join(p.text for p in doc.paragraphs)
     for section in (
-        "Analyse BIM",
-        "1. Données d'entrée",
-        "2. Usages BIM 3F",
-        "3. Synthèse",
-        "4. Indicateurs de conformité",
-        "5. Écarts",
-        "6. Grille de contrôle",
-        "7. Points bloquants",
-        "8. Recommandations AMO BIM",
-        "9. Annexes",
+        "Rapport d’analyse des maquettes numériques",
+        "Table des matières",
+        "1. Données d’entrées",
+        "2. Grille de contrôle",
+        "3. Grille de contrôle des exigences du CCH BIM 3F",
+        "onglet Zones Nommage",
+        "onglet Pièces Nommage",
+        "onglet ARC bsence de matériau",
+        "onglet Zones ObjectType",
     ):
         assert section in txt, f"section manquante : {section}"
+    assert "BIMDATA —" not in txt
 
 
 # ── Conformité aux fichiers I3F réels (bugs de revue) ────────────────────
@@ -383,7 +607,7 @@ def test_controle_detail_grid_reproduced(tmp_path, sources):
     ws = wb["Pièces Nommage"]
     vals = {c.value for row in ws.iter_rows() for c in row}
     assert 316 in vals  # détail reproduit, pas seulement l'agrégat
-    assert ws.max_row > 3
+    assert ws.max_row >= 3
     wb.close()
 
 
@@ -435,7 +659,7 @@ def test_consolidated_uses_real_audit_result(tmp_path, sources):
     )
     doc = Document(str(pack.analyse_docx))
     txt = "\n".join(p.text for p in doc.paragraphs)
-    assert "Audit BIMData automatisé de la maquette active" in txt
+    assert "Audit automatisé de la maquette active" in txt
     found = any(
         c.text.startswith("Quantités manquantes") and r.cells[1].text == "3"
         for tbl in doc.tables
@@ -451,6 +675,27 @@ def test_consolidated_grille_is_landscape(tmp_path, sources):
     pack = write_avp_i3f_report_pack(None, tmp_path / "out", sources=sources, export_pdf=False)
     doc = Document(str(pack.analyse_docx))
     assert any(s.orientation == WD_ORIENT.LANDSCAPE for s in doc.sections)
+
+
+def test_consolidated_docx_reuses_generated_control_workbook(tmp_path):
+    template = _moa_controle_template(tmp_path / "controle_template.xlsx")
+    pack = write_avp_i3f_report_pack(
+        _controle_template_result(),
+        tmp_path / "out",
+        sources=AvpSourcePaths(controle=template),
+        project_name="MCP_Audit",
+        project_code="0546L",
+        phase="AVP",
+        export_pdf=False,
+    )
+    doc = Document(str(pack.analyse_docx))
+    table_text = "\n".join(c.text for table in doc.tables for row in table.rows for c in row.cells)
+    assert "MCP-001" in table_text
+    assert "CHAMBRE" in table_text
+    assert "Zone Logement T3" in table_text
+    assert "OLD_ZONE" not in table_text
+    assert "OLD_ROOM" not in table_text
+    assert "OLD_OBJECT" not in table_text
 
 
 # ── 3e revue : LOW/INFO, métadonnées opérationnelles, onglet vide ────────

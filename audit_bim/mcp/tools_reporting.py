@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +26,121 @@ from .phase import (
 from .session import _State
 
 _server_logger = logging.getLogger("audit_bim.mcp.tools_reporting")
+
+
+def _auto_envelope_roots() -> list[Path]:
+    roots: list[Path] = []
+    # Déploiement local Codex/Claude : audit-bim-i3f est lancé depuis le repo,
+    # tandis que les JSON produits par ifc-geometry vivent dans ../audit_in.
+    repo_root = Path(__file__).resolve().parents[2]
+    workspace_root = repo_root.parent
+    roots.extend(
+        [
+            Path.cwd() / "audit_in",
+            Path.cwd().parent / "audit_in",
+            repo_root / "audit_in",
+            workspace_root / "audit_in",
+        ]
+    )
+
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for root in roots:
+        resolved = root.expanduser().resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
+    return unique
+
+
+def _unique_envelope_json(roots: list[Path]) -> str | None:
+    candidates: list[Path] = []
+    for root in roots:
+        resolved = root.expanduser().resolve()
+        if resolved.is_dir():
+            candidates.extend(sorted(resolved.glob("*_envelope.json")))
+    if len(candidates) != 1:
+        return None
+    return str(candidates[0])
+
+
+def _auto_envelope_json() -> str | None:
+    """Détecte un ``*_envelope.json`` unique dans les dossiers d'entrée connus.
+
+    Le pack enveloppe conforme dépend du contrat ifc-geometry. Quand le client
+    MCP oublie de passer explicitement ``envelope_json`` mais que le fichier est
+    déjà présent dans un dossier d'entrée connu, on l'utilise plutôt que de
+    retomber silencieusement sur le dump snapshot élémentaire.
+    """
+    root_raw = os.getenv("AUDIT_INPUT_DIR")
+    if root_raw:
+        return _unique_envelope_json([Path(root_raw)])
+    return _unique_envelope_json(_auto_envelope_roots())
+
+
+def _normalized_filename(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
+
+
+def _documents_maitre_ouvrage_roots() -> list[Path]:
+    repo_root = Path(__file__).resolve().parents[2]
+    workspace_root = repo_root.parent
+    roots: list[Path] = []
+    if workspace_root.is_dir():
+        for child in workspace_root.iterdir():
+            if not child.is_dir():
+                continue
+            name = _normalized_filename(child.name)
+            if "documents" in name and "maitre" in name and "ouvrage" in name:
+                roots.append(child.resolve())
+    return roots
+
+
+def _auto_controle_roots() -> list[Path]:
+    roots: list[Path] = []
+    root_raw = os.getenv("AUDIT_INPUT_DIR")
+    if root_raw:
+        roots = [Path(root_raw)]
+    else:
+        roots.extend(_auto_envelope_roots())
+        roots.extend(_documents_maitre_ouvrage_roots())
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for root in roots:
+        resolved = root.expanduser().resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
+    return unique
+
+
+def _is_controle_maquettes_xlsx(path: Path) -> bool:
+    name = _normalized_filename(path.name)
+    return path.suffix.lower() in {".xlsx", ".xlsm"} and "controle maquettes" in name
+
+
+def _unique_controle_xlsx(roots: list[Path]) -> str | None:
+    candidates: list[Path] = []
+    for root in roots:
+        resolved = root.expanduser().resolve()
+        if resolved.is_dir():
+            candidates.extend(
+                p for p in sorted(resolved.glob("*.xls*")) if _is_controle_maquettes_xlsx(p)
+            )
+    if len(candidates) != 1:
+        return None
+    return str(candidates[0])
+
+
+def _auto_controle_xlsx() -> str | None:
+    """Détecte un template Contrôle Maquettes MOA unique.
+
+    Sans template, le livrable Contrôle retombe sur une grille synthétique. On
+    préfère donc consommer le classeur MOA disponible localement quand il est
+    unique, sans choisir arbitrairement entre plusieurs références.
+    """
+    return _unique_controle_xlsx(_auto_controle_roots())
 
 
 def _default_output_paths() -> tuple[Path, Path]:
@@ -213,8 +330,10 @@ def generate_avp_i3f_pack(
     def _src(p: str | None) -> str | None:
         return str(safe_input_path(p, allowed_extensions={".xlsx", ".xlsm"})) if p else None
 
+    controle_xlsx_used = controle_xlsx or _auto_controle_xlsx()
+    controle_src = _src(controle_xlsx_used)
     source_paths = AvpSourcePaths(
-        controle=_src(controle_xlsx),
+        controle=controle_src,
         shab=_src(shab_xlsx),
         zones_espaces=_src(zones_espaces_xlsx),
         enveloppe=_src(enveloppe_xlsx),
@@ -226,9 +345,11 @@ def generate_avp_i3f_pack(
     # Enveloppe « logique MOA » : source structurée envelope.json (MCP ifc-geometry)
     # → onglet par_type (8 lignes métier), prioritaire sur le repli snapshot (484
     # murs) et sur le .xlsx source.
-    if envelope_json:
-        safe_env = safe_input_path(envelope_json, allowed_extensions={".json"})
+    envelope_json_used = envelope_json or _auto_envelope_json()
+    if envelope_json_used:
+        safe_env = safe_input_path(envelope_json_used, allowed_extensions={".json"})
         sources.enveloppe = read_envelope_json(safe_env)
+        envelope_json_used = str(safe_env)
     ctrl_header = (sources.controle.header if sources.controle else {}) or {}
 
     def _hdr(key: str) -> str | None:
@@ -359,6 +480,8 @@ def generate_avp_i3f_pack(
         "project_name": eff_name,
         "project_code": eff_code,
         "phase": eff_phase,
+        "controle_xlsx_used": controle_src,
+        "envelope_json_used": envelope_json_used,
     }
 
 

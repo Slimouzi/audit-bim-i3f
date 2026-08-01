@@ -23,6 +23,8 @@ from typing import Any
 
 from ..extraction.model_data import ModelSnapshot
 from .avp_sources import (
+    ENVELOPPE_MOA_HEADERS,
+    ENVELOPPE_MOA_SHEET,
     AvpSources,
     EnveloppeSource,
     MenuiseriesSource,
@@ -398,15 +400,33 @@ def _build_space_storey_map(snap: ModelSnapshot) -> dict[str, list[str]]:
 # « Zone » = zone(s) contenant l'espace ; « Étage » = étage(s) — les deux
 # multi-valués (séparés par « / ») pour couvrir les duplex (zone traversant
 # plusieurs niveaux) et un espace rattaché à plusieurs zones d'étage.
-_SPACE_HEADERS = [
+_ZONE_DETAIL_HEADERS_SHAB = [
     "Composant",
-    "Libellé",
-    "Zone",
+    "Nom Zone",
+    "Type de Zone",
+    "Groupes",
+    "Pièce",
+    "Type Pièce",
+    "Surface IFC OpenShell",
+    "Surface Nette (Qté de Base)",
     "Étage",
-    "Type",
-    "Surface IFC OpenShell (m²)",
-    "Méthode IFC OpenShell",
-    "Source quantité",
+    "Surface Brute (Qté de Base)",
+    "Couleur",
+    "écarts",
+]
+_ZONE_DETAIL_HEADERS_ZONES = [
+    "Composant",
+    "Nom Zone",
+    "Type de Zone",
+    "Groupes",
+    "Pièce (Nombre)",
+    "Type Pièce",
+    "Surface IFC OpenShell",
+    "Surface Nette (Qté de Base)",
+    "Étage",
+    "Surface Brute (Qté de Base)",
+    "Couleur",
+    "écarts",
 ]
 
 _MULTI_SEP = " / "
@@ -416,6 +436,37 @@ _MULTI_SEP = " / "
 # Un gap (aucune valeur) n'est **jamais masqué** → NOT_AVAILABLE.
 _SRC_MODEL = "Maquette"
 _SRC_COMPUTED = "Calculée (IfcOpenShell)"
+
+
+def _num(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _round2(value: float | None) -> float | None:
+    return round(value, 2) if value is not None else None
+
+
+def _ifc_component_label(ifc_class: str | None) -> str:
+    if ifc_class in ("IfcWindow", "IfcWindowStandardCase"):
+        return "Fenêtre"
+    if ifc_class in ("IfcDoor", "IfcDoorStandardCase"):
+        return "Porte"
+    if ifc_class in ("IfcSlab", "IfcCovering"):
+        return "Dalle"
+    if ifc_class in ("IfcSpace",):
+        return "Pièce"
+    if ifc_class in ("IfcZone",):
+        return "Zone"
+    return ifc_class or ""
+
+
+def _object_type_or_name(el: dict) -> str:
+    """Type métier affiché dans les exports MOA, avec repli sur le Name IFC."""
+    for attr in ("ObjectType", "PredefinedType", "Name"):
+        value = _attr(el, attr)
+        if value.strip():
+            return value.strip()
+    return el.get("type") or ""
 
 
 def _computed_qty_names(el: dict) -> set[str]:
@@ -432,158 +483,235 @@ def _quantity_source(el: dict, has_value: bool, qty_names: tuple[str, ...]) -> s
     return _SRC_COMPUTED if _computed_qty_names(el) & set(qty_names) else _SRC_MODEL
 
 
-def _spaces_grid(snap: ModelSnapshot, title: str) -> tuple[SheetGrid | None, float | None]:
+def _space_surface(sp: dict) -> tuple[float | None, float | None]:
+    net, _src = _surface_with_source(sp, _SPACE_BQ_ORDER)
+    gross = _base_quantity_ordered(sp, ("GrossFloorArea", "GrossArea"))
+    if gross is None:
+        gross = net
+    return net, gross
+
+
+def _zone_member_map(snap: ModelSnapshot) -> dict[str, list[str]]:
     spaces = snap.spaces or []
-    if not spaces:
-        return None, None
-    zone_map = _build_space_zone_map(snap)
-    storey_map = _build_space_storey_map(snap)
-    rows: list[list[Any]] = [list(_SPACE_HEADERS)]
-    total = 0.0
-    any_surface = False
-    for sp in spaces:
-        el = _rich(snap, sp)
-        uuid = sp.get("uuid")
-        surf, src = _surface_with_source(el, _SPACE_BQ_ORDER)
-        if surf is not None:
-            total += surf
-            any_surface = True
-        zone_val = _MULTI_SEP.join(zone_map.get(uuid, []))
-        storeys = storey_map.get(uuid, [])
-        if not storeys:
-            direct = _storey(el)
-            if direct:
-                storeys = [direct]
-        storey_val = _MULTI_SEP.join(storeys)
-        rows.append(
-            [
-                "IfcSpace",
-                _label(el),
-                zone_val,
-                storey_val,
-                _ifc_type(el),
-                surf,
-                src or NOT_AVAILABLE,
-                _quantity_source(el, surf is not None, _SPACE_BQ_ORDER),
-            ]
-        )
-    return SheetGrid(title=title, rows=rows), (round(total, 4) if any_surface else None)
-
-
-def build_shab_from_snapshot(snap: ModelSnapshot) -> tuple[MultiSheetSource | None, float | None]:
-    """Export SHAB depuis la maquette : surfaces nettes des espaces."""
-    grid, total = _spaces_grid(snap, "Export SHAB maquette (depuis maquette)")
-    if grid is None:
-        return None, None
-    return MultiSheetSource(grids=[grid]), total
-
-
-_ZONE_HEADERS = [
-    "Zone (IfcZone)",
-    "Libellé",
-    "Étage(s)",
-    "Nombre de pièces",
-    "Surface IFC OpenShell (m²)",
-    "Méthode IFC OpenShell",
-    "Source quantité",
-]
-
-
-def _zone_quantity_source(zel: dict, members: list, by_uuid: dict, has_value: bool) -> str:
-    """Source de la surface d'une zone : « Calculée » si la zone elle-même ou
-    **l'une de ses pièces** tire sa surface du calcul géométrique."""
-    if not has_value:
-        return NOT_AVAILABLE
-    order = set(_SPACE_BQ_ORDER)
-    if _computed_qty_names(zel) & order:
-        return _SRC_COMPUTED
-    for u in members:
-        sp = by_uuid.get(u)
-        if sp is not None and (_computed_qty_names(sp) & order):
-            return _SRC_COMPUTED
-    return _SRC_MODEL
-
-
-def _zones_grid(snap: ModelSnapshot) -> SheetGrid:
-    """Onglet Zones : une ligne par IfcZone, avec le(s) étage(s) traversé(s)
-    (union des étages des pièces rattachées → duplex géré) et le nombre de
-    pièces. Surface propre, sinon somme des espaces rattachés."""
-    spaces = snap.spaces or []
-    zones = snap.zones or []
-    by_uuid = {sp.get("uuid"): _rich(snap, sp) for sp in spaces}
-    storey_map = _build_space_storey_map(snap)
     tree_members = _zone_members_from_tree(snap)
-    rows: list[list[Any]] = [list(_ZONE_HEADERS)]
-    for z in zones:
-        zel = _rich(snap, z)
+    out: dict[str, list[str]] = {}
+    for z in snap.zones or []:
         members = _zone_member_uuids(z)
         if not members:
             members = [sp.get("uuid") for sp in spaces if _space_zone_uuid(sp) == z.get("uuid")]
         if not members:
-            # Repli : appartenance Zone → Space depuis l'arborescence spatiale.
             members = list(tree_members.get(z.get("uuid"), []))
-        # Étage(s) couvert(s) par la zone = union des étages de ses pièces.
-        storeys: list[str] = []
-        for u in members:
-            for name in storey_map.get(u, []):
-                if name and name not in storeys:
-                    storeys.append(name)
-        surf, src = _surface_with_source(zel, _SPACE_BQ_ORDER)
-        if surf is None:
-            # Repli : somme des surfaces des espaces rattachés.
-            acc = 0.0
-            found = False
-            for u in members:
-                sp = by_uuid.get(u)
-                if sp is None:
-                    continue
-                v, _ = _surface_with_source(sp, _SPACE_BQ_ORDER)
-                if v is not None:
-                    acc += v
-                    found = True
-            if found:
-                surf, src = round(acc, 4), "IFC OpenShell - somme des espaces rattachés"
+        out[str(z.get("uuid"))] = [u for u in members if u]
+    return out
+
+
+def _space_records(snap: ModelSnapshot) -> list[dict[str, Any]]:
+    spaces = snap.spaces or []
+    if not spaces:
+        return []
+    by_uuid = {sp.get("uuid"): _rich(snap, sp) for sp in spaces}
+    zone_members = _zone_member_map(snap)
+    storey_map = _build_space_storey_map(snap)
+    _, tree_zone_map = _walk_structure_tree(snap)
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add_record(
+        sp_uuid: str | None,
+        z: dict | None,
+        first_in_zone: bool,
+        *,
+        zone_name_override: str | None = None,
+    ) -> None:
+        if not sp_uuid or sp_uuid not in by_uuid:
+            return
+        sp = by_uuid[sp_uuid]
+        zrich = _rich(snap, z) if z else None
+        net, gross = _space_surface(sp)
+        storeys = storey_map.get(sp_uuid, [])
+        if not storeys:
+            direct = _storey(sp)
+            if direct:
+                storeys = [direct]
+        has_zone = z is not None or bool(zone_name_override)
+        records.append(
+            {
+                "component": "Zone" if has_zone else "Pièce",
+                "first_component": "Zone"
+                if has_zone and first_in_zone
+                else ("Pièce" if not has_zone else ""),
+                "zone_name": zone_name_override
+                or ((_label(zrich) or _attr(z or {}, "Name")) if z else ""),
+                "zone_type": _ifc_type(zrich) if zrich else ("IfcZone" if has_zone else ""),
+                "group": _attr(sp, "Name") or _label(sp),
+                "piece": _label(sp),
+                "piece_type": _ifc_type(sp),
+                "net": net,
+                "gross": gross,
+                "storey": _MULTI_SEP.join(storeys),
+                "source": _quantity_source(sp, net is not None, _SPACE_BQ_ORDER),
+            }
+        )
+        seen.add(sp_uuid)
+
+    for z in snap.zones or []:
+        members = zone_members.get(str(z.get("uuid")), [])
+        for i, sp_uuid in enumerate(members):
+            add_record(sp_uuid, z, i == 0)
+
+    for sp in spaces:
+        sp_uuid = sp.get("uuid")
+        if sp_uuid not in seen:
+            tree_zones = tree_zone_map.get(sp_uuid, [])
+            add_record(
+                sp_uuid,
+                None,
+                True,
+                zone_name_override=_MULTI_SEP.join(tree_zones) if tree_zones else None,
+            )
+
+    return records
+
+
+def _zone_detail_grid(
+    snap: ModelSnapshot, *, title: str, zones_variant: bool = False
+) -> SheetGrid | None:
+    records = _space_records(snap)
+    if not records:
+        return None
+    headers = list(_ZONE_DETAIL_HEADERS_ZONES if zones_variant else _ZONE_DETAIL_HEADERS_SHAB)
+    headers.append("Source quantité")
+    rows: list[list[Any]] = [list(headers)]
+    for rec in records:
+        excel_row = len(rows) + 1
+        net = _round2(rec["net"])
+        gross = _round2(rec["gross"])
         rows.append(
             [
-                _attr(z, "Name"),
-                _label(zel),
-                _MULTI_SEP.join(storeys),
-                len(members) or None,
-                surf,
-                src or NOT_AVAILABLE,
-                _zone_quantity_source(zel, members, by_uuid, surf is not None),
+                rec["first_component"],
+                rec["zone_name"],
+                rec["zone_type"],
+                rec["group"],
+                rec["piece"],
+                rec["piece_type"],
+                net,
+                net,
+                rec["storey"],
+                gross,
+                "",
+                f'=IF(G{excel_row}-H{excel_row}=0,"",G{excel_row}-H{excel_row})',
+                rec["source"],
             ]
         )
-    return SheetGrid(title="Zones (depuis maquette)", rows=rows)
+    if not zones_variant:
+        rows.append(["", "", "", "", "", "", "", "", "", "", "", "", ""])
+        rows.append(
+            [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                f"=SUBTOTAL(9,L2:L{len(records) + 1})",
+                "",
+            ]
+        )
+    return SheetGrid(title=title, rows=rows)
+
+
+def _pivot_grid(records: list[dict[str, Any]], *, title: str, first_label: str) -> SheetGrid | None:
+    if not records:
+        return None
+    piece_order: list[str] = []
+    for rec in records:
+        piece = rec["piece"] or NOT_AVAILABLE
+        if piece not in piece_order:
+            piece_order.append(piece)
+
+    by_zone_type: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    by_zone: dict[tuple[str, str], dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for rec in records:
+        ztype = rec["zone_type"] or NOT_AVAILABLE
+        zname = rec["zone_name"] or NOT_AVAILABLE
+        piece = rec["piece"] or NOT_AVAILABLE
+        area = _num(rec["net"]) or 0.0
+        by_zone_type[ztype][piece] += area
+        by_zone[(ztype, zname)][piece] += area
+
+    rows: list[list[Any]] = [
+        [],
+        [],
+        [title, "Pièces"],
+        [first_label, *piece_order, "Total général"],
+    ]
+    for ztype in sorted(by_zone_type):
+        totals = by_zone_type[ztype]
+        rows.append(
+            [
+                ztype,
+                *[_round2(totals.get(p, 0.0)) or "" for p in piece_order],
+                _round2(sum(totals.values())),
+            ]
+        )
+        for (_zt, zname), vals in sorted(by_zone.items()):
+            if _zt != ztype:
+                continue
+            rows.append(
+                [
+                    zname,
+                    *[_round2(vals.get(p, 0.0)) or "" for p in piece_order],
+                    _round2(sum(vals.values())),
+                ]
+            )
+    grand = [
+        sum((_num(rec["net"]) or 0.0) for rec in records if (rec["piece"] or NOT_AVAILABLE) == p)
+        for p in piece_order
+    ]
+    rows.append(["Total général", *[_round2(v) or "" for v in grand], _round2(sum(grand))])
+    return SheetGrid(title="Feuil1" if title.startswith("SHAB") else "Feuil2", rows=rows)
+
+
+def build_shab_from_snapshot(snap: ModelSnapshot) -> tuple[MultiSheetSource | None, float | None]:
+    """Export SHAB MOA depuis la maquette : pivot + détail espaces."""
+    records = _space_records(snap)
+    if not records:
+        return None, None
+    pivot = _pivot_grid(records, title="SHAB (Qté de Base)", first_label="Logement")
+    detail = _zone_detail_grid(snap, title="TDB 2022 01.3 - Export Zones...")
+    grids = [g for g in (pivot, detail) if g is not None]
+    total = round(sum((_num(rec["net"]) or 0.0) for rec in records), 4)
+    return MultiSheetSource(grids=grids), total
 
 
 def build_zones_espaces_from_snapshot(snap: ModelSnapshot) -> MultiSheetSource | None:
-    """Export Zones et Espaces depuis la maquette.
-
-    **1er onglet = Zones (IfcZone)** avec étage(s) et nombre de pièces, puis
-    l'onglet Espaces (pièces) avec leur zone et leur étage.
-    """
-    spaces = snap.spaces or []
-    zones = snap.zones or []
-    if not spaces and not zones:
+    """Export Zones/Espaces MOA depuis la maquette : pivot + détail + Feuil1."""
+    records = _space_records(snap)
+    if not records:
         return None
-    grids: list[SheetGrid] = []
-
-    if zones:
-        grids.append(_zones_grid(snap))
-
-    if spaces:
-        esp_grid, _ = _spaces_grid(snap, "Espaces (depuis maquette)")
-        if esp_grid is not None:
-            grids.append(esp_grid)
-
+    pivot = _pivot_grid(
+        records,
+        title="Somme de Surface Nette (Qté de Base)",
+        first_label="Étiquettes de lignes",
+    )
+    detail = _zone_detail_grid(
+        snap,
+        title="TDB 2022 01.3 - Export Zones...",
+        zones_variant=True,
+    )
+    grids = [g for g in (pivot, detail, SheetGrid(title="Feuil1", rows=[])) if g is not None]
     return MultiSheetSource(grids=grids) if grids else None
 
 
 def build_menuiseries_from_snapshot(
     snap: ModelSnapshot,
 ) -> tuple[MenuiseriesSource | None, float | None]:
-    """Export Menuiseries depuis la maquette (IfcWindow + IfcDoor)."""
+    """Export Menuiseries MOA depuis la maquette (IfcWindow + IfcDoor)."""
     items = [el for cls in _MENUISERIE_CLASSES for el in snap.of_class(cls)]
     if not items:
         return None, None
@@ -591,58 +719,94 @@ def build_menuiseries_from_snapshot(
         "Composant",
         "Type",
         "Matériau",
+        "BaseQuantities.Width",
+        "BaseQuantities.Height",
+        "Surface Natif",
+        "Nombre",
         "Largeur IFC OpenShell",
         "Hauteur IFC OpenShell",
-        "Surface IFC OpenShell (m²)",
-        "Méthode IFC OpenShell",
+        "Surface IFC OpenShell",
+        "Ecart de largeur",
+        "Ecart de heuteur",
+        "",
+        "Couleur",
         "Source quantité",
     ]
-    _men_qty = ("Width", "Height", "OverallWidth", "OverallHeight")
-    rows: list[list[Any]] = []
+    men_qty = ("Width", "Height", "OverallWidth", "OverallHeight")
+    area_qty = (*men_qty, *_WINDOW_BQ_AREA)
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
     total = 0.0
     any_area = False
-    types: set[str] = set()
-    for w in items:
+    for item in items:
+        w = _rich(snap, item)
         width = _base_quantity_ordered(w, ("Width", "OverallWidth"))
         height = _base_quantity_ordered(w, ("Height", "OverallHeight"))
-        surf, src = _surface_with_source(w, _WINDOW_BQ_AREA)
+        surf, _src = _surface_with_source(w, _WINDOW_BQ_AREA)
         if surf is None and width is not None and height is not None:
-            surf, src = round(width * height, 4), "IFC OpenShell - LxH BaseQuantities"
+            surf = width * height
         if surf is not None:
             total += surf
             any_area = True
-        ot = _ifc_type(w)
-        if ot:
-            types.add(ot)
+        ot = _object_type_or_name(w)
+        key = (
+            _ifc_component_label(w.get("type")),
+            ot,
+            _material(w),
+            _round2(width),
+            _round2(height),
+        )
+        entry = groups.setdefault(
+            key,
+            {
+                "surface": 0.0,
+                "surface_found": False,
+                "count": 0,
+                "computed": False,
+            },
+        )
+        entry["count"] += 1
+        if surf is not None:
+            entry["surface"] += surf
+            entry["surface_found"] = True
+        if _computed_qty_names(w) & set(area_qty):
+            entry["computed"] = True
+
+    rows: list[list[Any]] = []
+    for key, entry in sorted(
+        groups.items(), key=lambda kv: tuple("" if v is None else v for v in kv[0])
+    ):
+        component, ot, material, width, height = key
+        excel_row = len(rows) + 2
+        surface = _round2(entry["surface"]) if entry["surface_found"] else None
+        source = _SRC_COMPUTED if entry["computed"] else _SRC_MODEL
+        if not entry["surface_found"] and width is None and height is None:
+            source = NOT_AVAILABLE
         rows.append(
             [
-                _attr(w, "Name"),
+                component,
                 ot,
-                _material(w),
+                material,
                 width,
                 height,
-                surf,
-                src or NOT_AVAILABLE,
-                _quantity_source(w, (width is not None or height is not None), _men_qty),
+                surface,
+                entry["count"],
+                width,
+                height,
+                surface,
+                f'=IF(H{excel_row}-D{excel_row}=0,"",H{excel_row}-D{excel_row})',
+                f'=IF(I{excel_row}-E{excel_row}=0,"",I{excel_row}-E{excel_row})',
+                "",
+                "",
+                source,
             ]
         )
     table = SheetTable(title="Menuiseries", headers=headers, rows=rows)
     src = MenuiseriesSource(
         table=table,
-        sheet_title="Menuiseries (depuis maquette)",
-        nombre_types=(len(types) or None),
+        sheet_title="TDB 2022 05.1 - Fenêtres Ok",
+        nombre_types=(len(groups) or None),
     )
     return src, (round(total, 4) if any_area else None)
-
-
-_ENV_HEADERS = [
-    "Composant",
-    "Type",
-    "Étage",
-    "Layer",
-    "Surface IFC OpenShell (m²)",
-    "Méthode IFC OpenShell",
-]
 
 
 def build_enveloppe_from_snapshot(snap: ModelSnapshot) -> EnveloppeSource | None:
@@ -650,7 +814,7 @@ def build_enveloppe_from_snapshot(snap: ModelSnapshot) -> EnveloppeSource | None
     walls = _envelope_walls(snap)
     if not walls:
         return None
-    rows: list[list[Any]] = []
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
     total = 0.0
     any_surface = False
     for w in walls:
@@ -658,34 +822,45 @@ def build_enveloppe_from_snapshot(snap: ModelSnapshot) -> EnveloppeSource | None
         if surf is not None:
             total += surf
             any_surface = True
+        typ = _object_type_or_name(w)
+        layer = _envelope_layer_name(w) or _ENVELOPE_LAYER
+        key = (typ, layer)
+        entry = groups.setdefault(key, {"area": 0.0, "found": False, "count": 0, "storeys": []})
+        entry["count"] += 1
+        if surf is not None:
+            entry["area"] += surf
+            entry["found"] = True
+        storey = _storey(w)
+        if storey and storey not in entry["storeys"]:
+            entry["storeys"].append(storey)
+
+    rows: list[list[Any]] = []
+    for (typ, _layer), entry in sorted(groups.items()):
+        area = _round2(entry["area"]) if entry["found"] else None
         rows.append(
             [
-                _attr(w, "Name"),
-                _ifc_type(w),
-                _storey(w),
-                _envelope_layer_name(w) or _ENVELOPE_LAYER,
-                surf,
-                src or NOT_AVAILABLE,
+                "Mur",
+                typ,
+                _MULTI_SEP.join(entry["storeys"]),
+                area,
+                area,
+                None,
+                None,
+                None,
+                entry["count"],
+                None,
             ]
         )
-    table = SheetTable(title="Extraction surface enveloppe", headers=list(_ENV_HEADERS), rows=rows)
+    table = SheetTable(title=ENVELOPPE_MOA_SHEET, headers=list(ENVELOPPE_MOA_HEADERS), rows=rows)
     return EnveloppeSource(
         table=table,
-        sheet_title="Surface enveloppe (depuis maquette)",
+        sheet_title=ENVELOPPE_MOA_SHEET,
         superficie_facades=(round(total, 4) if any_surface else None),
     )
 
 
 _SLAB_CLASSES = ("IfcSlab", "IfcCovering")
 _SLAB_BQ_ORDER = ("NetArea", "GrossArea", "NetSideArea")
-_PLANCHER_HEADERS = [
-    "Composant",
-    "Type",
-    "Étage",
-    "Surface IFC OpenShell (m²)",
-    "Méthode IFC OpenShell",
-    "Source quantité",
-]
 
 
 def count_planchers(snap: ModelSnapshot | None) -> int:
@@ -696,32 +871,80 @@ def count_planchers(snap: ModelSnapshot | None) -> int:
 
 
 def build_plancher_from_snapshot(snap: ModelSnapshot) -> MultiSheetSource | None:
-    """Export plancher depuis la maquette : dalles ``IfcSlab`` (repli
-    ``IfcCovering``) avec type, étage et surface (BaseQuantities.NetArea, repli
-    « Superficie calculée »). ``None`` si aucune dalle.
-
-    Multi-onglets (comme SHAB/Zones) pour rester homogène avec le classeur MOA à
-    deux onglets ; le snapshot produit l'onglet métier « Planchers » avec des
-    colonnes IFC OpenShell."""
+    """Export plancher MOA depuis la maquette : détail + synthèse écarts."""
     slabs = [el for cls in _SLAB_CLASSES for el in snap.of_class(cls)]
     if not slabs:
         return None
-    rows: list[list[Any]] = [list(_PLANCHER_HEADERS)]
-    for sl in slabs:
-        el = _rich(snap, sl)
+    groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in slabs:
+        el = _rich(snap, item)
         surf, src = _surface_with_source(el, _SLAB_BQ_ORDER)
-        rows.append(
+        key = (_ifc_component_label(el.get("type")), _object_type_or_name(el), _storey(el))
+        entry = groups.setdefault(
+            key,
+            {"area": 0.0, "found": False, "count": 0, "computed": False},
+        )
+        entry["count"] += 1
+        if surf is not None:
+            entry["area"] += surf
+            entry["found"] = True
+        if _computed_qty_names(el) & set(_SLAB_BQ_ORDER):
+            entry["computed"] = True
+
+    detail_rows: list[list[Any]] = [
+        [
+            "Composant",
+            "Type",
+            "Étage",
+            "BaseQuantities.NetArea",
+            "Surface IFC OpenShell",
+            "Nombre",
+            "Couleur",
+            "Source quantité",
+        ]
+    ]
+    summary_rows: list[list[Any]] = [
+        [
+            "Composant",
+            "Type",
+            "Étage",
+            "BaseQuantities.NetArea",
+            "Surface IFC OpenShell",
+            "Ecart",
+            "Nombre",
+            "Couleur",
+            "Source quantité",
+        ]
+    ]
+    for key, entry in sorted(groups.items()):
+        component, typ, storey = key
+        area = _round2(entry["area"]) if entry["found"] else None
+        source = (
+            _SRC_COMPUTED
+            if entry["computed"]
+            else (_SRC_MODEL if entry["found"] else NOT_AVAILABLE)
+        )
+        detail_rows.append([component, typ, storey, area, area, entry["count"], "", source])
+        excel_row = len(summary_rows) + 1
+        summary_rows.append(
             [
-                _attr(el, "Name"),
-                _ifc_type(el),
-                _storey(el),
-                surf,
-                src or NOT_AVAILABLE,
-                _quantity_source(el, surf is not None, _SLAB_BQ_ORDER),
+                component,
+                typ,
+                storey,
+                area,
+                area,
+                f'=IF(E{excel_row}-D{excel_row}=0,"",E{excel_row}/D{excel_row}-1)',
+                entry["count"],
+                "",
+                source,
             ]
         )
-    grid = SheetGrid(title="Planchers (depuis maquette)", rows=rows)
-    return MultiSheetSource(grids=[grid])
+    return MultiSheetSource(
+        grids=[
+            SheetGrid(title="TDB 2022 xx.2 - Dalles Ok", rows=detail_rows),
+            SheetGrid(title="Planchers", rows=summary_rows),
+        ]
+    )
 
 
 def build_sources_from_snapshot(snap: ModelSnapshot) -> AvpSources:

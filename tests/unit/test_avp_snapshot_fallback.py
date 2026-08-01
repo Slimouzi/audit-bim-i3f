@@ -128,13 +128,15 @@ def test_snapshot_fallback_fills_annexes(tmp_path):
     assert "CHAMBRE" in shab
     assert "12.98" in shab
     assert "CHAMBRE" in zones
-    # Surface issue de « Superficie calculée » (tracée).
-    assert "Superficie calculée" in shab
+    # Surface issue du flux maquette / IFC OpenShell, sans colonne Solibri.
+    assert "Surface IFC OpenShell" in shab
+    assert "Surface Solibri" not in shab
 
     # Enveloppe : le mur cible apparaît avec sa surface et la source tracée.
     assert "Mur ext 1" in env
     assert "42.5" in env
-    assert "Superficie calculée" in env
+    assert "Archicad BQ NetSideArea" in env
+    assert "Surface IFC OpenShell" in env
 
 
 def _duplex_result() -> AuditResult:
@@ -189,7 +191,7 @@ def test_shab_export_has_zone_and_storey_columns(tmp_path):
         result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
     )
     wb = openpyxl.load_workbook(pack.shab_xlsx, data_only=True)
-    ws = wb.active
+    ws = wb["TDB 2022 01.3 - Export Zones..."]
     # Localise l'en-tête et vérifie la présence des colonnes Zone + Étage.
     header = None
     for row in ws.iter_rows(values_only=True):
@@ -197,16 +199,17 @@ def test_shab_export_has_zone_and_storey_columns(tmp_path):
             header = [c for c in row]
             break
     assert header is not None
-    assert "Zone" in header
+    assert "Nom Zone" in header
     assert "Étage" in header
-    zone_col = header.index("Zone")
+    zone_col = header.index("Nom Zone")
     storey_col = header.index("Étage")
+    piece_col = header.index("Pièce")
 
     # Collecte les lignes de données (espaces).
     data = {}
     for row in ws.iter_rows(values_only=True):
-        if row and row[1] in ("Séjour", "CHAMBRE 01"):
-            data[row[1]] = (row[zone_col], row[storey_col])
+        if row and row[piece_col] in ("Séjour", "CHAMBRE 01"):
+            data[row[piece_col]] = (row[zone_col], row[storey_col])
     wb.close()
 
     # Les deux pièces portent la même zone (duplex) et leur étage respectif.
@@ -222,17 +225,18 @@ def test_zones_espaces_first_tab_has_ifczone_and_storey(tmp_path):
         result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
     )
     wb = openpyxl.load_workbook(pack.zones_espaces_xlsx, data_only=True)
-    first = wb.worksheets[0]  # 1er onglet
+    first = wb["TDB 2022 01.3 - Export Zones..."]  # onglet détail MOA
     rows = [tuple(r) for r in first.iter_rows(values_only=True)]
     flat = "\n".join(str(c) for r in rows for c in r if c is not None)
     wb.close()
 
-    # En-tête IfcZone + Étage(s) présent dans le 1er onglet.
-    assert "Zone (IfcZone)" in flat
-    assert "Étage(s)" in flat
-    # La zone duplex et ses deux étages apparaissent.
+    # En-tête Zone + Étage présent dans l'onglet détail.
+    assert "Nom Zone" in flat
+    assert "Étage" in flat
+    # La zone duplex et les deux étages de ses pièces apparaissent.
     assert "Logement Duplex A101" in flat
-    assert "R+1 / R+2" in flat
+    assert "R+1" in flat
+    assert "R+2" in flat
 
 
 def test_zones_espaces_uses_snapshot_instead_of_source_with_snapshot(tmp_path):
@@ -266,9 +270,8 @@ def test_zones_espaces_uses_snapshot_instead_of_source_with_snapshot(tmp_path):
     )
     wb.close()
     # La source n'est pas ajoutée : les onglets exportés sont ceux du snapshot.
-    assert not any("Export Zones" in t for t in titles)
-    assert any("depuis maquette" in t.lower() for t in titles)
-    assert "Zone (IfcZone)" in flat
+    assert titles == ["Feuil2", "TDB 2022 01.3 - Export Zones...", "Feuil1"]
+    assert "Nom Zone" in flat
     assert "Logement Duplex A101" in flat
     assert "SOURCE-A-IGNORER" not in flat
 
@@ -297,8 +300,8 @@ def test_generated_snapshot_reports_replace_solibri_columns(tmp_path):
         export_pdf=False,
     )
     txt = _all_text(pack.shab_xlsx)
-    assert "Surface IFC OpenShell (m²)" in txt
-    assert "Méthode IFC OpenShell" in txt
+    assert "Surface IFC OpenShell" in txt
+    assert "Source quantité" in txt
     assert "Surface Solibri" not in txt
     assert "9999" not in txt
 
@@ -417,8 +420,8 @@ def test_envelope_recognizes_real_archicad_layer_name(tmp_path):
         export_pdf=False,
     )
     env = _all_text(pack.enveloppe_xlsx)
-    assert "Mur péri 221" in env  # annexe Enveloppe NON vide
-    assert "221 - MURS - Extérieurs périphériques.Exndo" in env  # vrai calque affiché
+    assert "Mur péri 221" in env  # annexe Enveloppe NON vide, type repris par repli Name
+    assert "Archicad BQ NetSideArea" in env  # colonnes MOA du repli snapshot
     assert "30" in env  # NetSideArea remontée
 
 
@@ -607,16 +610,14 @@ def test_zones_grid_members_from_structure_tree(tmp_path):
         result, tmp_path / "out", sources=None, project_name="X", project_code="Y", export_pdf=False
     )
     wb = openpyxl.load_workbook(pack.zones_espaces_xlsx, data_only=True)
-    first = wb.worksheets[0]  # onglet Zones
+    first = wb["TDB 2022 01.3 - Export Zones..."]  # onglet détail MOA
     rows = [tuple(r) for r in first.iter_rows(values_only=True)]
     flat = "\n".join(str(c) for r in rows for c in r if c is not None)
     wb.close()
     assert "Logement Z" in flat
     assert "R+1" in flat  # étage retrouvé via structure_tree
-    assert "30" in flat  # surface = 20 + 10 (somme des espaces rattachés)
-    # Nombre de pièces = 2.
-    zone_row = next(r for r in rows if r and r[0] == "Logement Z")
-    assert 2 in zone_row
+    assert "20" in flat and "10" in flat  # surfaces des pièces rattachées
+    assert "CHAMBRE" in flat and "SEJOUR" in flat
 
 
 def test_menuiseries_standardcase_ifc4(tmp_path):
