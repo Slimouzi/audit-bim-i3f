@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import unicodedata
@@ -393,6 +394,7 @@ def generate_avp_i3f_pack(
     # produit des annexes aux colonnes vides (la QA gate les refuse plus bas).
     computed_coverage = None
     computed_json_used = None
+    working_snapshot = _State.snapshot
     if computed_quantities_json:
         from ..extraction.computed_quantities import (
             load_computed_quantities,
@@ -410,8 +412,16 @@ def generate_avp_i3f_pack(
             }
         safe_cq = safe_input_path(computed_quantities_json, allowed_extensions={".json"})
         doc = load_computed_quantities(safe_cq)  # valide le contrat (sinon ValueError)
-        computed_coverage = merge_into_snapshot(_State.snapshot, doc)
-        _State.snapshot.computed_coverage = dict(computed_coverage)
+        # Copie de travail : la fusion est gap-only, donc muter le snapshot de
+        # SESSION la rendrait non rejouable — un second appel avec un JSON
+        # recalculé verrait les anciennes valeurs comme « déjà présentes » et
+        # les conserverait. On part donc systématiquement du snapshot d'origine.
+        # La copie est profonde parce que la fusion mute les dicts d'éléments
+        # (``property_sets``) ; le coût est assumé pour garder la génération
+        # rejouable et sans effet de bord sur la session.
+        working_snapshot = copy.deepcopy(_State.snapshot).index()
+        computed_coverage = merge_into_snapshot(working_snapshot, doc)
+        working_snapshot.computed_coverage = dict(computed_coverage)
         computed_json_used = str(safe_cq)
     ctrl_header = (sources.controle.header if sources.controle else {}) or {}
 
@@ -542,7 +552,7 @@ def generate_avp_i3f_pack(
             sources=sources,
             # Snapshot explicite : le repli maquette s'active même sans audit
             # (ex. après verify_active_model seul, _State.result est None).
-            snapshot=_State.snapshot,
+            snapshot=working_snapshot,
             # Garantis non vides par la gate d'identité ci-dessus : aucun nom
             # générique ni d'exemple ne peut atteindre un livrable.
             project_name=eff_name,
@@ -563,6 +573,15 @@ def generate_avp_i3f_pack(
         # quantités sont vides. Statut d'erreur explicite — surtout pas un
         # livrable client faux, qui se lirait comme un résultat.
         manque_quantites = exc.kind == "missing_quantities"
+        # Un refus ne doit rien laisser derrière lui. Le dossier a été créé en
+        # amont par la sandbox d'export ; on le retire s'il est resté vide
+        # (jamais s'il contient quoi que ce soit — on ne supprime pas de
+        # fichiers de l'utilisateur).
+        try:
+            if out_dir.is_dir() and not any(out_dir.iterdir()):
+                out_dir.rmdir()
+        except OSError:  # nettoyage best-effort, jamais bloquant
+            pass
         payload = {
             "status": "error",
             "error": ("missing_quantities" if manque_quantites else "empty_deliverable"),

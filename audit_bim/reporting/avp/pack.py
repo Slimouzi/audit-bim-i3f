@@ -173,8 +173,9 @@ def write_avp_i3f_report_pack(
             par défaut) plutôt que ``NOT_AVAILABLE``.
         export_pdf: tente la conversion .docx → .pdf (best-effort).
     """
+    # Le dossier n'est créé qu'APRÈS le préflight (plus bas) : un refus ne doit
+    # rien laisser derrière lui, pas même un dossier vide.
     out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
     # Date de génération du livrable (YYMMDD) si non imposée par l'appelant.
     gen_date = (
         date.strip()
@@ -230,6 +231,19 @@ def write_avp_i3f_report_pack(
     # ``verify_active_model`` sans audit), sinon depuis ``result.snapshot``.
     # Dès qu'il existe, il devient la source autoritaire des exports métriques.
     snap = snapshot if snapshot is not None else (result.snapshot if result is not None else None)
+
+    # ── PRÉFLIGHT : refuser AVANT d'écrire quoi que ce soit ─────────────
+    # Les quantités manquantes se voient sur le snapshot, sans rien produire.
+    # Contrôler après génération laisserait un dossier de livrables non
+    # conformes sur disque malgré le statut d'erreur — le piège même que cette
+    # gate doit fermer. Les gates qui nécessitent de LIRE les fichiers produits
+    # (annexes vides) restent nécessairement en aval.
+    sans_quantites = _qa_missing_quantities(snap)
+    if sans_quantites:
+        raise AvpQaError(sans_quantites, kind="missing_quantities")
+
+    out.mkdir(parents=True, exist_ok=True)
+
     if snap is not None:
         # ``build_sources_from_snapshot`` est ré-exporté par la façade ``avp_i3f``
         # et résolu via elle (point de patch historique des tests, inchangés dans
@@ -276,11 +290,6 @@ def write_avp_i3f_report_pack(
     empty = _qa_empty_deliverables(pack, snap, result)
     if empty:
         raise AvpQaError(empty)
-
-    # Lignes présentes mais quantités absentes : le livrable serait faux.
-    sans_quantites = _qa_missing_quantities(snap)
-    if sans_quantites:
-        raise AvpQaError(sans_quantites, kind="missing_quantities")
 
     return pack
 

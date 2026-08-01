@@ -39,10 +39,17 @@ def session(tmp_path, monkeypatch):
         current_session.reset(token)
 
 
-def _snapshot_sans_quantites() -> ModelSnapshot:
-    """Snapshot BIMData réaliste : entités présentes, AUCUNE BaseQuantity."""
+def _snapshot_sans_quantites(*, pset_natif_sp1: list[dict] | None = None) -> ModelSnapshot:
+    """Snapshot BIMData réaliste : entités présentes, AUCUNE BaseQuantity.
+
+    ``pset_natif_sp1`` permet de doter SP1 d'une quantité **native** pour
+    vérifier que la fusion reste gap-only.
+    """
+    sp1 = {"uuid": "SP1", "type": "IfcSpace", "name": "SEJOUR", "longname": "SEJOUR"}
+    if pset_natif_sp1:
+        sp1["property_sets"] = pset_natif_sp1
     spaces = [
-        {"uuid": "SP1", "type": "IfcSpace", "name": "SEJOUR", "longname": "SEJOUR"},
+        sp1,
         {"uuid": "SP2", "type": "IfcSpace", "name": "CHAMBRE 01", "longname": "CHAMBRE 01"},
     ]
     elements = [
@@ -246,15 +253,18 @@ def test_quantity_source_is_traced_as_computed(session, tmp_path, annexe):
 def test_native_quantities_are_never_overwritten(session, tmp_path):
     """Une BaseQuantity native BIMData prime sur la valeur calculée."""
     sess, _ = session
-    snap = _snapshot_sans_quantites()
-    natif = snap.element_by_uuid["SP1"]
-    natif["property_sets"] = [
-        {
-            "name": "Qto_SpaceBaseQuantities",
-            "properties": [{"definition": {"name": "NetFloorArea"}, "value": 99.9}],
-        }
-    ]
-    sess.snapshot = snap
+    # La quantité native vit dans les DONNÉES du snapshot (ce que renvoie
+    # BIMData), pas dans l'index : ``index()`` recopie les espaces
+    # (``{**it, "type": kind}``), donc muter ``element_by_uuid`` ne
+    # modifierait qu'un artefact reconstruit à la copie.
+    sess.snapshot = _snapshot_sans_quantites(
+        pset_natif_sp1=[
+            {
+                "name": "Qto_SpaceBaseQuantities",
+                "properties": [{"definition": {"name": "NetFloorArea"}, "value": 99.9}],
+            }
+        ]
+    )
 
     res = _generer(computed=_computed_json(tmp_path / "computed.json"))
     assert res.get("status") != "error", res
@@ -274,3 +284,77 @@ def test_unknown_schema_is_refused_before_generating(session, tmp_path):
 
     with pytest.raises(ValueError, match="Schéma non reconnu"):
         _generer(computed=str(mauvais))
+
+
+# ── le refus ne laisse RIEN sur disque ─────────────────────────────────
+
+
+def test_refusal_writes_no_deliverable_at_all(session, tmp_path):
+    """Un refus doit être un non-événement sur le disque.
+
+    Contrôler après génération renverrait bien ``status="error"``, mais un
+    dossier de livrables non conformes existerait — celui-là même qu'on
+    cherche à ne jamais produire. La gate est donc en **préflight**.
+    """
+    sess, out_root = session
+    sess.snapshot = _snapshot_sans_quantites()
+    cible = "pack_refuse"
+
+    res = _generer(output_dir=cible)
+
+    assert res["error"] == "missing_quantities"
+    dossier = Path(out_root) / cible
+    livrables = list(Path(out_root).rglob("*.xlsx")) + list(Path(out_root).rglob("*.docx"))
+    assert livrables == [], f"livrables écrits malgré le refus : {livrables}"
+    assert not dossier.exists(), "le dossier de sortie ne doit pas être créé"
+
+
+# ── rejouabilité : un second JSON doit primer ──────────────────────────
+
+
+def test_second_generation_uses_the_newer_json(session, tmp_path):
+    """Deux générations successives dans la même session, JSON différents.
+
+    La fusion est **gap-only** : si elle mutait le snapshot de session, les
+    valeurs du premier JSON y resteraient et le second passage les verrait
+    « déjà présentes ». Le second pack porterait alors des chiffres périmés
+    tout en paraissant à jour.
+    """
+    sess, _ = session
+    sess.snapshot = _snapshot_sans_quantites()
+
+    premier = tmp_path / "computed_1.json"
+    _computed_json(premier)
+    res1 = _generer(computed=str(premier), output_dir="pack_1")
+    assert res1.get("status") != "error", res1
+    assert res1["computed_quantities_coverage"]["n_merged"] == 7
+
+    # Recalcul : mêmes éléments, valeurs différentes.
+    second = tmp_path / "computed_2.json"
+    doc = json.loads(premier.read_text(encoding="utf-8"))
+    for q in doc["quantities"]:
+        q["value"] = round(q["value"] * 2, 3)
+    second.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+
+    res2 = _generer(computed=str(second), output_dir="pack_2")
+    assert res2.get("status") != "error", res2
+    # Rien n'est « déjà présent » : la seconde fusion doit être complète.
+    assert res2["computed_quantities_coverage"]["n_merged"] == 7
+    assert res2["computed_quantities_coverage"]["n_gap_kept"] == 0
+
+    shab2 = next(p for p in res2["paths"] if _cle(p) == "shab_xlsx")
+    nombres = _nombres(shab2)
+    assert any(abs(n - 49.0) < 0.01 for n in nombres), "valeur du 2e JSON attendue (24,5 x 2)"
+    assert not any(abs(n - 24.5) < 0.01 for n in nombres), "valeur périmée du 1er JSON"
+
+
+def test_session_snapshot_is_left_untouched(session, tmp_path):
+    """La génération n'a pas d'effet de bord sur le snapshot de session."""
+    sess, _ = session
+    sess.snapshot = _snapshot_sans_quantites()
+
+    _generer(computed=_computed_json(tmp_path / "computed.json"), output_dir="pack")
+
+    espace = sess.snapshot.element_by_uuid["SP1"]
+    assert not espace.get("computed_base_quantities")
+    assert not espace.get("property_sets")

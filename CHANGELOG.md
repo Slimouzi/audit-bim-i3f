@@ -30,7 +30,17 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   (`needs_computed_quantities_json`, `reports_without_quantities`,
   `next_action`) — pour fournir le JSON avant de générer, pas pour découvrir le
   refus après.
-- Tests : `test_avp_pack_computed_quantities.py` (12) — refus sans JSON,
+- **Refus en préflight** : la gate s'exécute **avant** toute écriture. Contrôler
+  après génération renvoyait bien `status="error"` mais laissait un dossier de
+  livrables non conformes sur disque — le piège même que cette gate ferme. Le
+  dossier de sortie n'est créé qu'une fois le préflight passé, et un dossier
+  resté vide est retiré.
+- **Fusion rejouable** : `generate_avp_i3f_pack` fusionne dans une **copie de
+  travail**, jamais dans le snapshot de session. La fusion étant gap-only,
+  muter la session rendait une seconde génération inopérante : un JSON
+  recalculé voyait les anciennes valeurs comme « déjà présentes » et le pack
+  sortait avec des chiffres périmés tout en paraissant à jour.
+- Tests : `test_avp_pack_computed_quantities.py` (15) — refus sans JSON,
   génération avec, et **valeurs numériques réellement présentes** dans les
   quatre annexes (SHAB, Zones/Espaces, Menuiseries, Plancher), traçabilité
   « Calculée (IfcOpenShell) », fusion gap-only préservant le natif, schéma
