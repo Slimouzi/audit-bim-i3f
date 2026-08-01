@@ -171,7 +171,7 @@ structurée des questions restantes à poser, mise à jour à chaque appel.
 | Propriétés requises (Pset par phase) | inclus dans `run_audit_tool` |
 | Validation valeurs (vide vs incohérent) | inclus |
 | Quantités (SHAB / SU / NetFloorArea) | inclus |
-| Enrichissement depuis DOE | `doe_match_only` → `prepare_doe_enrichment_from_file` → `apply_doe_enrichment` |
+| Enrichissement depuis DOE | `doe_match_only` → `prepare_doe_enrichment_plan` → `apply_doe_enrichment_plan` |
 
 ## Workflow type d'une session
 
@@ -214,8 +214,8 @@ structurée des questions restantes à poser, mise à jour à chaque appel.
    e. `apply_classification_update_plan(plan_path=..., confirm=True)` (ou
       `apply_classifications_from_xlsx` pour la voie XLSX contrôlée).
 9. Si phase ≥ DOE : `doe_match_only` sur le DOE Excel transmis pour prévisualiser,
-   puis **préparer** `prepare_doe_enrichment_from_file` → **revue** → **appliquer**
-   `apply_doe_enrichment(plan_path=..., confirm=True)`.
+   puis **préparer** `prepare_doe_enrichment_plan` → **revue** → **appliquer**
+   `apply_doe_enrichment_plan(plan_path=..., confirm=True)`.
 10. Si l'utilisateur ne veut pas utiliser `full_audit`, les tools unitaires
    restent disponibles (`parse_owner_requirements`, `extract_model_snapshot`,
    `run_audit_tool`, `generate_word_report`, `generate_xlsx_annex`), mais ce

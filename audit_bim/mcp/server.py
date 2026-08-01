@@ -91,6 +91,7 @@ _LEGACY_ALIAS_REEXPORTS = frozenset(
         "prepare_classification_corrections",
         "apply_classification_corrections",
         "prepare_doe_enrichment_from_file",
+        "apply_doe_enrichment",
     }
 )
 

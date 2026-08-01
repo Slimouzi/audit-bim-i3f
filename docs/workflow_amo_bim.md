@@ -18,15 +18,21 @@ scellé.
 5.  update_suggestion_status(uuid, "accepted")              [R] modifie session
 6.  prepare_classification_update_plan                      [R+disque] scelle plan
 7.  apply_classification_update_plan(confirm=True)          [W] pousse classifs
-8.  prepare_bcf_from_findings                               [R+disque] scelle plan
-9.  apply_bcf_plan(confirm=True)                            [W] pousse BCF
-10. prepare_smartviews_from_findings                        [R+disque] scelle plan
-11. apply_smartviews_plan(confirm=True)                     [W] pousse Smart Views
+8.  prepare_bcf_topics                                      [R+disque] scelle plan
+9.  apply_bcf_topics(confirm=True)                          [W] pousse BCF
+10. prepare_smart_views_plan                                [R+disque] scelle plan
+11. apply_smart_views_plan(confirm=True)                    [W] pousse Smart Views
 12. audit_trail                                             [R] revue journal
 ```
 
 `[R]` = lecture seule · `[R+disque]` = écrit en sandbox `AUDIT_OUTPUT_DIR/`
 seulement · `[W]` = écriture BIMData via API.
+
+> **Noms canoniques uniquement.** Des **aliases métier LEGACY** (`*_from_findings`,
+> `*_corrections`, `*_from_file`, `apply_*_plan` parlants) existent mais sont
+> **opt-in** (`AUDIT_BIM_ENABLE_LEGACY_ALIASES=true`) et **absents par défaut** :
+> voir la section [Aliases LEGACY (opt-in)](#aliases-legacy-opt-in). Le workflow
+> ci-dessous n'emploie que les tools canoniques.
 
 ## Étapes détaillées
 
@@ -136,7 +142,7 @@ L'AMO peut **revoir le plan** (chemin renvoyé) avant d'appliquer. Tant
 qu'`apply_*` n'est pas appelé avec `confirm=True`, le plan reste un
 fichier inerte.
 
-Alias plus parlant : `prepare_classification_corrections()`.
+Alias LEGACY (opt-in) : `prepare_classification_corrections()` — cf. section dédiée.
 
 ### 7. `apply_classification_update_plan(plan_path, confirm=True)`
 
@@ -162,15 +168,15 @@ apply_classification_update_plan(
 `confirm=False` → retour `{"refused": True, "reason": "..."}` sans toucher
 BIMData.
 
-Alias : `apply_classification_corrections()`.
+Alias LEGACY (opt-in) : `apply_classification_corrections()` — cf. section dédiée.
 
-### 8. `prepare_bcf_from_findings(...)` — Plan BCF Topics
+### 8. `prepare_bcf_topics(...)` — Plan BCF Topics
 
 Prépare la création de BCF Topics dans le panneau *BCF Issues* du
 viewer. Groupé par thème d'anomalie + un topic « Vue d'ensemble ».
 
 ```python
-prepare_bcf_from_findings(
+prepare_bcf_topics(
     finding_filter={"severity_min": "HIGH"},  # optionnel
     prefix="I3F Audit — ",
     include_overview=True,
@@ -178,36 +184,40 @@ prepare_bcf_from_findings(
 # → {"plan_id": "...", "plan_path": "...", "summary": {"n_topics": 6, ...}}
 ```
 
-Sous-jacent : `prepare_bcf_topics(...)` (alias direct).
+Alias LEGACY (opt-in) : `prepare_bcf_from_findings(...)`.
 
-### 9. `apply_bcf_plan(plan_path, confirm=True)`
+### 9. `apply_bcf_topics(plan_path, confirm=True)`
 
 Exécute le plan BCF. Idem 7 côté garanties (intégrité, cible, confirm).
 
 ```python
-apply_bcf_plan(plan_path="...", confirm=True)
+apply_bcf_topics(plan_path="...", confirm=True)
 # → ActionResult{succeeded, failed, impacted_uuids, errors}
 ```
 
-Sous-jacent : `apply_bcf_topics(...)`.
+Alias LEGACY (opt-in) : `apply_bcf_plan(...)`.
 
-### 10. `prepare_smartviews_from_findings(...)` — Plan Smart Views
+### 10. `prepare_smart_views_plan(...)` — Plan Smart Views
 
 Prépare des Smart Views (panneau dédié du viewer, navigation 3D minimale,
 pas de workflow d'issue). Coloring par sévérité maximale rencontrée.
 
 ```python
-prepare_smartviews_from_findings()
+prepare_smart_views_plan()
 # → {"plan_id": "...", "plan_path": "...", "summary": {"n_smart_views": 6, ...}}
 ```
 
-### 11. `apply_smartviews_plan(plan_path, confirm=True)`
+Alias LEGACY (opt-in) : `prepare_smartviews_from_findings(...)`.
+
+### 11. `apply_smart_views_plan(plan_path, confirm=True)`
 
 Exécute le plan Smart Views.
 
 ```python
-apply_smartviews_plan(plan_path="...", confirm=True)
+apply_smart_views_plan(plan_path="...", confirm=True)
 ```
+
+Alias LEGACY (opt-in) : `apply_smartviews_plan(...)`.
 
 ### Interroger la maquette — requêtes sémantiques
 
@@ -326,7 +336,7 @@ prepare_doe_enrichment_plan(
 # → risks signale les conflits CONFLICT et le mode 'overwrite' éventuel
 ```
 
-Alias métier : `prepare_doe_enrichment_from_file` / `apply_doe_enrichment`.
+Alias LEGACY (opt-in) : `prepare_doe_enrichment_from_file` / `apply_doe_enrichment` — cf. section dédiée.
 
 ### 12. `audit_trail(limit=20)` — Revue post-exécution
 
@@ -477,10 +487,10 @@ flowchart LR
     D --> E[5. update_suggestion_status]
     E --> F[6. prepare_classification_update_plan]
     F --> G[7. apply_classification_update_plan<br/>confirm=True]
-    C --> H[8. prepare_bcf_from_findings]
-    H --> I[9. apply_bcf_plan<br/>confirm=True]
-    C --> J[10. prepare_smartviews_from_findings]
-    J --> K[11. apply_smartviews_plan<br/>confirm=True]
+    C --> H[8. prepare_bcf_topics]
+    H --> I[9. apply_bcf_topics<br/>confirm=True]
+    C --> J[10. prepare_smart_views_plan]
+    J --> K[11. apply_smart_views_plan<br/>confirm=True]
     G --> L[12. audit_trail]
     I --> L
     K --> L
@@ -495,6 +505,25 @@ flowchart LR
 
 Bleu = `prepare_*` (lecture seule, scelle un plan). Rouge = `apply_*`
 (écriture BIMData, exige `confirm=True`).
+
+## Aliases LEGACY (opt-in)
+
+Des **aliases métier** offrent un vocabulaire plus parlant mais **re-dispatchent à
+100 %** vers les tools canoniques (même signature, même comportement). Ils sont
+**LEGACY opt-in** : **absents du serveur par défaut**, réactivables avec
+**`AUDIT_BIM_ENABLE_LEGACY_ALIASES=true`**. Le workflow recommandé n'emploie que les
+noms canoniques.
+
+| Alias LEGACY | Tool canonique |
+|---|---|
+| `prepare_bcf_from_findings` | `prepare_bcf_topics` |
+| `apply_bcf_plan` | `apply_bcf_topics` |
+| `prepare_smartviews_from_findings` | `prepare_smart_views_plan` |
+| `apply_smartviews_plan` | `apply_smart_views_plan` |
+| `prepare_classification_corrections` | `prepare_classification_update_plan` |
+| `apply_classification_corrections` | `apply_classification_update_plan` |
+| `prepare_doe_enrichment_from_file` | `prepare_doe_enrichment_plan` |
+| `apply_doe_enrichment` | `apply_doe_enrichment_plan` |
 
 ## Tools supprimés (v0.5.0)
 

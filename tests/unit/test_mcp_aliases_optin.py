@@ -13,6 +13,7 @@ exactement comme le vrai serveur MCP.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 
@@ -97,3 +98,21 @@ def test_canonical_tools_unchanged_by_flag():
     with_ = _inventory(flag="true")
     assert with_ - without == LEGACY_ALIASES
     assert without <= with_  # le flag n'ajoute rien d'autre, ne retire rien
+
+
+def test_prompt_recommends_no_legacy_alias():
+    """Le prompt AMO (chargé par Claude au démarrage, mode par défaut) ne doit
+    recommander **aucun** alias LEGACY : sinon Claude appellerait un tool absent.
+
+    Frontières de mot regex : ``\\bapply_doe_enrichment\\b`` ne matche PAS dans
+    ``apply_doe_enrichment_plan`` (``_`` est un caractère de mot → pas de frontière),
+    donc le tool canonique n'est pas confondu avec l'alias.
+    """
+    from audit_bim.mcp.prompts import AMO_BIM_I3F_PROMPT
+
+    leaked = [
+        alias
+        for alias in LEGACY_ALIASES
+        if re.search(rf"\b{re.escape(alias)}\b", AMO_BIM_I3F_PROMPT)
+    ]
+    assert not leaked, f"aliases LEGACY recommandés dans le prompt par défaut : {sorted(leaked)}"

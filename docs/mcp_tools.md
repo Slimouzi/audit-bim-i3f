@@ -54,16 +54,9 @@ section *Interroger la maquette*.
 | `prepare_classification_update_plan` | actif | R+disque | — | aucun |
 | `apply_classification_update_plan` | actif | W | **oui** | écrasement classifs IFC existantes (signalé en `risks`) |
 
-### Aliases métier (re-dispatch vers les tools ci-dessus)
-
-| Alias | Tool sous-jacent | Pour |
-|---|---|---|
-| `prepare_bcf_from_findings` | `prepare_bcf_topics` | workflow lisible AMO |
-| `apply_bcf_plan` | `apply_bcf_topics` | idem |
-| `prepare_smartviews_from_findings` | `prepare_smart_views_plan` | idem |
-| `apply_smartviews_plan` | `apply_smart_views_plan` | idem |
-| `prepare_classification_corrections` | `prepare_classification_update_plan` | idem |
-| `apply_classification_corrections` | `apply_classification_update_plan` | idem |
+> **Aliases métier** : les variantes `*_from_findings` / `*_corrections` /
+> `*_plan` re-dispatchent vers ces tools mais sont **LEGACY opt-in** (absentes par
+> défaut). Voir [Aliases métier — compat LEGACY opt-in](#aliases-métier--compat-legacy-opt-in).
 
 ### Workflow / revue
 
@@ -107,8 +100,9 @@ section *Interroger la maquette*.
 | `doe_match_only` | actif (historique) | R | — | équivalent à `match_doe_to_ifc` |
 | `prepare_doe_enrichment_plan` | actif | R+disque | — | prépare un WritePlan scellé avec pré-calcul des conflits |
 | `apply_doe_enrichment_plan` | actif | W | **oui** | écrit les Psets sur les éléments IFC matchés |
-| `prepare_doe_enrichment_from_file` | actif (alias) | R+disque | — | alias métier de `prepare_doe_enrichment_plan` |
-| `apply_doe_enrichment` | actif (alias) | W | **oui** | alias métier de `apply_doe_enrichment_plan` |
+
+> Les aliases DOE `prepare_doe_enrichment_from_file` / `apply_doe_enrichment` sont
+> **LEGACY opt-in** (cf. section dédiée), pas dans le workflow recommandé.
 
 ### Autres écritures (à migrer vers prepare/apply dans une release ultérieure)
 
