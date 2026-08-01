@@ -187,7 +187,11 @@ def test_missing_auditor_is_asked_not_defaulted(session):
     res = mcp_server.generate_avp_i3f_pack(project_code="7427L", phase="AVP", export_pdf=False)
 
     assert res["status"] == "needs_context"
-    assert "auteur_controle" in res["missing"]
+    # Clé alignée sur le PARAMÈTRE du tool : une clé sans paramètre
+    # correspondant guiderait vers un appel MCP invalide.
+    assert "auditor_name" in res["missing"]
+    q = next(q for q in res["questions"] if q["key"] == "auditor_name")
+    assert set(q["accepted_aliases"]) == {"auteur_controle", "auditor"}
     assert not list(Path(tmp_path).glob("**/*.xlsx"))
 
 
@@ -200,3 +204,98 @@ def test_word_report_has_no_hardcoded_auditor_name():
     sig = inspect.signature(tools_reporting.generate_word_report)
     assert sig.parameters["auditor"].default is None
     assert sig.parameters["auditor_name"].default is None
+
+
+def test_auditor_name_is_accepted_and_appears_in_the_pack(session):
+    """Le paramètre que le prompt demande d'employer doit exister — et servir.
+
+    Le prompt guide Claude vers ``auditor_name`` : si le tool ne l'expose pas,
+    l'appel MCP échoue avec un ``TypeError`` côté serveur. Ce test appelle donc
+    le tool exactement comme le prompt l'indique.
+    """
+    sess, tmp_path = session
+    _snapshot(sess, project_name="Dieppe")
+
+    res = mcp_server.generate_avp_i3f_pack(
+        project_code="7427L",
+        phase="AVP",
+        auditor_name="Stanislas Limouzi",
+        export_pdf=False,
+    )
+
+    assert res.get("status") != "needs_context", res
+    docx = next(p for p in res["paths"] if p.endswith(".docx"))
+    from docx import Document
+
+    texte = "\n".join(p.text for p in Document(docx).paragraphs)
+    texte += "\n" + "\n".join(
+        c.text for t in Document(docx).tables for r in t.rows for c in r.cells
+    )
+    assert "Stanislas Limouzi" in texte
+
+
+@pytest.mark.parametrize("param", ["auditor_name", "auteur_controle", "auditor"])
+def test_every_documented_auditor_param_is_accepted(session, param):
+    """Les trois noms coexistent : le nouveau, le métier I3F et l'historique."""
+    sess, tmp_path = session
+    _snapshot(sess, project_name="Dieppe")
+
+    res = mcp_server.generate_avp_i3f_pack(
+        project_code="7427L", phase="AVP", export_pdf=False, **{param: "CdP BIM 3F"}
+    )
+
+    assert res.get("status") != "needs_context", res
+
+
+def test_auditor_name_wins_over_the_compat_aliases(session):
+    sess, tmp_path = session
+    _snapshot(sess, project_name="Dieppe")
+
+    res = mcp_server.generate_avp_i3f_pack(
+        project_code="7427L",
+        phase="AVP",
+        auditor_name="Nom retenu",
+        auteur_controle="Nom metier",
+        auditor="Nom legacy",
+        export_pdf=False,
+    )
+    assert res.get("status") != "needs_context", res
+
+    from docx import Document
+
+    docx = next(p for p in res["paths"] if p.endswith(".docx"))
+    texte = "\n".join(p.text for p in Document(docx).paragraphs)
+    texte += "\n" + "\n".join(
+        c.text for t in Document(docx).tables for r in t.rows for c in r.cells
+    )
+    assert "Nom retenu" in texte
+    assert "Nom legacy" not in texte
+
+
+def test_prompt_only_names_parameters_the_tool_exposes():
+    """Garde-fou : le prompt ne doit citer que des paramètres réels.
+
+    Un prompt qui nomme un paramètre inexistant guide vers un appel MCP
+    invalide (``TypeError`` côté serveur) — l'UX devient pire que son absence.
+    On vérifie la section qui instruit la génération du pack, où les noms cités
+    sont des arguments à passer.
+    """
+    import inspect
+    import re
+
+    from audit_bim.mcp import prompts, tools_reporting
+
+    texte = prompts.AMO_BIM_I3F_PROMPT
+    debut = texte.index("## Identité projet et auteur du contrôle")
+    section = texte[debut:]
+    fin = section.find("\n## ", 1)
+    if fin != -1:
+        section = section[:fin]
+
+    exposes = set(inspect.signature(tools_reporting.generate_avp_i3f_pack).parameters)
+    cites = set(re.findall(r"`([a-z_]+)`", section)) | set(re.findall(r"`([a-z_]+)=", section))
+    # Noms de tools et statuts cités dans la section : hors périmètre.
+    cites -= {"generate_avp_i3f_pack", "questions", "suggestion", "status"}
+
+    assert "auditor_name" in cites, "la section doit nommer le paramètre à employer"
+    assert cites <= exposes, f"cités mais inexistants : {sorted(cites - exposes)}"

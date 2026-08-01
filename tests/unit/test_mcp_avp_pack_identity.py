@@ -180,7 +180,7 @@ def test_auteur_controle_asked_when_missing(_isolated):
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx")  # nom/code/phase OK
     res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, export_pdf=False)
     assert res.get("status") == "needs_context"
-    assert "auteur_controle" in res["missing"]
+    assert "auditor_name" in res["missing"]  # clé = paramètre du tool
 
 
 def test_auteur_controle_from_auditor(_isolated):

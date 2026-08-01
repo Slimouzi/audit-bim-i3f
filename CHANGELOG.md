@@ -26,6 +26,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   et `generate_word_report` n'a plus de défaut `auditor="AMO BIM (audit
   automatisé)"` — sans nom fourni, l'auteur reste non renseigné plutôt
   qu'inventé.
+- **`auditor_name` exposé par `generate_avp_i3f_pack`** — le prompt guidait
+  vers un paramètre que le tool n'avait pas (`TypeError` à l'appel). Ordre de
+  résolution : `auditor_name` (à employer) → `auteur_controle` (vocabulaire
+  I3F) → `auditor` (historique). La question `needs_context` porte désormais la
+  clé `auditor_name`, avec `accepted_aliases` — une clé de question doit
+  correspondre à un paramètre réel.
+- **`generate_word_report` valide `auditor_name or auditor`** : un appel
+  historique `auditor="Stan"` repartait en `needs_context` avant d'atteindre le
+  repli prévu.
 - **Prompt AMO** : demander l'identité projet et `auditor_name` **avant** la
   première génération (proposition d'utiliser le nom de session, sinon
   demande explicite) — ne plus générer puis proposer de régénérer.
