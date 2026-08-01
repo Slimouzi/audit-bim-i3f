@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..reporting.context import build_report_context, merge_user_context
-from ..reporting.word_report import write_word_report
+from ..reporting.word_report import NOT_AVAILABLE, write_word_report
 from ..reporting.xlsx_annex import write_xlsx_annex
 from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
 from .app import mcp
@@ -247,6 +247,7 @@ def generate_avp_i3f_pack(
     project_name: str | None = None,
     project_code: str | None = None,
     phase: str | None = None,
+    auditor_name: str | None = None,
     auditor: str | None = None,
     usages_bim: list[str] | None = None,
     nombre_logements: str | None = None,
@@ -263,40 +264,48 @@ def generate_avp_i3f_pack(
     + .pdf best-effort). Les données métier sont **maquette-first** : elles
     viennent du snapshot/audit courant et des quantités IFC extraites ou
     calculées via la chaîne IFC OpenShell. Les .xlsx MOA éventuellement fournis
-    servent au contexte documentaire (identité projet, seuils, templates
-    futurs), pas à remplir des colonnes issues d'outils externes.
+    servent de **template de mise en forme** et de contexte documentaire
+    (seuils), pas à remplir des colonnes issues d'outils externes — et **jamais**
+    à résoudre l'identité projet : ces classeurs sont le plus souvent ceux d'un
+    projet de référence, et leur entête nommerait les livrables d'après un autre
+    chantier.
 
     Nommage des livrables — convention documentaire I3F **générée à partir
     de données projet confirmées** :
     ``YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>``
-    (``YYMMDD`` = date de génération). Le **nom du projet** est cherché dans
-    les métadonnées BIMData/IFC (``project.name`` / ``IfcSite.Name``), le
-    **code (ESI)** dans le contrôle maquettes I3F, la **phase** est la phase
-    confirmée de l'audit (``_State.phase``). Si le nom ou le code restent
-    introuvables et ne sont pas fournis, le tool renvoie
-    ``{status: needs_context}`` avec les questions à poser (sauf
-    ``confirm_context=True``).
+    (``YYMMDD`` = date de génération). Identité résolue dans cet ordre
+    **strict** : paramètre explicite → contexte du modèle actif
+    (``project.name`` / ``IfcSite.Name``) → sinon ``{status: needs_context}``
+    avec les questions à poser. ``project_name`` et ``project_code`` sont
+    **obligatoires** : ils nomment des fichiers remis au client et
+    ``confirm_context`` ne les contourne **jamais**. La **phase** vient du
+    paramètre, sinon de la phase confirmée de l'audit (``_State.phase``).
 
     Args:
         output_dir: sous-dossier d'export (sandbox ``AUDIT_OUTPUT_DIR``).
         controle_xlsx … plancher_xlsx: chemins des .xlsx MOA/I3F de référence
-            (optionnels, sandbox lecture ``safe_input_path``). Ils peuvent
-            aider à résoudre l'identité projet ou des paramètres de contrôle,
-            mais les surfaces/dimensions exportées viennent de la maquette IFC.
-        project_name, project_code, phase: identité projet pour le nommage.
-            ``None`` → résolus depuis la maquette / les sources / la phase
-            d'audit confirmée ; nom ou code introuvable → ``needs_context``.
-        auditor, auteur_controle: nom de l'auteur du contrôle affiché sur le
-            pack. **Demandé explicitement** (``needs_context``) si aucun des
-            deux n'est fourni — pas de « AMO BIM » générique par défaut, sauf
-            ``confirm_context=True``. ``auteur_controle`` prime sur ``auditor``.
+            (optionnels, sandbox lecture ``safe_input_path``). Ils servent de
+            **template de mise en forme** ; leur entête n'est jamais appliquée
+            comme identité projet — au plus proposée en ``suggestion``, et
+            seulement si l'appelant a désigné le classeur. Les surfaces et
+            dimensions exportées viennent de la maquette IFC.
+        project_name, project_code: identité projet, **obligatoire**. ``None``
+            → résolue depuis le contexte du modèle actif, sinon
+            ``needs_context``. Non contournable par ``confirm_context``.
+        phase: ``None`` → phase d'audit confirmée, sinon ``needs_context``.
+        auditor_name: nom de l'auteur du contrôle affiché sur le pack —
+            **paramètre à employer**. ``auteur_controle`` (vocabulaire I3F) et
+            ``auditor`` (historique) restent acceptés, dans cet ordre de
+            priorité. Aucun n'est fourni → ``needs_context`` : pas de
+            « AMO BIM » générique.
         usages_bim, nombre_logements, temoin_virtuel, date_controle:
             métadonnées opérationnelles du contrôle (issues du rapport I3F de
             référence) pour « Données d'entrée » / « Usages BIM 3F ». Absentes
             → « Information non disponible… ».
         export_pdf: tente la conversion .docx → .pdf (LibreOffice si présent).
-        confirm_context: ``True`` pour générer malgré un nom/code/phase/auteur
-            manquant.
+        confirm_context: ``True`` pour générer malgré une **phase** ou un
+            **auteur** manquant. Ne contourne jamais ``project_name`` /
+            ``project_code``.
 
     Returns:
         ``{output_dir, paths, analyse_docx, analyse_pdf, pdf_available}`` ou
@@ -357,13 +366,20 @@ def generate_avp_i3f_pack(
         return str(v).strip() if v not in (None, "") and str(v).strip() else None
 
     # ── Résolution de l'identité projet (nom / code / phase) ────────────
-    # Nom : param explicite > **entête « Projet » du contrôle I3F** (source
-    # livrable, autoritaire pour l'identité I3F) > métadonnées maquette.
-    # ``project.name`` BIMData peut être générique (ex. « I3F ») : la source
-    # de contrôle prime pour ne pas nommer les livrables de travers.
-    eff_name = (project_name or "").strip() or _hdr("projet") or _snapshot_project_name()
-    # Code (ESI) : param > entête « ESI » du contrôle maquettes I3F.
-    eff_code = (project_code or "").strip() or _hdr("esi")
+    # Ordre STRICT : paramètre explicite > contexte du modèle actif > on
+    # demande. L'entête du classeur de contrôle n'est **jamais** autoritaire :
+    # ce classeur est le plus souvent un **template MOA de référence** (Tarare
+    # 0546L) auto-découvert dans les documents maître d'ouvrage. Son entête
+    # nommait alors les livrables d'après un AUTRE chantier que celui audité —
+    # un pack « Tarare 0546L » livré sur Dieppe. Le template reste utilisé pour
+    # la MISE EN FORME ; son identité projet ne l'est plus.
+    eff_name = (project_name or "").strip() or _snapshot_project_name()
+    eff_code = (project_code or "").strip() or None
+
+    # L'entête n'est proposée en SUGGESTION que si l'appelant a désigné le
+    # classeur lui-même : un fichier auto-découvert ne suggère rien.
+    hdr_name = _hdr("projet") if controle_xlsx else None
+    hdr_code = _hdr("esi") if controle_xlsx else None
     # Phase : param explicite > phase d'audit confirmée > entête contrôle I3F.
     eff_phase = (phase or "").strip() or None
     if not eff_phase and _State.phase is not None:
@@ -373,10 +389,19 @@ def generate_avp_i3f_pack(
 
     # Auteur du contrôle : I3F attend un auteur nommé (CdP BIM / auditeur
     # AMO). On **demande** explicitement plutôt que de retomber sur un
-    # « AMO BIM » générique — sauf si ``auteur_controle`` ou ``auditor``
-    # sont fournis, ou ``confirm_context``.
-    eff_auditor = (auditor or "").strip() or None
-    eff_auteur = (auteur_controle or "").strip() or None
+    # « AMO BIM » générique.
+    #
+    # Trois noms coexistent, par ordre de priorité :
+    #   ``auditor_name``     — nom proposé/validé depuis la session (à employer) ;
+    #   ``auteur_controle``  — vocabulaire métier I3F, conservé en compat ;
+    #   ``auditor``          — paramètre historique, conservé en compat.
+    eff_auteur = (
+        (auditor_name or "").strip()
+        or (auteur_controle or "").strip()
+        or (auditor or "").strip()
+        or None
+    )
+    eff_auditor = eff_auteur
 
     # Nom / code / phase obligatoires pour un livrable I3F fiable → sinon on
     # demande (jamais de valeur inventée ni de défaut silencieux).
@@ -384,23 +409,27 @@ def generate_avp_i3f_pack(
     questions: list[dict] = []
     if not eff_name:
         missing.append("project_name")
-        questions.append(
-            {
-                "key": "project_name",
-                "question": "Quel nom de projet doit apparaître dans les livrables ?",
-            }
-        )
+        q = {
+            "key": "project_name",
+            "question": "Quel nom de projet doit apparaître dans les livrables ?",
+        }
+        if hdr_name:
+            q["suggestion"] = hdr_name
+            q["question"] += f" (le classeur fourni indique « {hdr_name} »)"
+        questions.append(q)
     if not eff_code:
         missing.append("project_code")
-        questions.append(
-            {
-                "key": "project_code",
-                "question": (
-                    "Quel code projet / ESI doit apparaître dans les livrables ? "
-                    "(ex. « 0546L », visible sur le contrôle maquettes I3F)"
-                ),
-            }
-        )
+        q = {
+            "key": "project_code",
+            "question": (
+                "Quel code projet / ESI doit apparaître dans les livrables ? "
+                "(ex. « 7427L », visible sur le contrôle maquettes I3F)"
+            ),
+        }
+        if hdr_code:
+            q["suggestion"] = hdr_code
+            q["question"] += f" (le classeur fourni indique « {hdr_code} »)"
+        questions.append(q)
     if not eff_phase:
         # Phase unique : proposée si détectée (IFC puis entête contrôle),
         # sinon demandée — jamais défautée silencieusement sur « AVP ».
@@ -411,28 +440,40 @@ def generate_avp_i3f_pack(
             if hdr_phase:
                 det_raw, det_mapped = hdr_phase, _map_phase(hdr_phase)
         questions.append(_phase_question_dict(det_raw, det_mapped))
-    if not eff_auteur and not eff_auditor:
-        missing.append("auteur_controle")
+    if not eff_auteur:
+        # Clé alignée sur le PARAMÈTRE à employer : une question dont la clé ne
+        # correspond à aucun paramètre du tool guide vers un appel invalide.
+        missing.append("auditor_name")
         questions.append(
             {
-                "key": "auteur_controle",
+                "key": "auditor_name",
                 "question": (
                     "Quel nom afficher comme « Auteur du contrôle » sur le pack "
-                    "AVP I3F ? (ex. le CdP BIM 3F, ou l'auditeur AMO — passer "
-                    "``auteur_controle`` ou ``auditor``)"
+                    "AVP I3F ? (ex. le CdP BIM 3F, ou l'auditeur AMO)"
                 ),
+                "accepted_aliases": ["auteur_controle", "auditor"],
             }
         )
-    if missing and not confirm_context:
+    # L'identité projet (nom + code) n'est **jamais** contournable : elle nomme
+    # des fichiers remis au client. ``confirm_context`` ne couvre que le
+    # contexte documentaire (phase, auteur du contrôle).
+    identity_missing = [m for m in missing if m in ("project_name", "project_code")]
+    if identity_missing or (missing and not confirm_context):
         return {
             "status": "needs_context",
             "missing": missing,
             "questions": questions,
             "next_step": (
                 "Renseigner ``project_name`` / ``project_code`` / "
-                "``project_phase`` (=``phase``) / ``auteur_controle`` (ou "
-                "``auditor``) puis re-appeler ``generate_avp_i3f_pack``. Pour "
-                "générer malgré tout, passer ``confirm_context=True``."
+                "``project_phase`` (=``phase``) / ``auditor_name`` puis "
+                "re-appeler ``generate_avp_i3f_pack``."
+                + (
+                    " ``project_name`` et ``project_code`` sont OBLIGATOIRES : "
+                    "ils nomment les livrables client et ne peuvent pas être "
+                    "contournés par ``confirm_context``."
+                    if identity_missing
+                    else " Pour générer malgré tout, passer ``confirm_context=True``."
+                )
             ),
         }
 
@@ -448,17 +489,19 @@ def generate_avp_i3f_pack(
             # Snapshot explicite : le repli maquette s'active même sans audit
             # (ex. après verify_active_model seul, _State.result est None).
             snapshot=_State.snapshot,
-            project_name=eff_name or "Projet",
-            project_code=eff_code or "",
+            # Garantis non vides par la gate d'identité ci-dessus : aucun nom
+            # générique ni d'exemple ne peut atteindre un livrable.
+            project_name=eff_name,
+            project_code=eff_code,
             phase=eff_phase or "AVP",
             # Auteur validé/fourni (ou repli « AMO BIM » uniquement sous
             # confirm_context — voluntary confirmation).
-            auditor=eff_auditor or "AMO BIM",
+            auditor=eff_auditor or NOT_AVAILABLE,
             usages_bim=usages_bim,
             nombre_logements=nombre_logements,
             temoin_virtuel=temoin_virtuel,
             date_controle=date_controle,
-            auteur_controle=auteur_controle,
+            auteur_controle=eff_auteur,
             export_pdf=export_pdf,
         )
     except AvpQaError as exc:
@@ -489,7 +532,7 @@ def generate_avp_i3f_pack(
 def generate_word_report(
     output_path: str | None = None,
     xlsx_annex_path: str | None = None,
-    auditor: str = "AMO BIM (audit automatisé)",
+    auditor: str | None = None,
     overwrite: bool = False,
     project_address: str | None = None,
     project_phase: str | None = None,
@@ -570,7 +613,10 @@ def generate_word_report(
     refusal = _validate_audit_context(
         project_address=project_address,
         project_phase=eff_phase,
-        auditor_name=auditor_name,
+        # ``auditor`` (legacy) doit être vu par la validation : sinon un appel
+        # historique ``auditor="Stan"`` repartait en ``needs_context`` avant
+        # d'atteindre le repli prévu plus bas.
+        auditor_name=(auditor_name or "").strip() or (auditor or "").strip() or None,
         # On passe la valeur **utilisateur brute** (pas la description du
         # snapshot) : la description est demandée puis validée/corrigée par
         # l'utilisateur, avec la description maquette proposée en suggestion.
@@ -601,10 +647,11 @@ def generate_word_report(
         project_description=project_description,
     )
 
-    # Si auditor_name fourni, on l'utilise comme display ; sinon legacy
-    # param ``auditor`` reste fonctionnel (write_word_report gère la
-    # priorité contexte → kwargs).
-    display_auditor = auditor_name or auditor
+    # ``auditor_name`` est le paramètre à employer ; ``auditor`` reste accepté
+    # en compat. Aucun nom n'est codé en dur : sans valeur, le rapport porte
+    # ``NOT_AVAILABLE`` plutôt qu'un auteur inventé — l'appelant doit demander
+    # le nom avant de générer.
+    display_auditor = (auditor_name or "").strip() or (auditor or "").strip() or None
 
     written = write_word_report(
         _State.result,

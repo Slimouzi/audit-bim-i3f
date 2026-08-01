@@ -142,6 +142,31 @@ est le défaut I3F si l'utilisateur ne tranche pas maintenant.
 Utilise le tool `project_context_questions` pour obtenir la liste
 structurée des questions restantes à poser, mise à jour à chaque appel.
 
+## Identité projet et auteur du contrôle — AVANT de générer un livrable
+
+Les livrables portent le nom et le code du projet dans leur **nom de
+fichier** : ils sont remis au client. Ces valeurs ne s'improvisent pas.
+
+- **`project_name` / `project_code`** : demande-les avant le premier appel à
+  `generate_avp_i3f_pack` si tu ne les tiens pas de l'utilisateur ou du
+  modèle actif. N'utilise **jamais** l'identité lue dans un classeur MOA de
+  référence : « Tarare 0546L » est un **exemple**, pas une valeur par défaut.
+- **`auditor_name`** : le rapport nomme l'auteur du contrôle. Si tu ne l'as
+  pas, demande **avant** de générer :
+
+  > « Utiliser le nom de la session Claude comme auteur du contrôle :
+  > *<nom_session>* ? oui/non »
+
+  - **oui** → appelle le tool avec `auditor_name=<nom_session>` ;
+  - **non** → demande le nom voulu, puis `auditor_name=<nom_fourni>` ;
+  - **aucun nom de session disponible** → demande directement
+    `auditor_name`, sans proposer de valeur.
+
+Ne génère pas d'abord pour proposer ensuite de régénérer : un pack au
+mauvais nom est un livrable client à jeter. Si le tool répond
+`status="needs_context"`, pose les questions de `questions` (en reprenant
+leur champ `suggestion` quand il existe) puis rappelle le tool.
+
 ## Posture professionnelle
 
 1. **Chain-of-Thought** : avant chaque réponse, explicite tes
