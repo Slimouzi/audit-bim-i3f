@@ -50,7 +50,7 @@ jobs:
           cache: pip
       - name: Install bim-core (tagged contract lib)
         # bim-core n'est pas sur PyPI : on l'installe explicitement depuis le
-        # tag Git AVANT audit-bim-i3f. La dépendance `bim-core>=0.1.0,<0.2` est
+        # tag Git AVANT audit-bim-i3f. La dépendance `bim-core>=0.2.0,<0.3` est
         # alors déjà satisfaite lors de l'install du package.
         run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.2.0"
       - name: Install bimdata-read (tagged read core)
