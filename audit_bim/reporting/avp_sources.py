@@ -366,18 +366,18 @@ def read_envelope_json(path: str | Path) -> EnveloppeSource:
     portes = doc.get("superficie_menuiseries_portes_m2")
     rows: list[list[Any]] = []
     for i, e in enumerate(par):
-        area = e.get("netsidearea_m2")
+        area = _first_present(e, "net_side_area_m2", "netsidearea_m2")
         rows.append(
             [
                 "IfcWall",  # A Composant
                 e.get("type"),  # B Type
-                e.get("etages"),  # C Étages
+                _join_values(e.get("etages")),  # C Étages
                 area,  # D Archicad BQ NetSideArea
                 area,  # E Surface IFC OpenShell (source unique → = D)
                 None,  # F ArchiCAD ouvertures ext. (non fourni)
                 fenetres if i == 0 else None,  # G total fenêtres (1re ligne)
                 portes if i == 0 else None,  # H total portes
-                e.get("nombre"),  # I Nombre
+                _first_present(e, "nombre", "n"),  # I Nombre
                 None,  # J Couleur
             ]
         )
@@ -399,6 +399,20 @@ def read_envelope_json(path: str | Path) -> EnveloppeSource:
         superficie_portes=portes,
         hors_filtre_type=doc.get("hors_filtre_type") or [],
     )
+
+
+def _first_present(row: dict, *keys: str):
+    for key in keys:
+        value = row.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _join_values(value):
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value if v not in (None, ""))
+    return value
 
 
 def read_menuiseries(path: str | Path) -> MenuiseriesSource:

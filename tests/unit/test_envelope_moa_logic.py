@@ -8,12 +8,17 @@ import json
 import openpyxl
 import pytest
 
-from audit_bim.reporting.avp_i3f import AvpMeta, _build_enveloppe_xlsx
+from audit_bim.extraction.model_data import ModelSnapshot
+from audit_bim.reporting.avp_i3f import (
+    AvpMeta,
+    _build_enveloppe_xlsx,
+    write_avp_i3f_report_pack,
+)
 from audit_bim.reporting.avp_sources import AvpSources, read_envelope_json
 
 # 8 types de façade sommant 2071,18 m² ; 2 types hors filtre (982,31) → total brut 3053,49.
 _PAR_TYPE = [
-    {"type": "ME_36", "etages": "R+1", "netsidearea_m2": 300.0, "nombre": 40},
+    {"type": "ME_36", "etages": ["R+1", "R+2"], "net_side_area_m2": 300.0, "n": 40},
     {"type": "ME_30", "etages": "R+1", "netsidearea_m2": 300.0, "nombre": 38},
     {"type": "ME_25", "etages": "RDC", "netsidearea_m2": 300.0, "nombre": 35},
     {"type": "ME_20", "etages": "RDC", "netsidearea_m2": 300.0, "nombre": 30},
@@ -72,6 +77,8 @@ def test_read_envelope_json_one_row_per_type(tmp_path):
     src = read_envelope_json(_write_json(tmp_path))
     assert len(src.table.rows) == 8  # 8 lignes métier, pas 484
     assert src.sheet_title == "TDB 2022 04.2 - Extraction s..."
+    assert src.table.rows[0][2] == "R+1, R+2"
+    assert src.table.rows[0][8] == 40
     d_sum = round(sum(r[3] for r in src.table.rows), 2)
     assert d_sum == pytest.approx(2071.18)  # Σ NetSideArea filtré
     assert src.ratio_fac_shab == pytest.approx(0.9568)
@@ -119,3 +126,45 @@ def test_synthesis_ratio_and_hors_filtre_note(tmp_path):
     assert "Seuil 3F 2026" in text
     # hors_filtre en diagnostic, hors du total métier.
     assert "Hors filtre" in text and "exclu du total façade" in text
+
+
+def test_envelope_json_keeps_priority_when_snapshot_exists(tmp_path):
+    src = read_envelope_json(_write_json(tmp_path))
+    snap = ModelSnapshot(
+        elements=[
+            {
+                "uuid": "W1",
+                "type": "IfcWall",
+                "Name": "Mur elementaire",
+                "layers": [{"name": "221 - MURS - Extérieurs périphériques.Exndo"}],
+                "property_sets": [
+                    {
+                        "name": "Qto_WallBaseQuantities",
+                        "properties": [{"definition": {"name": "NetSideArea"}, "value": 3053.49}],
+                    }
+                ],
+            }
+        ]
+    ).index()
+    pack = write_avp_i3f_report_pack(
+        None,
+        tmp_path / "pack",
+        sources=AvpSources(enveloppe=src),
+        snapshot=snap,
+        project_name="MCP_Audit",
+        project_code="0546L",
+        phase="AVP",
+        auditor="Stanislas Limouzi",
+        date="260801",
+        export_pdf=False,
+    )
+    wb = openpyxl.load_workbook(pack.enveloppe_xlsx, data_only=True)
+    ws = wb.active
+    grid = [[c for c in row] for row in ws.iter_rows(values_only=True)]
+    wb.close()
+    text = _all_text(grid)
+    assert ws.title == "TDB 2022 04.2 - Extraction s..."
+    assert "Layer" not in text
+    assert "Surface IFC OpenShell (m²)" not in text
+    assert "Surface IFC OpenShell" in text
+    assert sum(1 for row in grid for c in row if c == "IfcWall") == 8
