@@ -14,7 +14,10 @@ from ...extraction.model_data import ModelSnapshot
 from ..avp_snapshot import (
     count_envelope_walls,
     count_menuiseries,
+    count_menuiseries_with_dimensions,
     count_planchers,
+    count_planchers_with_area,
+    count_spaces_with_area,
 )
 from ..avp_sources import (
     AvpSourcePaths,
@@ -170,8 +173,9 @@ def write_avp_i3f_report_pack(
             par défaut) plutôt que ``NOT_AVAILABLE``.
         export_pdf: tente la conversion .docx → .pdf (best-effort).
     """
+    # Le dossier n'est créé qu'APRÈS le préflight (plus bas) : un refus ne doit
+    # rien laisser derrière lui, pas même un dossier vide.
     out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
     # Date de génération du livrable (YYMMDD) si non imposée par l'appelant.
     gen_date = (
         date.strip()
@@ -227,6 +231,19 @@ def write_avp_i3f_report_pack(
     # ``verify_active_model`` sans audit), sinon depuis ``result.snapshot``.
     # Dès qu'il existe, il devient la source autoritaire des exports métriques.
     snap = snapshot if snapshot is not None else (result.snapshot if result is not None else None)
+
+    # ── PRÉFLIGHT : refuser AVANT d'écrire quoi que ce soit ─────────────
+    # Les quantités manquantes se voient sur le snapshot, sans rien produire.
+    # Contrôler après génération laisserait un dossier de livrables non
+    # conformes sur disque malgré le statut d'erreur — le piège même que cette
+    # gate doit fermer. Les gates qui nécessitent de LIRE les fichiers produits
+    # (annexes vides) restent nécessairement en aval.
+    sans_quantites = _qa_missing_quantities(snap)
+    if sans_quantites:
+        raise AvpQaError(sans_quantites, kind="missing_quantities")
+
+    out.mkdir(parents=True, exist_ok=True)
+
     if snap is not None:
         # ``build_sources_from_snapshot`` est ré-exporté par la façade ``avp_i3f``
         # et résolu via elle (point de patch historique des tests, inchangés dans
@@ -318,5 +335,30 @@ def _qa_empty_deliverables(
     if count_menuiseries(snap) > 0 and _count_business_rows(pack.menuiseries_xlsx) == 0:
         problems.append("Menuiseries")
     if count_planchers(snap) > 0 and _count_business_rows(pack.plancher_xlsx) == 0:
+        problems.append("Plancher")
+    return problems
+
+
+def _qa_missing_quantities(snap) -> list[str]:
+    """Annexes dont les colonnes de **quantités** seraient intégralement vides.
+
+    Un livrable avec des lignes mais aucune valeur numérique est pire qu'un
+    livrable vide : il paraît complet et se lit comme un résultat. Le cas se
+    produit quand le snapshot BIMData ne porte pas de ``BaseQuantities`` et que
+    les quantités calculées (contrat ``computed_base_quantities/v1``) n'ont pas
+    été fusionnées — ``compute_missing_quantities`` non demandé, ou
+    ``computed_quantities_json`` non transmis.
+
+    On refuse alors la génération plutôt que de produire un pack faux.
+    """
+    if snap is None:
+        return []
+    problems: list[str] = []
+    if snap.spaces and count_spaces_with_area(snap) == 0:
+        # SHAB et Zones/Espaces reposent toutes deux sur la surface d'espace.
+        problems += ["SHAB", "Zones/Espaces"]
+    if count_menuiseries(snap) > 0 and count_menuiseries_with_dimensions(snap) == 0:
+        problems.append("Menuiseries")
+    if count_planchers(snap) > 0 and count_planchers_with_area(snap) == 0:
         problems.append("Plancher")
     return problems

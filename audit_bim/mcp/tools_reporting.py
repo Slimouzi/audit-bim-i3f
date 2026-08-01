@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import unicodedata
@@ -222,7 +223,13 @@ def list_avp_i3f_xls_reports(
         reports.append(d)
 
     phase = _State.phase.value if _State.phase else None
-    return {
+    # Signal d'amont : les rapports auraient des lignes mais des colonnes de
+    # quantités vides. Remonté ICI pour que l'appelant fournisse le JSON calculé
+    # AVANT de générer, plutôt que de découvrir le refus à la génération.
+    from ..reporting.avp.pack import _qa_missing_quantities
+
+    sans_quantites = _qa_missing_quantities(snap)
+    out = {
         "status": "ok",
         "project": {
             "name": (snap.project or {}).get("name") if snap else None,
@@ -232,6 +239,18 @@ def list_avp_i3f_xls_reports(
         "require_identical": require_identical,
         "reports": reports,
     }
+    if sans_quantites:
+        out["needs_computed_quantities_json"] = True
+        out["reports_without_quantities"] = sans_quantites
+        out["next_action"] = (
+            "Le snapshot ne porte pas de BaseQuantities pour : "
+            + ", ".join(sans_quantites)
+            + ". Produire le JSON via ``export_computed_base_quantities`` (MCP "
+            "ifc-geometry) puis le passer en ``computed_quantities_json`` à "
+            "``generate_avp_i3f_pack`` (ou à ``extract_model_snapshot`` avec "
+            "``compute_missing_quantities=True``)."
+        )
+    return out
 
 
 @mcp.tool()
@@ -242,6 +261,7 @@ def generate_avp_i3f_pack(
     zones_espaces_xlsx: str | None = None,
     enveloppe_xlsx: str | None = None,
     envelope_json: str | None = None,
+    computed_quantities_json: str | None = None,
     menuiseries_xlsx: str | None = None,
     plancher_xlsx: str | None = None,
     project_name: str | None = None,
@@ -289,6 +309,15 @@ def generate_avp_i3f_pack(
             comme identité projet — au plus proposée en ``suggestion``, et
             seulement si l'appelant a désigné le classeur. Les surfaces et
             dimensions exportées viennent de la maquette IFC.
+        computed_quantities_json: JSON ``computed_base_quantities/v1`` produit
+            par ``export_computed_base_quantities`` (MCP ifc-geometry). Fusionné
+            **gap-only** dans le snapshot avant génération : comble les
+            ``BaseQuantities`` absentes de BIMData (surfaces d'espaces,
+            largeurs/hauteurs de menuiseries, aires de dalles) sans jamais
+            écraser une valeur native. Sans lui — et sans
+            ``extract_model_snapshot(compute_missing_quantities=True, …)``
+            préalable — les colonnes de quantités des annexes sortiraient
+            vides et la QA gate refuse la génération.
         project_name, project_code: identité projet, **obligatoire**. ``None``
             → résolue depuis le contexte du modèle actif, sinon
             ``needs_context``. Non contournable par ``confirm_context``.
@@ -359,6 +388,41 @@ def generate_avp_i3f_pack(
         safe_env = safe_input_path(envelope_json_used, allowed_extensions={".json"})
         sources.enveloppe = read_envelope_json(safe_env)
         envelope_json_used = str(safe_env)
+
+    # Quantités calculées : fusion **gap-only** dans le snapshot AVANT
+    # génération. Sans elles, un snapshot BIMData dépourvu de BaseQuantities
+    # produit des annexes aux colonnes vides (la QA gate les refuse plus bas).
+    computed_coverage = None
+    computed_json_used = None
+    working_snapshot = _State.snapshot
+    if computed_quantities_json:
+        from ..extraction.computed_quantities import (
+            load_computed_quantities,
+            merge_into_snapshot,
+        )
+
+        if _State.snapshot is None:
+            return {
+                "status": "needs_context",
+                "missing": ["snapshot"],
+                "next_step": (
+                    "``computed_quantities_json`` se fusionne dans le snapshot : "
+                    "appeler ``extract_model_snapshot`` avant ``generate_avp_i3f_pack``."
+                ),
+            }
+        safe_cq = safe_input_path(computed_quantities_json, allowed_extensions={".json"})
+        doc = load_computed_quantities(safe_cq)  # valide le contrat (sinon ValueError)
+        # Copie de travail : la fusion est gap-only, donc muter le snapshot de
+        # SESSION la rendrait non rejouable — un second appel avec un JSON
+        # recalculé verrait les anciennes valeurs comme « déjà présentes » et
+        # les conserverait. On part donc systématiquement du snapshot d'origine.
+        # La copie est profonde parce que la fusion mute les dicts d'éléments
+        # (``property_sets``) ; le coût est assumé pour garder la génération
+        # rejouable et sans effet de bord sur la session.
+        working_snapshot = copy.deepcopy(_State.snapshot).index()
+        computed_coverage = merge_into_snapshot(working_snapshot, doc)
+        working_snapshot.computed_coverage = dict(computed_coverage)
+        computed_json_used = str(safe_cq)
     ctrl_header = (sources.controle.header if sources.controle else {}) or {}
 
     def _hdr(key: str) -> str | None:
@@ -488,7 +552,7 @@ def generate_avp_i3f_pack(
             sources=sources,
             # Snapshot explicite : le repli maquette s'active même sans audit
             # (ex. après verify_active_model seul, _State.result est None).
-            snapshot=_State.snapshot,
+            snapshot=working_snapshot,
             # Garantis non vides par la gate d'identité ci-dessus : aucun nom
             # générique ni d'exemple ne peut atteindre un livrable.
             project_name=eff_name,
@@ -505,15 +569,35 @@ def generate_avp_i3f_pack(
             export_pdf=export_pdf,
         )
     except AvpQaError as exc:
-        # QA gate : au moins une annexe est sortie vide alors que la
-        # maquette contient des données exploitables. Statut d'erreur
-        # explicite — surtout pas un livrable client vide.
-        return {
+        # QA gate : annexe vide, ou annexe dont TOUTES les colonnes de
+        # quantités sont vides. Statut d'erreur explicite — surtout pas un
+        # livrable client faux, qui se lirait comme un résultat.
+        manque_quantites = exc.kind == "missing_quantities"
+        # Un refus ne doit rien laisser derrière lui. Le dossier a été créé en
+        # amont par la sandbox d'export ; on le retire s'il est resté vide
+        # (jamais s'il contient quoi que ce soit — on ne supprime pas de
+        # fichiers de l'utilisateur).
+        try:
+            if out_dir.is_dir() and not any(out_dir.iterdir()):
+                out_dir.rmdir()
+        except OSError:  # nettoyage best-effort, jamais bloquant
+            pass
+        payload = {
             "status": "error",
-            "error": "empty_deliverable",
+            "error": ("missing_quantities" if manque_quantites else "empty_deliverable"),
             "empty_deliverables": exc.empty,
             "message": str(exc),
         }
+        if manque_quantites:
+            payload["needs_computed_quantities_json"] = True
+            payload["next_step"] = (
+                "Produire le JSON via ``export_computed_base_quantities`` (MCP "
+                "ifc-geometry), puis rappeler ce tool avec "
+                "``computed_quantities_json=<chemin>`` — ou relancer "
+                "``extract_model_snapshot(compute_missing_quantities=True, "
+                "computed_quantities_json=<chemin>)``."
+            )
+        return payload
     return {
         "output_dir": str(out_dir),
         "paths": [str(p) for p in pack.paths()],
@@ -525,6 +609,8 @@ def generate_avp_i3f_pack(
         "phase": eff_phase,
         "controle_xlsx_used": controle_src,
         "envelope_json_used": envelope_json_used,
+        "computed_quantities_json_used": computed_json_used,
+        "computed_quantities_coverage": computed_coverage,
     }
 
 
