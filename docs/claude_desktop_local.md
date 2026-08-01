@@ -159,7 +159,7 @@ recharge la config.
    sous `AUDIT_OUTPUT_DIR`.
 
 6. « **Dans un deuxième temps, propose les classifications manquantes sans les appliquer.** »
-   `list_classification_suggestions` puis `prepare_classification_corrections`
+   `list_classification_suggestions` puis `prepare_classification_update_plan`
    (plan scellé, **aucune écriture BIMData** — l'apply exige `confirm=True`).
 
 7. « **Prépare les BCF topics sans écrire.** »

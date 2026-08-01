@@ -57,7 +57,8 @@ apply_bcf_topics(plan_path="/tmp/.../plans/<uuid>.json", confirm=True)
 # → ActionResult{succeeded, failed, impacted_uuids, errors}
 ```
 
-Alias plus parlant côté AMO :
+Alias **LEGACY opt-in** (absents par défaut — lancer le serveur avec
+`AUDIT_BIM_ENABLE_LEGACY_ALIASES=true`) :
 
 ```python
 prepare_bcf_from_findings(finding_filter={"severity_min": "HIGH"})
@@ -79,7 +80,7 @@ prepare_smart_views_plan(finding_filter=None)
 apply_smart_views_plan(plan_path="...", confirm=True)
 ```
 
-Alias :
+Alias **LEGACY opt-in** (`AUDIT_BIM_ENABLE_LEGACY_ALIASES=true`) :
 
 ```python
 prepare_smartviews_from_findings()
@@ -121,7 +122,7 @@ prepare_doe_enrichment_plan(
 apply_doe_enrichment_plan(plan_path="...", confirm=True)
 ```
 
-Alias métier équivalents :
+Alias **LEGACY opt-in** (`AUDIT_BIM_ENABLE_LEGACY_ALIASES=true`) :
 
 ```python
 prepare_doe_enrichment_from_file(doe_path="DOE_lot_CVC.xlsx")
@@ -153,7 +154,7 @@ prepare_classification_update_plan()
 apply_classification_update_plan(plan_path="...", confirm=True)
 ```
 
-Alias :
+Alias **LEGACY opt-in** (`AUDIT_BIM_ENABLE_LEGACY_ALIASES=true`) :
 
 ```python
 prepare_classification_corrections()
@@ -211,7 +212,7 @@ list_classification_suggestions(filter={"min_confidence": 0.4, "limit": 200})
 
 ## Références
 
-- [docs/mcp_tools.md](mcp_tools.md) — référence complète des 40 tools
+- [docs/mcp_tools.md](mcp_tools.md) — référence complète (45 tools canoniques par défaut, 53 avec les aliases LEGACY)
 - [audit_bim/mcp/deprecation.py](../audit_bim/mcp/deprecation.py) —
   registre central `DEPRECATIONS`
 - [audit_bim/actions/plans.py](../audit_bim/actions/plans.py) — scellé +
