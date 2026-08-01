@@ -33,18 +33,10 @@ REPLACEMENTS = {
     "apply_doe_enrichment_plan",
 }
 
-# Les 8 aliases actifs (``audit_bim.mcp.aliases``) re-dispatchent vers des tools
-# actifs — ils doivent rester enregistrés après la rupture v0.5.0.
-ACTIVE_ALIASES = {
-    "prepare_bcf_from_findings",
-    "apply_bcf_plan",
-    "prepare_smartviews_from_findings",
-    "apply_smartviews_plan",
-    "prepare_classification_corrections",
-    "apply_classification_corrections",
-    "prepare_doe_enrichment_from_file",
-    "apply_doe_enrichment",
-}
+# Les 8 aliases métier (``audit_bim.mcp.aliases``) sont désormais **opt-in LEGACY**
+# (``AUDIT_BIM_ENABLE_LEGACY_ALIASES``) : absents du registre par défaut. Leur
+# présence/absence selon le flag est attestée en **sous-processus** dans
+# ``test_mcp_aliases_optin.py`` (le registre in-process est pollué à la collecte).
 
 
 def _registered_tool_names() -> set[str]:
@@ -60,11 +52,6 @@ def test_legacy_tools_are_absent_from_registry():
 def test_replacement_tools_are_present():
     missing = REPLACEMENTS - _registered_tool_names()
     assert not missing, f"remplaçants manquants dans le registre : {missing}"
-
-
-def test_active_aliases_are_present():
-    missing = ACTIVE_ALIASES - _registered_tool_names()
-    assert not missing, f"aliases actifs manquants dans le registre : {missing}"
 
 
 def test_deprecations_registry_is_empty():

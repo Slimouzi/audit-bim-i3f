@@ -3,27 +3,23 @@
 Les tools sont désormais répartis **par nature** (PR2 §2b) :
 ``tools_session`` (cible/contexte/config), ``tools_audit`` (audit + findings),
 ``tools_reporting`` (livrables), ``tools_actions`` (écritures), ``tools_query``
-(lecture), ``aliases`` (re-dispatch). L'instance ``mcp``, les middlewares et
-l'enregistrement **explicite** (``register_all``) vivent dans ``app.py``.
+(lecture). Les ``aliases`` (re-dispatch) sont désormais **opt-in LEGACY** (cf.
+``app._legacy_aliases_enabled`` / ``AUDIT_BIM_ENABLE_LEGACY_ALIASES``). L'instance
+``mcp``, les middlewares et l'enregistrement **explicite** (``register_all``)
+vivent dans ``app.py``.
 
 Ce module ne conserve que : le **prompt** MCP, le point d'entrée ``main()``, et
 des **ré-exports de compat** (DÉPRÉCIÉS) pour que
 ``from audit_bim.mcp import server; server.<tool>(...)`` reste valide (tests +
-quelques scripts) — à retirer une fois les appelants migrés. (Imports au niveau
-module : aucun cycle — tous ces modules importent ``mcp`` depuis ``.app``.)
+quelques scripts) — à retirer une fois les appelants migrés. Les ré-exports des
+**aliases** sont **lazy** (PEP 562, cf. ``__getattr__``) : importer ``server`` ne
+tire plus ``aliases.py`` (sinon les tools LEGACY seraient enregistrés malgré le
+flag). (Imports au niveau module : aucun cycle — tous ces modules importent
+``mcp`` depuis ``.app``.)
 """
 
 from __future__ import annotations
 
-from .aliases import (  # noqa: F401  (ré-export compat)
-    apply_bcf_plan,
-    apply_classification_corrections,
-    apply_smartviews_plan,
-    prepare_bcf_from_findings,
-    prepare_classification_corrections,
-    prepare_doe_enrichment_from_file,
-    prepare_smartviews_from_findings,
-)
 from .app import mcp
 from .prompts import AMO_BIM_I3F_PROMPT
 from .tools_actions import (  # noqa: F401  (ré-export compat)
@@ -79,6 +75,35 @@ from .tools_session import (  # noqa: F401  (ré-export compat)
     set_owner_documents,
     verify_active_model,
 )
+
+# ── Ré-exports de compat LEGACY (aliases métier) — lazy ──────────────────────
+# Les aliases sont désormais **opt-in** (cf. ``app._legacy_aliases_enabled``). Pour
+# ne **pas** importer ``aliases.py`` au simple import de ``server`` (sinon les 8
+# tools seraient enregistrés malgré le flag), les ré-exports de compat
+# ``server.<alias>`` sont **lazy** (PEP 562) : ``aliases`` n'est importé qu'à
+# l'accès effectif. DÉPRÉCIÉ — à retirer une fois les appelants migrés.
+_LEGACY_ALIAS_REEXPORTS = frozenset(
+    {
+        "prepare_bcf_from_findings",
+        "apply_bcf_plan",
+        "prepare_smartviews_from_findings",
+        "apply_smartviews_plan",
+        "prepare_classification_corrections",
+        "apply_classification_corrections",
+        "prepare_doe_enrichment_from_file",
+    }
+)
+
+
+def __getattr__(name: str):
+    """Ré-export compat lazy des aliases (PEP 562) — n'importe ``aliases`` qu'à la
+    demande, pour ne pas enregistrer les tools LEGACY au simple import de ``server``."""
+    if name in _LEGACY_ALIAS_REEXPORTS:
+        from . import aliases
+
+        return getattr(aliases, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # ── Prompt MCP ─────────────────────────────────────────────────────────────
 
