@@ -1,8 +1,11 @@
 """Résolution de l'identité projet du pack AVP I3F (tool MCP) + phase unique.
 
 Couvre les correctifs de revue :
-- P1 : le nom de projet des livrables privilégie l'entête « Projet » du
-  contrôle I3F sur un ``project.name`` BIMData générique (ex. « I3F »).
+- P1 : l'entête « Projet » du classeur de contrôle n'est **jamais** autoritaire
+  pour nommer les livrables — ce classeur est le plus souvent un template MOA
+  de référence (Tarare 0546L), et son identité nommait les packs d'après un
+  autre chantier que celui audité. Ordre strict : paramètre explicite >
+  contexte du modèle actif > on demande.
 - P2a : phase absente → ``needs_context`` (project_phase), jamais de défaut
   silencieux « AVP ».
 - P2b : ``project_context_questions`` pose une **unique** question de phase
@@ -69,20 +72,48 @@ def test_generate_pack_requires_snapshot(_isolated):
     assert "snapshot" in res["missing"]
 
 
-def test_control_header_name_wins_over_generic_snapshot(_isolated):
-    """P1 : project.name = « I3F » (générique) mais entête contrôle
-    « Projet » = « Tarare » → les livrables portent « Tarare »."""
+def test_control_header_never_names_the_deliverables(_isolated):
+    """P1 : l'entête du classeur de contrôle ne nomme JAMAIS les livrables.
+
+    Le classeur fourni est celui du projet de référence MOA (Tarare 0546L) ;
+    la maquette auditée est une autre. Générer un pack « Tarare » serait livrer
+    au client des fichiers au nom d'un autre chantier.
+    """
     sess, tmp_path = _isolated
     sess.snapshot = ModelSnapshot(project={"name": "I3F"}, model={"name": "M.ifc"}).index()
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx")
 
     res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, auditor="AMO BIM", export_pdf=False)
 
-    assert res.get("status") != "needs_context"
-    assert res["project_name"] == "Tarare"
-    for p in res["paths"]:
-        assert "I3F" not in p.rsplit("/", 1)[-1]
-    assert any("Tarare 0546L AVP" in p for p in res["paths"])
+    # Le nom vient du contexte modèle (« I3F »), le code manque → on demande.
+    assert res.get("status") == "needs_context"
+    assert "project_code" in res["missing"]
+    assert res["project_name"] != "Tarare" if "project_name" in res else True
+
+    # L'entête reste une SUGGESTION, jamais une valeur appliquée.
+    q = next(q for q in res["questions"] if q["key"] == "project_code")
+    assert q.get("suggestion") == "0546L"
+
+
+def test_auto_discovered_control_template_never_suggests_its_identity(_isolated):
+    """Un classeur AUTO-DÉCOUVERT ne suggère rien : l'utilisateur ne l'a pas désigné."""
+    sess, tmp_path = _isolated
+    _attach_minimal_snapshot(sess)
+    _controle_xlsx(tmp_path / "controle maquettes.xlsx")
+    monkey_dir = tmp_path
+
+    import os
+
+    os.environ["AUDIT_INPUT_DIR"] = str(monkey_dir)
+    try:
+        res = mcp_server.generate_avp_i3f_pack(auditor="AMO BIM", export_pdf=False)
+    finally:
+        os.environ.pop("AUDIT_INPUT_DIR", None)
+
+    assert res.get("status") == "needs_context"
+    q = next(q for q in res["questions"] if q["key"] == "project_code")
+    assert "suggestion" not in q
+    assert "Tarare" not in q["question"] and "0546L" not in q["question"]
 
 
 def test_missing_phase_asks_instead_of_defaulting_avp(_isolated):
@@ -105,7 +136,12 @@ def test_explicit_phase_param_used(_isolated):
     _attach_minimal_snapshot(sess)
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx", phase=None)
     res = mcp_server.generate_avp_i3f_pack(
-        controle_xlsx=ctrl, phase="PRO", auditor="AMO BIM", export_pdf=False
+        controle_xlsx=ctrl,
+        phase="PRO",
+        auditor="AMO BIM",
+        export_pdf=False,
+        project_name="Dieppe",
+        project_code="7427L",
     )
     assert res.get("status") != "needs_context"
     assert res["phase"] == "PRO"
@@ -116,7 +152,13 @@ def test_audit_phase_used_when_header_silent(_isolated):
     _attach_minimal_snapshot(sess)
     sess.phase = BIMPhase.DCE
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx", phase=None)
-    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, auditor="AMO BIM", export_pdf=False)
+    res = mcp_server.generate_avp_i3f_pack(
+        controle_xlsx=ctrl,
+        auditor="AMO BIM",
+        export_pdf=False,
+        project_name="Dieppe",
+        project_code="7427L",
+    )
     assert res.get("status") != "needs_context"
     assert res["phase"] == "DCE"
 
@@ -147,7 +189,11 @@ def test_auteur_controle_from_auditor(_isolated):
     _attach_minimal_snapshot(sess)
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx")
     res = mcp_server.generate_avp_i3f_pack(
-        controle_xlsx=ctrl, auditor="CdP BIM 3F", export_pdf=False
+        controle_xlsx=ctrl,
+        auditor="CdP BIM 3F",
+        export_pdf=False,
+        project_name="Dieppe",
+        project_code="7427L",
     )
     assert res.get("status") != "needs_context"
 
@@ -158,7 +204,11 @@ def test_auteur_controle_bypass_with_confirm(_isolated):
     _attach_minimal_snapshot(sess)
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx")
     res = mcp_server.generate_avp_i3f_pack(
-        controle_xlsx=ctrl, confirm_context=True, export_pdf=False
+        controle_xlsx=ctrl,
+        confirm_context=True,
+        export_pdf=False,
+        project_name="Dieppe",
+        project_code="7427L",
     )
     assert res.get("status") != "needs_context"
 

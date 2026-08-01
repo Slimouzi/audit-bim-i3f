@@ -7,6 +7,35 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (pack AVP — identité projet et auteur du contrôle)
+
+- **Un pack pouvait être livré au nom d'un AUTRE chantier.** Le classeur de
+  contrôle MOA est auto-découvert dans les documents maître d'ouvrage ; son
+  entête « Projet » / « ESI » servait ensuite d'identité projet. Auditer Dieppe
+  avec le classeur de référence Tarare produisait donc des fichiers
+  « … Tarare 0546L AVP - … ». **Tarare 0546L est un exemple MOA**, jamais une
+  valeur par défaut produit.
+- **Ordre de résolution strict** : paramètre explicite → contexte du modèle
+  actif → **on demande sans générer**. L'entête du classeur n'est plus
+  autoritaire ; elle n'est proposée en `suggestion` que si l'appelant a désigné
+  le classeur lui-même. Un classeur auto-découvert ne suggère rien.
+- **`project_name` / `project_code` ne sont plus contournables** par
+  `confirm_context` : ils nomment des fichiers remis au client.
+  `confirm_context` ne couvre plus que le contexte documentaire (phase, auteur).
+- **Plus aucun nom générique** : le repli `project_name="Projet"` est supprimé,
+  et `generate_word_report` n'a plus de défaut `auditor="AMO BIM (audit
+  automatisé)"` — sans nom fourni, l'auteur reste non renseigné plutôt
+  qu'inventé.
+- **Prompt AMO** : demander l'identité projet et `auditor_name` **avant** la
+  première génération (proposition d'utiliser le nom de session, sinon
+  demande explicite) — ne plus générer puis proposer de régénérer.
+- Tests : `test_avp_pack_no_example_identity.py` (8) — sans identité on demande
+  et **rien n'est écrit** ; `confirm_context` ne débloque pas ; l'identité du
+  template MOA n'atteint ni les noms ni le contenu des livrables ; avec
+  `project_name="Dieppe"` / `project_code="7427L"` tous les fichiers commencent
+  par `260801 Dieppe 7427L AVP - `. Les tests qui encodaient l'ancien
+  comportement (« l'entête Tarare gagne ») sont recalés sur la règle inverse.
+
 ### Changed (contrats JSON — validation centralisée dans bim-core)
 
 - **Les JSON échangés avec le MCP géométrique sont désormais des contrats

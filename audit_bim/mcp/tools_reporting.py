@@ -357,13 +357,20 @@ def generate_avp_i3f_pack(
         return str(v).strip() if v not in (None, "") and str(v).strip() else None
 
     # ── Résolution de l'identité projet (nom / code / phase) ────────────
-    # Nom : param explicite > **entête « Projet » du contrôle I3F** (source
-    # livrable, autoritaire pour l'identité I3F) > métadonnées maquette.
-    # ``project.name`` BIMData peut être générique (ex. « I3F ») : la source
-    # de contrôle prime pour ne pas nommer les livrables de travers.
-    eff_name = (project_name or "").strip() or _hdr("projet") or _snapshot_project_name()
-    # Code (ESI) : param > entête « ESI » du contrôle maquettes I3F.
-    eff_code = (project_code or "").strip() or _hdr("esi")
+    # Ordre STRICT : paramètre explicite > contexte du modèle actif > on
+    # demande. L'entête du classeur de contrôle n'est **jamais** autoritaire :
+    # ce classeur est le plus souvent un **template MOA de référence** (Tarare
+    # 0546L) auto-découvert dans les documents maître d'ouvrage. Son entête
+    # nommait alors les livrables d'après un AUTRE chantier que celui audité —
+    # un pack « Tarare 0546L » livré sur Dieppe. Le template reste utilisé pour
+    # la MISE EN FORME ; son identité projet ne l'est plus.
+    eff_name = (project_name or "").strip() or _snapshot_project_name()
+    eff_code = (project_code or "").strip() or None
+
+    # L'entête n'est proposée en SUGGESTION que si l'appelant a désigné le
+    # classeur lui-même : un fichier auto-découvert ne suggère rien.
+    hdr_name = _hdr("projet") if controle_xlsx else None
+    hdr_code = _hdr("esi") if controle_xlsx else None
     # Phase : param explicite > phase d'audit confirmée > entête contrôle I3F.
     eff_phase = (phase or "").strip() or None
     if not eff_phase and _State.phase is not None:
@@ -384,23 +391,27 @@ def generate_avp_i3f_pack(
     questions: list[dict] = []
     if not eff_name:
         missing.append("project_name")
-        questions.append(
-            {
-                "key": "project_name",
-                "question": "Quel nom de projet doit apparaître dans les livrables ?",
-            }
-        )
+        q = {
+            "key": "project_name",
+            "question": "Quel nom de projet doit apparaître dans les livrables ?",
+        }
+        if hdr_name:
+            q["suggestion"] = hdr_name
+            q["question"] += f" (le classeur fourni indique « {hdr_name} »)"
+        questions.append(q)
     if not eff_code:
         missing.append("project_code")
-        questions.append(
-            {
-                "key": "project_code",
-                "question": (
-                    "Quel code projet / ESI doit apparaître dans les livrables ? "
-                    "(ex. « 0546L », visible sur le contrôle maquettes I3F)"
-                ),
-            }
-        )
+        q = {
+            "key": "project_code",
+            "question": (
+                "Quel code projet / ESI doit apparaître dans les livrables ? "
+                "(ex. « 7427L », visible sur le contrôle maquettes I3F)"
+            ),
+        }
+        if hdr_code:
+            q["suggestion"] = hdr_code
+            q["question"] += f" (le classeur fourni indique « {hdr_code} »)"
+        questions.append(q)
     if not eff_phase:
         # Phase unique : proposée si détectée (IFC puis entête contrôle),
         # sinon demandée — jamais défautée silencieusement sur « AVP ».
@@ -423,7 +434,11 @@ def generate_avp_i3f_pack(
                 ),
             }
         )
-    if missing and not confirm_context:
+    # L'identité projet (nom + code) n'est **jamais** contournable : elle nomme
+    # des fichiers remis au client. ``confirm_context`` ne couvre que le
+    # contexte documentaire (phase, auteur du contrôle).
+    identity_missing = [m for m in missing if m in ("project_name", "project_code")]
+    if identity_missing or (missing and not confirm_context):
         return {
             "status": "needs_context",
             "missing": missing,
@@ -431,8 +446,14 @@ def generate_avp_i3f_pack(
             "next_step": (
                 "Renseigner ``project_name`` / ``project_code`` / "
                 "``project_phase`` (=``phase``) / ``auteur_controle`` (ou "
-                "``auditor``) puis re-appeler ``generate_avp_i3f_pack``. Pour "
-                "générer malgré tout, passer ``confirm_context=True``."
+                "``auditor``) puis re-appeler ``generate_avp_i3f_pack``."
+                + (
+                    " ``project_name`` et ``project_code`` sont OBLIGATOIRES : "
+                    "ils nomment les livrables client et ne peuvent pas être "
+                    "contournés par ``confirm_context``."
+                    if identity_missing
+                    else " Pour générer malgré tout, passer ``confirm_context=True``."
+                )
             ),
         }
 
@@ -448,8 +469,10 @@ def generate_avp_i3f_pack(
             # Snapshot explicite : le repli maquette s'active même sans audit
             # (ex. après verify_active_model seul, _State.result est None).
             snapshot=_State.snapshot,
-            project_name=eff_name or "Projet",
-            project_code=eff_code or "",
+            # Garantis non vides par la gate d'identité ci-dessus : aucun nom
+            # générique ni d'exemple ne peut atteindre un livrable.
+            project_name=eff_name,
+            project_code=eff_code,
             phase=eff_phase or "AVP",
             # Auteur validé/fourni (ou repli « AMO BIM » uniquement sous
             # confirm_context — voluntary confirmation).
@@ -489,7 +512,7 @@ def generate_avp_i3f_pack(
 def generate_word_report(
     output_path: str | None = None,
     xlsx_annex_path: str | None = None,
-    auditor: str = "AMO BIM (audit automatisé)",
+    auditor: str | None = None,
     overwrite: bool = False,
     project_address: str | None = None,
     project_phase: str | None = None,
@@ -601,10 +624,11 @@ def generate_word_report(
         project_description=project_description,
     )
 
-    # Si auditor_name fourni, on l'utilise comme display ; sinon legacy
-    # param ``auditor`` reste fonctionnel (write_word_report gère la
-    # priorité contexte → kwargs).
-    display_auditor = auditor_name or auditor
+    # ``auditor_name`` est le paramètre à employer ; ``auditor`` reste accepté
+    # en compat. Aucun nom n'est codé en dur : sans valeur, le rapport porte
+    # ``NOT_AVAILABLE`` plutôt qu'un auteur inventé — l'appelant doit demander
+    # le nom avant de générer.
+    display_auditor = (auditor_name or "").strip() or (auditor or "").strip() or None
 
     written = write_word_report(
         _State.result,
