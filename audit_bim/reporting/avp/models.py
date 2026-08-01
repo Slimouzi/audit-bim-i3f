@@ -1,0 +1,154 @@
+"""Modèles, exceptions et constantes pures du pack AVP I3F.
+
+Dataclasses (:class:`AvpMeta`, :class:`AvpReportPack`), exception QA
+(:class:`AvpQaError`), constantes d'échafaudage et helpers de nommage de
+fichier. Aucune dépendance vers les builders (feuille du DAG interne).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from ..word_report import NOT_AVAILABLE
+
+# Mention normalisée (note méthodo) apposée sous les tables contenant des
+# quantités calculées : distingue le natif BIMData du calcul IfcOpenShell.
+_COMPUTED_METHODO_NOTE = (
+    "Quantités partiellement calculées par analyse géométrique IfcOpenShell "
+    "(colonne « Source quantité » = « Calculée (IfcOpenShell) ») — valeurs NON "
+    "contractuelles, en attente d'un ré-export maquette avec BaseQuantities natives. "
+    "Les quantités « Maquette » proviennent des BaseQuantities BIMData."
+)
+
+# Convention de nommage documentaire I3F, **générée à partir de données
+# projet confirmées** :
+#
+#     YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>
+#
+# ``YYMMDD`` = date de génération du livrable. Chaque livrable a un libellé
+# de type et une extension fixes ; le nom du projet, le code (ESI) et la
+# phase sont injectés depuis les valeurs confirmées par l'utilisateur.
+_DELIVERABLE_LABELS: dict[str, tuple[str, str]] = {
+    "controle": ("Contrôle Maquettes", "xlsx"),
+    "shab": ("export SHAB maquette", "xlsx"),
+    "zones_espaces": ("Export Zones et Espaces", "xlsx"),
+    "enveloppe": ("Extraction surface enveloppe", "xlsx"),
+    "menuiseries": ("export Menuiseries", "xlsx"),
+    "plancher": ("export plancher", "xlsx"),
+    "analyse": ("Rapport analyse BIM", "docx"),
+}
+
+# Caractères interdits / risqués dans un nom de fichier (séparateurs de
+# chemin, caractères réservés Windows). Remplacés par un espace.
+_FILENAME_BAD = '/\\:*?"<>|\r\n\t'
+
+
+def _sanitize_filename_part(value: str | None) -> str:
+    """Nettoie un fragment de nom de fichier (séparateurs, espaces)."""
+    if not value:
+        return ""
+    out = "".join(" " if c in _FILENAME_BAD else c for c in str(value))
+    return " ".join(out.split()).strip()
+
+
+def _deliverable_filename(
+    key: str, *, date: str, project_name: str, project_code: str, phase: str
+) -> str:
+    """Construit le nom d'un livrable selon la convention I3F.
+
+    ``YYMMDD Nom Code Phase - TypeLivrable.ext`` — les fragments vides
+    (code / phase absents) sont simplement omis (jamais inventés).
+    """
+    label, ext = _DELIVERABLE_LABELS[key]
+    head_parts = [
+        _sanitize_filename_part(date),
+        _sanitize_filename_part(project_name),
+        _sanitize_filename_part(project_code),
+        _sanitize_filename_part(phase),
+    ]
+    head = " ".join(p for p in head_parts if p)
+    label = _sanitize_filename_part(label)
+    return f"{head} - {label}.{ext}"
+
+
+_CONTROLE_STATS_SHEETS = (
+    "Zones Nommage",
+    "Pièces Nommage",
+    "ARC bsence de matériau",
+    "Zones ObjectType",
+)
+
+
+@dataclass
+class AvpMeta:
+    # Défauts **génériques** : aucune identité client codée en dur (le nom
+    # et le code réels viennent des données confirmées / des sources I3F).
+    project_name: str = "Projet"
+    project_code: str = ""
+    phase: str = "AVP"
+    auditor: str = "AMO BIM"
+    # Métadonnées opérationnelles du contrôle (issues du rapport I3F de
+    # référence, fournies par l'appelant). Absentes → NOT_AVAILABLE, jamais
+    # inventées.
+    usages_bim: list[str] | None = None
+    nombre_logements: str | None = None
+    temoin_virtuel: str | None = None
+    date_controle: str | None = None
+    auteur_controle: str | None = None
+
+
+@dataclass
+class AvpReportPack:
+    controle_xlsx: Path
+    shab_xlsx: Path
+    zones_espaces_xlsx: Path
+    enveloppe_xlsx: Path
+    menuiseries_xlsx: Path
+    plancher_xlsx: Path
+    analyse_docx: Path
+    analyse_pdf: Path | None = None
+
+    def paths(self) -> list[Path]:
+        out = [
+            self.controle_xlsx,
+            self.shab_xlsx,
+            self.zones_espaces_xlsx,
+            self.enveloppe_xlsx,
+            self.menuiseries_xlsx,
+            self.plancher_xlsx,
+            self.analyse_docx,
+        ]
+        if self.analyse_pdf is not None:
+            out.append(self.analyse_pdf)
+        return out
+
+
+class AvpQaError(RuntimeError):
+    """Livrable(s) client vide(s) alors que la maquette contient des données.
+
+    Levée par la QA gate post-génération : un export sort sans aucune ligne
+    métier alors que le snapshot expose des espaces / murs / zones
+    exploitables. On refuse de livrer un fichier qui ne contient que le
+    bandeau.
+    """
+
+    def __init__(self, empty: list[str]):
+        self.empty = empty
+        super().__init__(
+            "Annexe(s) vide(s) malgré des données exploitables dans la maquette : "
+            + ", ".join(empty)
+            + ". Livraison refusée (ni sources I3F ni extraction snapshot n'ont "
+            "produit de lignes)."
+        )
+
+
+# Marqueurs d'échafaudage à ignorer lors du comptage des lignes métier.
+_QA_SCAFFOLD = {
+    _n
+    for _n in (
+        NOT_AVAILABLE.strip().lower(),
+        "(onglet vide dans la source i3f)",
+        "synthèse",
+    )
+}

@@ -7,6 +7,25 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed (reporting AVP — découpage interne, façade conservée)
+
+- **`audit_bim/reporting/avp_i3f.py` (2 527 lignes) découpé** en package interne
+  `audit_bim/reporting/avp/` : `models.py` (métadonnées, `AvpReportPack`, convention de
+  nommage des livrables), `pack.py` (orchestrateur + QA gate), `xlsx_common.py` (helpers
+  d'écriture partagés), `xlsx_controle.py`, `xlsx_enveloppe.py`, `xlsx_shab.py`,
+  `xlsx_zones.py`, `xlsx_menuiseries.py`, `xlsx_plancher.py`, `docx_analyse.py`.
+  Dépendances **descendantes uniquement** : `pack` connaît les builders, jamais l'inverse.
+- **`avp_i3f.py` devient une façade** (~60 lignes) : ré-exporte `write_avp_i3f_report_pack`,
+  `AvpMeta`, `AvpReportPack`, `AvpQaError`, `build_sources_from_snapshot` et les points de
+  patch privés historiques. **Tous les imports existants restent valides**, sur *les mêmes
+  objets* (aucune logique dupliquée).
+- **Refactor pur** : aucune logique métier modifiée, aucun nom de fichier livrable changé,
+  aucune sortie modifiée (comparaison AST des définitions avant/après : seul l'orchestrateur
+  change, pour appeler les builders nommés `build_shab_xlsx` / `build_zones_xlsx`).
+- Tests : `test_avp_facade_identity.py` — anciens imports valides, identité des ré-exports,
+  façade sans implémentation résiduelle (garde-fou anti-regrowth), 7 noms de livrables figés.
+  Tests existants **inchangés**.
+
 ### Changed (surface MCP — aliases métier en compat LEGACY opt-in)
 
 - **Réduction de la surface exposée par défaut** : les **8 aliases métier**
