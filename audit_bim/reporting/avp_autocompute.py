@@ -36,7 +36,13 @@ from ..extraction.geometry_backend import (
     compute_envelope_payload,
     compute_quantities_payload,
 )
-from ..safe_paths import safe_export_dir, safe_export_path
+from ..safe_paths import (
+    UnsafePathError,
+    safe_export_dir,
+    safe_export_path,
+    safe_export_read_path,
+    safe_input_path,
+)
 
 #: Sous-dossier d'export où vivent les contrats calculés localement.
 CONTRACTS_SUBDIR = "contracts_v1"
@@ -67,28 +73,80 @@ def _stem(ifc_path: str | Path | None, snapshot) -> str:
     return Path(name).stem if name else "modele"
 
 
-def _read_contract(path: Path, expected_schema: str) -> dict[str, Any] | None:
+def _contract_matches_model(doc: dict[str, Any], snapshot, ifc_path: str | Path | None) -> bool:
+    """Le contrat porte-t-il bien sur le **modèle actif** ?
+
+    Un nom de fichier qui « tombe bien » ne suffit pas : réutiliser le contrat
+    d'une autre maquette produirait des surfaces d'un autre bâtiment, sans
+    aucun signal. On compare donc la provenance déclarée (``source.ifc_file``)
+    au ``.ifc`` visé ou au modèle actif ; en cas de doute, on recalcule.
+    """
+    source = (doc.get("source") or {}).get("ifc_file")
+    if not source:
+        return False  # provenance inconnue -> on ne parie pas
+    stem_contrat = Path(str(source)).stem
+    attendus = {s for s in (_stem(ifc_path, snapshot), _stem(None, snapshot)) if s}
+    attendus.discard("modele")
+    return bool(attendus) and stem_contrat in attendus
+
+
+def _read_contract(
+    path: Path,
+    expected_schema: str,
+    *,
+    snapshot=None,
+    ifc_path: str | Path | None = None,
+) -> dict[str, Any] | None:
     """Relit un contrat déjà produit **sous le dossier d'export**.
 
-    Renvoie ``None`` si le fichier est absent, illisible ou d'un autre schéma :
-    un fichier douteux ne doit jamais être réutilisé en silence.
+    Renvoie ``None`` si le fichier est absent, illisible, d'un autre schéma ou
+    d'un **autre modèle** : un fichier douteux ne doit jamais être réutilisé en
+    silence — le recalcul est toujours préférable à une valeur étrangère.
     """
     try:
         doc = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    return doc if isinstance(doc, dict) and doc.get("schema") == expected_schema else None
+    if not isinstance(doc, dict) or doc.get("schema") != expected_schema:
+        return None
+    if snapshot is not None and not _contract_matches_model(doc, snapshot, ifc_path):
+        return None
+    return doc
+
+
+def _validate_ifc_path(ifc_path: str | Path) -> Path:
+    """Valide un ``.ifc`` **fourni par l'appelant**, jamais accepté tel quel.
+
+    Deux sandbox légitimes : la lecture (``AUDIT_INPUT_DIR``) et l'export
+    (``AUDIT_OUTPUT_DIR``), ce dernier parce que ``download_model_ifc`` y dépose
+    le fichier du modèle actif. Hors de ces deux racines → refus.
+    """
+    try:
+        return safe_input_path(ifc_path, allowed_extensions={".ifc"})
+    except UnsafePathError:
+        pass
+    try:
+        cible = safe_export_read_path(ifc_path)
+    except (UnsafePathError, OSError) as exc:
+        raise GeometryInputMissing(
+            f"Chemin .ifc refusé par la sandbox : {ifc_path}. Le fichier doit "
+            "être sous ``AUDIT_INPUT_DIR``, ou sous ``AUDIT_OUTPUT_DIR`` s'il "
+            "vient de ``download_model_ifc``."
+        ) from exc
+    if cible.suffix.lower() != ".ifc" or not cible.is_file():
+        raise GeometryInputMissing(f"Chemin .ifc invalide ou introuvable : {ifc_path}")
+    return cible
 
 
 def resolve_active_ifc(ifc_path: str | Path | None, snapshot) -> Path | None:
     """Localise le ``.ifc`` du modèle actif, sans réseau.
 
-    Ordre : chemin explicite → cache de ``download_model_ifc`` (sous
-    ``AUDIT_OUTPUT_DIR``) → dossier d'entrée, si un seul ``.ifc`` y correspond.
+    Ordre : chemin explicite (validé sandbox) → cache de ``download_model_ifc``
+    → dossier d'entrée. Toute **ambiguïté** est refusée : calculer sur la
+    mauvaise maquette produirait un livrable faux et silencieux.
     """
     if ifc_path:
-        p = Path(ifc_path).expanduser()
-        return p if p.is_file() else None
+        return _validate_ifc_path(ifc_path)
 
     stem = _stem(None, snapshot)
     candidats: list[Path] = []
@@ -103,7 +161,14 @@ def resolve_active_ifc(ifc_path: str | Path | None, snapshot) -> Path | None:
             candidats.extend(sorted(racine.glob("*.ifc")))
 
     if stem and stem != "modele":
-        exacts = [c for c in candidats if c.stem == stem]
+        exacts = sorted({c.resolve() for c in candidats if c.stem == stem})
+        if len(exacts) > 1:
+            raise GeometryInputMissing(
+                f"Plusieurs fichiers .ifc portent le nom du modèle actif "
+                f"« {stem} » : " + ", ".join(str(c) for c in exacts) + ". Préciser "
+                "``ifc_path`` — choisir à votre place risquerait de calculer sur "
+                "la mauvaise maquette."
+            )
         if exacts:
             return exacts[0]
     # Sans nom de modèle exploitable, on n'accepte qu'un candidat UNIQUE :
@@ -133,7 +198,12 @@ def ensure_computed_quantities_json(
         overwrite=True,
     )
     if not force:
-        existant = _read_contract(cible, SCHEMA_COMPUTED_BASE_QUANTITIES_V1)
+        existant = _read_contract(
+            cible,
+            SCHEMA_COMPUTED_BASE_QUANTITIES_V1,
+            snapshot=snapshot,
+            ifc_path=ifc_path,
+        )
         if existant is not None:
             return {
                 "json_path": str(cible),
@@ -182,7 +252,9 @@ def ensure_envelope_json(
         overwrite=True,
     )
     if not force:
-        existant = _read_contract(cible, SCHEMA_ENVELOPE_QUANTITIES_V1)
+        existant = _read_contract(
+            cible, SCHEMA_ENVELOPE_QUANTITIES_V1, snapshot=snapshot, ifc_path=ifc_path
+        )
         if existant is not None:
             return {"json_path": str(cible), "reused": True, "computed": False}
 

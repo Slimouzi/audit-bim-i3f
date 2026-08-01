@@ -410,7 +410,15 @@ def generate_avp_i3f_pack(
     # On ne calcule que ce qui est attendu : sans mur d'enveloppe dans la
     # maquette, l'annexe n'a pas lieu d'être et lancer un calcul serait du bruit
     # (voire un refus sur une maquette qui n'en a pas besoin).
-    envelope_attendue = _State.snapshot is not None and count_envelope_walls(_State.snapshot) > 0
+    #
+    # EXCEPTION IMPORTANTE : des motifs explicites valent demande explicite. Le
+    # cas réel est précisément celui où BIMData ne remonte pas le calque alors
+    # qu'IfcOpenShell sait le lire dans l'IFC — s'en tenir au snapshot ferait
+    # rater l'enveloppe sur les maquettes qui en ont le plus besoin.
+    motifs_explicites = bool(envelope_layer_pattern or envelope_type_pattern)
+    envelope_attendue = _State.snapshot is not None and (
+        motifs_explicites or count_envelope_walls(_State.snapshot) > 0
+    )
     if envelope_json_used is None and auto_compute_envelope and envelope_attendue:
         from ..extraction.geometry_backend import GeometryBackendUnavailable
         from ..reporting.avp_autocompute import GeometryInputMissing, ensure_envelope_json

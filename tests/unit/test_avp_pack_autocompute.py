@@ -53,10 +53,16 @@ def _snapshot_sans_quantites() -> ModelSnapshot:
     ).index()
 
 
-def _payload(valeur_espace=24.5):
+def _payload(valeur_espace=24.5, ifc_file="DIEPPE-7427L.ifc"):
     return {
         "schema": "computed_base_quantities/v1",
-        "source": {"producer": "ifc-geometry", "tool": "export_computed_base_quantities"},
+        # ``ifc_file`` est toujours renseigné par le vrai producteur : c'est ce
+        # qui permet de vérifier qu'un contrat porte bien sur le modèle actif.
+        "source": {
+            "producer": "ifc-geometry",
+            "tool": "export_computed_base_quantities",
+            "ifc_file": ifc_file,
+        },
         "created_at": "2026-08-02T08:00:00+00:00",
         "quantities": [
             _q("SP1", "IfcSpace", "Qto_SpaceBaseQuantities", "NetFloorArea", valeur_espace),
@@ -100,13 +106,13 @@ def backend(monkeypatch):
 
     def _quantites(ifc_path):
         appels["quantites"] += 1
-        return _payload(appels["valeur"])
+        return _payload(appels["valeur"], ifc_file=str(ifc_path))
 
     def _enveloppe(ifc_path, **kw):
         appels["enveloppe"] += 1
         return {
             "schema": "envelope_quantities/v1",
-            "source": {"producer": "ifc-geometry"},
+            "source": {"producer": "ifc-geometry", "ifc_file": str(ifc_path)},
             "created_at": "2026-08-02T08:00:00+00:00",
             "summary": {"superficie_facades_m2": 2071.18, "shab_m2": 2164.68},
             "par_type": [
@@ -355,3 +361,116 @@ def test_contract_is_written_under_the_export_sandbox(session, ifc_disponible, b
     assert chemin.is_file()
     assert avp_autocompute.CONTRACTS_SUBDIR in chemin.parts
     assert str(chemin).startswith(str(tmp_path)), "le contrat doit rester sous AUDIT_OUTPUT_DIR"
+
+
+# ── garde-fous : sandbox, ambiguïté, appartenance au modèle ────────────
+
+
+def test_ifc_path_outside_the_sandbox_is_refused(session, tmp_path, backend):
+    """Un ``.ifc`` hors des racines autorisées est refusé, jamais lu."""
+    dehors = tmp_path.parent / "hors_sandbox.ifc"
+    dehors.write_text("ISO-10303-21;", encoding="utf-8")
+
+    res = _generer(ifc_path=str(dehors))
+
+    assert res["status"] == "needs_context"
+    assert res["missing"] == ["ifc_path"]
+    assert "sandbox" in res["message"].lower()
+    assert backend["quantites"] == 0, "aucun calcul ne doit être lancé"
+
+
+def test_two_ifc_with_the_same_stem_are_refused(session, tmp_path, backend):
+    """Deux maquettes homonymes → refus, jamais un choix arbitraire."""
+    sous_dossier = tmp_path / "autre"
+    sous_dossier.mkdir()
+    (tmp_path / "DIEPPE-7427L.ifc").write_text("ISO-10303-21;", encoding="utf-8")
+    (sous_dossier / "DIEPPE-7427L.ifc").write_text("ISO-10303-21;", encoding="utf-8")
+
+    res = _generer()
+
+    assert res["status"] == "needs_context"
+    assert res["missing"] == ["ifc_path"]
+    assert "Plusieurs fichiers .ifc" in res["message"]
+    assert backend["quantites"] == 0
+
+
+def test_contract_from_another_model_is_not_reused(session, ifc_disponible, backend):
+    """Un contrat d'une AUTRE maquette n'est jamais réutilisé."""
+    sess, tmp_path = session
+    etranger = avp_autocompute.contracts_dir() / "DIEPPE-7427L_computed_quantities.json"
+    etranger.write_text(json.dumps(_payload(ifc_file="UN-AUTRE-CHANTIER.ifc")), encoding="utf-8")
+
+    res = _generer()
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert backend["quantites"] == 1, "le contrat étranger doit être recalculé"
+    assert res["auto_computed"]["quantities"]["reused"] is False
+
+
+def test_contract_without_provenance_is_not_reused(session, ifc_disponible, backend):
+    """Provenance inconnue = on ne parie pas, on recalcule."""
+    doc = _payload()
+    doc["source"].pop("ifc_file")
+    (avp_autocompute.contracts_dir() / "DIEPPE-7427L_computed_quantities.json").write_text(
+        json.dumps(doc), encoding="utf-8"
+    )
+
+    res = _generer()
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert backend["quantites"] == 1
+    assert res["auto_computed"]["quantities"]["reused"] is False
+
+
+def test_foreign_envelope_contract_is_not_reused(session, ifc_disponible, backend):
+    """Idem pour l'enveloppe : un envelope.json d'un autre modèle est ignoré."""
+    sess, _ = session
+    snap = sess.snapshot
+    snap.elements.append(
+        {
+            "uuid": "M1",
+            "type": "IfcWall",
+            "name": "Mur",
+            "layers": [{"name": "221 - MURS - Extérieurs périphériques.Exndo"}],
+        }
+    )
+    sess.snapshot = snap.index()
+    (avp_autocompute.contracts_dir() / "DIEPPE-7427L_envelope.json").write_text(
+        json.dumps(
+            {
+                "schema": "envelope_quantities/v1",
+                "source": {"ifc_file": "UN-AUTRE-CHANTIER.ifc"},
+                "summary": {"superficie_facades_m2": 1.0, "shab_m2": 1.0},
+                "par_type": [{"type": "X", "etages": [], "net_side_area_m2": 1.0, "n": 1}],
+                "hors_filtre_type": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    res = _generer()
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert backend["enveloppe"] == 1, "l'enveloppe étrangère doit être recalculée"
+
+
+def test_explicit_patterns_trigger_envelope_even_without_layer(session, ifc_disponible, backend):
+    """Motifs explicites = demande explicite.
+
+    Le cas réel : BIMData ne remonte pas le calque, mais IfcOpenShell sait le
+    lire dans l'IFC. S'en tenir au snapshot ferait rater l'enveloppe sur les
+    maquettes qui en ont justement besoin.
+    """
+    sess, _ = session
+    assert not any(el.get("layers") for el in sess.snapshot.elements), (
+        "le snapshot de test ne porte aucun calque"
+    )
+
+    res = _generer(
+        envelope_layer_pattern="221|extérieurs périphériques",
+        envelope_type_pattern="^ME[ _]",
+    )
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert backend["enveloppe"] == 1
+    assert res["auto_computed"]["envelope"]["computed"] is True
