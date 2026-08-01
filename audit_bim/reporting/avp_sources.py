@@ -20,12 +20,12 @@ Aucune écriture ; ``read_only``.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import openpyxl
+from bim_core.contracts import load_envelope_quantities
 
 from ..requirements._openpyxl_compat import patch_openpyxl
 
@@ -357,76 +357,69 @@ ENVELOPPE_MOA_HEADERS = [
 
 
 def read_envelope_json(path: str | Path) -> EnveloppeSource:
-    """Construit la source enveloppe MOA depuis le JSON structuré ``envelope.json``
-    (MCP ifc-geometry) : **une ligne métier par type** (``par_type``), et non par
-    mur élémentaire. ``hors_filtre_type`` reste hors du total métier (diagnostic).
+    """Construit la source enveloppe MOA depuis le contrat ``envelope_quantities/v1``.
+
+    **Une ligne métier par type** (``par_type``), jamais par mur élémentaire ;
+    ``hors_filtre_type`` reste hors du total métier (diagnostic).
+
+    La lecture est déléguée à :func:`bim_core.contracts.load_envelope_quantities`,
+    qui porte la politique de schéma commune : document V1 accepté, schéma
+    inconnu **refusé**, fichier historique sans ``schema`` migré vers V1 avec
+    l'avertissement ``legacy_schema_missing``. La normalisation des alias de
+    clés (``netsidearea_m2``, ``nombre``, ``etages`` en chaîne…) vit désormais
+    dans ce contrat — elle n'est plus dupliquée ici.
+
+    Raises:
+        ContractError: schéma inconnu/invalide, forme non reconnue, ou fichier
+            illisible (sous-classe de ``ValueError``).
     """
-    doc = json.loads(Path(path).read_text(encoding="utf-8"))
-    par = doc.get("par_type") or []
-    fenetres = doc.get("superficie_menuiseries_fenetres_m2")
-    portes = doc.get("superficie_menuiseries_portes_m2")
+    payload = load_envelope_quantities(str(path))
+    summary = payload.summary
+
     rows: list[list[Any]] = []
-    for e in sorted(par, key=lambda x: str(x.get("type") or "")):
-        area = _first_present(e, "net_side_area_m2", "netsidearea_m2")
-        ifc_area = _first_present(
-            e,
-            "surface_ifc_openshell_m2",
-            "ifc_openshell_surface_m2",
-            "net_side_area_m2",
-            "netsidearea_m2",
-        )
-        openings = _first_present(
-            e,
-            "superficie_ouvertures_exterieures_m2",
-            "archicad_openings_m2",
-            "menuiseries_m2",
-        )
+    for e in sorted(payload.par_type, key=lambda r: str(r.type or "")):
         rows.append(
             [
                 "Mur",  # A Composant (libellé MOA)
-                e.get("type"),  # B Type
-                _join_values(e.get("etages")),  # C Étages
-                area,  # D Archicad BQ NetSideArea
-                ifc_area,  # E Surface IFC OpenShell
-                openings,  # F ouvertures ext. si ventilées par type
-                _first_present(e, "fenetres_m2", "windows_m2"),  # G fenêtres
-                _first_present(e, "portes_m2", "doors_m2"),  # H portes
-                _first_present(e, "nombre", "n"),  # I Nombre
+                e.type,  # B Type
+                ", ".join(e.etages),  # C Étages
+                e.net_side_area_m2,  # D Archicad BQ NetSideArea
+                # E : aire recalculée si le producteur la ventile, sinon la
+                # valeur Archicad — la colonne ne reste pas vide pour autant.
+                (
+                    e.surface_ifc_openshell_m2
+                    if e.surface_ifc_openshell_m2 is not None
+                    else e.net_side_area_m2
+                ),
+                # F : ouvertures extérieures si ventilées par type, sinon le
+                # total menuiseries du type.
+                (
+                    e.superficie_ouvertures_exterieures_m2
+                    if e.superficie_ouvertures_exterieures_m2 is not None
+                    else e.menuiseries_m2
+                ),
+                e.fenetres_m2,  # G fenêtres
+                e.portes_m2,  # H portes
+                e.n,  # I Nombre
                 None,  # J Couleur
             ]
         )
+
     table = SheetTable(title=ENVELOPPE_MOA_SHEET, headers=list(ENVELOPPE_MOA_HEADERS), rows=rows)
-    seuil = doc.get("seuil_i3f")
-    if seuil is None:
-        seuil = doc.get("seuil_3f")
     return EnveloppeSource(
         table=table,
         sheet_title=ENVELOPPE_MOA_SHEET,
-        superficie_facades=doc.get("superficie_facades_m2"),
-        superficie_menuiseries=doc.get("superficie_menuiseries_m2"),
-        shab=doc.get("shab_m2"),
-        ratio_fac_shab=doc.get("ratio_fac_shab"),
-        seuil_3f=seuil,
-        superficie_facades_nette=doc.get("superficie_facades_nette_m2"),
-        superficie_calque_total=doc.get("superficie_calque_total_m2"),
-        superficie_fenetres=fenetres,
-        superficie_portes=portes,
-        hors_filtre_type=doc.get("hors_filtre_type") or [],
+        superficie_facades=summary.superficie_facades_m2,
+        superficie_menuiseries=summary.superficie_menuiseries_m2,
+        shab=summary.shab_m2,
+        ratio_fac_shab=summary.ratio_fac_shab,
+        seuil_3f=summary.seuil_i3f,
+        superficie_facades_nette=summary.superficie_facades_nette_m2,
+        superficie_calque_total=summary.superficie_calque_total_m2,
+        superficie_fenetres=summary.superficie_menuiseries_fenetres_m2,
+        superficie_portes=summary.superficie_menuiseries_portes_m2,
+        hors_filtre_type=[r.model_dump() for r in payload.hors_filtre_type],
     )
-
-
-def _first_present(row: dict, *keys: str):
-    for key in keys:
-        value = row.get(key)
-        if value is not None:
-            return value
-    return None
-
-
-def _join_values(value):
-    if isinstance(value, list):
-        return ", ".join(str(v) for v in value if v not in (None, ""))
-    return value
 
 
 def read_menuiseries(path: str | Path) -> MenuiseriesSource:
