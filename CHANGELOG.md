@@ -7,6 +7,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (Extraction surface enveloppe — envelope.json prime sur le snapshot)
+
+- **Correctif : le pack AVP retombait sur le repli « 484 murs » du snapshot** malgré un
+  `envelope_json` fourni. `_ifc_first_sources` fait désormais **primer** la source
+  `envelope.json` (détectée via `_is_envelope_json_source`) sur `build_sources_from_snapshot`,
+  au lieu de l'écraser.
+- **`read_envelope_json` tolère les variantes de noms de champs** du contrat réel :
+  `net_side_area_m2` / `netsidearea_m2`, `n` / `nombre`, et `etages` en **liste** (jointe
+  « R+1, R+2 ») ou en chaîne. `hors_filtre_type` accepte de même `net_side_area_m2`.
+- Test de non-régression : snapshot présent **et** `envelope_json` présent ⇒ onglet MOA à
+  **8 lignes métier** (pas 484), via le chemin complet `write_avp_i3f_report_pack`.
+
 ### Changed (Extraction surface enveloppe — logique MOA IfcOpenShell)
 
 - **L'annexe « Extraction surface enveloppe » ne somme plus les murs élémentaires du

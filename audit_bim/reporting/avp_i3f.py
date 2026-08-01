@@ -730,7 +730,9 @@ def _build_enveloppe_xlsx(path, sources, meta) -> Path:
         row += 1
         write_safe(ws, row, 0, "Hors filtre (diagnostic — hors total métier)", fmts["h2"])
         row += 1
-        tot = round(sum(h.get("netsidearea_m2") or 0 for h in hors), 2)
+        tot = round(
+            sum((h.get("net_side_area_m2") or h.get("netsidearea_m2") or 0) for h in hors), 2
+        )
         write_safe(
             ws,
             row,
@@ -1242,11 +1244,16 @@ def _ifc_first_sources(
     métriques qui ne se déduisent pas de la géométrie (ex. seuil 3F).
     """
     ctrl_src = source_inputs.controle if source_inputs else None
-    env = model_sources.enveloppe
-    if env is not None and source_inputs and source_inputs.enveloppe:
+    input_env = source_inputs.enveloppe if source_inputs else None
+    # Exception importante : l'enveloppe peut venir du contrat structuré
+    # ``envelope.json`` produit par ifc-geometry (par_type / hors_filtre_type).
+    # Ce n'est pas un XLS MOA externe : c'est la source IFC/OpenShell métier et
+    # elle doit primer sur le repli snapshot élémentaire.
+    env = input_env if _is_envelope_json_source(input_env) else model_sources.enveloppe
+    if env is not None and input_env is not None and not _is_envelope_json_source(input_env):
         # Le seuil est une règle/paramètre documentaire, pas une mesure externe.
-        if source_inputs.enveloppe.seuil_3f is not None:
-            env.seuil_3f = source_inputs.enveloppe.seuil_3f
+        if input_env.seuil_3f is not None:
+            env.seuil_3f = input_env.seuil_3f
     return AvpSources(
         controle=_controle_from_audit_or_metadata(result, ctrl_src),
         shab=model_sources.shab,
@@ -1255,6 +1262,19 @@ def _ifc_first_sources(
         menuiseries=model_sources.menuiseries,
         plancher=model_sources.plancher,
     )
+
+
+def _is_envelope_json_source(src) -> bool:
+    """Vrai pour une source issue du contrat ``envelope.json`` ifc-geometry."""
+    if src is None:
+        return False
+    if getattr(src, "superficie_calque_total", None) is not None:
+        return True
+    if getattr(src, "hors_filtre_type", None):
+        return True
+    table = getattr(src, "table", None)
+    headers = getattr(table, "headers", None) or []
+    return "Surface IFC OpenShell" in headers and "IFC OpenShell Surface des Fenêtres" in headers
 
 
 # ── Orchestrateur ──────────────────────────────────────────────────────────
