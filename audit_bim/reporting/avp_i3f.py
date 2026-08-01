@@ -3,18 +3,19 @@
 Produit, à partir d'un ``AuditResult`` (snapshot/audit BIMData) et des
 quantités IFC extraites/calculées depuis la maquette, le pack de livrables AVP :
 
-1. ``… Contrôle Maquettes AVP.xlsx`` — grille de contrôle + stats conformité.
+1. ``… Contrôle Maquettes.xlsx`` — grille de contrôle + stats conformité.
 2. ``… AVP - export SHAB maquette.xlsx``.
 3. ``… Export Zones et Espaces.xlsx``.
 4. ``… Extraction surface enveloppe.xlsx`` (+ ratio FAC/SHAB, Seuil 3F).
 5. ``… export Menuiseries.xlsx``.
-6. ``… Analyse BIM AVP.docx`` (+ ``.pdf`` best-effort) — rapport consolidé.
+6. ``… export plancher.xlsx``.
+7. ``… Rapport analyse BIM.docx`` (+ ``.pdf`` best-effort) — rapport consolidé.
 
 Principes :
 
-- **Réutilise** l'infra de reporting existante : ``xlsx_annex._build_formats``
-  / ``write_safe`` (charte BIMData, anti-injection) pour l'Excel, et les
-  helpers ``word_report`` pour le Word. Pas de stack parallèle.
+- **Réutilise** l'infra de reporting existante : ``write_safe`` protège les
+  cellules Excel contre l'injection ; les helpers ``word_report`` restent la
+  base du Word consolidé. Pas de stack parallèle.
 - **Ne jamais inventer** : donnée absente du snapshot / des calculs IFC →
   ``NOT_AVAILABLE``.
 - **Maquette-first** pour les exports : SHAB, zones/espaces, enveloppe,
@@ -28,6 +29,8 @@ Principes :
 
 from __future__ import annotations
 
+from collections import Counter
+from copy import copy
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -36,6 +39,8 @@ import openpyxl
 import xlsxwriter
 from docx import Document
 from docx.enum.section import WD_ORIENT, WD_SECTION
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -53,6 +58,7 @@ from .avp_snapshot import (
     snapshot_shab_total,
 )
 from .avp_sources import (
+    ENVELOPPE_MOA_HEADERS,
     AvpSourcePaths,
     AvpSources,
     ControleMaquettesSource,
@@ -63,12 +69,9 @@ from .context import ReportProjectContext
 from .pdf_export import docx_to_pdf
 from .theming import (
     BIMDATA_FONT_FALLBACK,
-    BIMDATA_FONT_PRIMARY,
-    BIMDATA_GRANITE,
     BIMDATA_PRIMARY,
-    BIMDATA_SECONDARY,
 )
-from .word_report import NOT_AVAILABLE, _add_heading, _hex_to_rgb, _kpi_table, _shade_cell
+from .word_report import NOT_AVAILABLE, _kpi_table, _shade_cell
 from .xlsx_annex import _build_formats, write_safe
 
 # Les annexes AVP fournies par la MOA peuvent porter les mêmes CustomFilter
@@ -145,7 +148,7 @@ def _deliverable_filename(
 _CONTROLE_STATS_SHEETS = (
     "Zones Nommage",
     "Pièces Nommage",
-    "ARC absence de matériau",
+    "ARC bsence de matériau",
     "Zones ObjectType",
 )
 
@@ -227,9 +230,9 @@ _QA_SCAFFOLD = {
 def _count_business_rows(path: Path) -> int:
     """Ouvre une annexe et compte ses **lignes métier**.
 
-    Ignore le bandeau (3 premières lignes), la ligne d'en-tête de chaque
-    onglet, les marqueurs d'échafaudage (``NOT_AVAILABLE``, onglet vide) et
-    le bloc « Synthèse » (KPI). Sert de garde qualité anti-livrable vide.
+    Ignore le bandeau éventuel, la ligne d'en-tête de chaque onglet, les
+    marqueurs d'échafaudage (``NOT_AVAILABLE``, onglet vide) et les blocs KPI.
+    Sert de garde qualité anti-livrable vide.
     """
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -239,17 +242,21 @@ def _count_business_rows(path: Path) -> int:
     try:
         for ws in wb.worksheets:
             header_seen = False
-            for row in ws.iter_rows(min_row=4, values_only=True):
+            for row in ws.iter_rows(values_only=True):
                 cells = [c for c in row if c not in (None, "")]
                 if not cells:
                     continue
                 first = str(cells[0]).strip().lower()
                 if first == "synthèse":
                     break  # début du bloc KPI → stop pour cet onglet
-                if first in _QA_SCAFFOLD:
+                if not header_seen and any(str(c).strip().lower() == "composant" for c in cells):
+                    header_seen = True
                     continue
                 if not header_seen:
-                    header_seen = True  # 1re ligne utile = en-tête
+                    continue
+                if first in _QA_SCAFFOLD:
+                    continue
+                if row[0] in (None, ""):
                     continue
                 total += 1
     finally:
@@ -309,62 +316,453 @@ def _new_workbook(path: Path):
 # ── Builders des 5 Excel ───────────────────────────────────────────────────
 
 
-def _build_controle_maquettes_xlsx(path, result, sources, meta) -> Path:
+def _build_controle_maquettes_xlsx(
+    path, result, sources, meta, snap: ModelSnapshot | None = None
+) -> Path:
     src = sources.controle if sources else None
-    wb, fmts = _new_workbook(path)
+    template_path = getattr(src, "template_path", None)
+    if template_path:
+        template = Path(template_path)
+        if template.exists():
+            return _build_controle_maquettes_template_xlsx(path, template, result, src, meta, snap)
+
+    wb = xlsxwriter.Workbook(str(path), {"strings_to_formulas": False})
+    fmts = _moa_formats(wb)
     ws = wb.add_worksheet("Grille de contrôle")
-    row = _write_banner(
-        ws,
-        fmts,
-        "CONTRÔLE MAQUETTES AVP",
-        f"{meta.project_name} {meta.project_code} — Contrôle Maquettes {meta.phase}",
-    )
+    _write_controle_moa_header(ws, fmts, src, meta)
 
-    # Bloc entête projet (métadonnées source si fournies, sinon appel).
+    grille = _audit_controle_table(result)
+    if grille is None and src is not None:
+        grille = src.grille
+    _write_controle_moa_table(ws, fmts, grille)
+
+    # Onglets de stats conformité : synthèse KPI depuis l'audit.
+    for name in _CONTROLE_STATS_SHEETS:
+        ws_s = wb.add_worksheet(name[:31])
+        grid = _controle_grid(name, src) if result is None else None
+        if grid and grid.rows:
+            _write_moa_grid(ws_s, fmts, grid.rows, start_row=0)
+        else:
+            rows = _controle_stat_rows(name, _controle_stats(name, result, src), meta)
+            _write_moa_grid(ws_s, fmts, rows, start_row=0)
+    wb.close()
+    return path
+
+
+def _build_controle_maquettes_template_xlsx(
+    path: Path,
+    template_path: Path,
+    result: AuditResult | None,
+    src: ControleMaquettesSource | None,
+    meta: AvpMeta,
+    snap: ModelSnapshot | None = None,
+) -> Path:
+    """Réutilise le classeur MOA Contrôle comme template vivant.
+
+    Les onglets statistiques du fichier MOA contiennent des formules, listes de
+    conformité et zones de copie. Le générateur ne doit pas les remplacer par un
+    squelette : on conserve le template et on injecte uniquement l'identité
+    projet + les listes maquette/audit disponibles.
+    """
+    wb = openpyxl.load_workbook(template_path, data_only=False)
+    try:
+        _ensure_control_template_sheets(wb)
+        _refresh_template_metadata(wb, src, meta)
+        effective_snap = (
+            snap if snap is not None else (result.snapshot if result is not None else None)
+        )
+        if effective_snap is not None:
+            _clear_template_grid_assessments(wb["Grille de contrôle"])
+            _refresh_template_stats_tabs(wb, effective_snap)
+        if result is not None:
+            _append_audit_summary_to_template_grid(wb, result)
+        _force_workbook_recalc(wb)
+        wb.save(path)
+    finally:
+        wb.close()
+    return path
+
+
+def _ensure_control_template_sheets(wb) -> None:
+    if "Grille de contrôle" not in wb.sheetnames:
+        wb.create_sheet("Grille de contrôle", 0)
+    for name in _CONTROLE_STATS_SHEETS:
+        if name not in wb.sheetnames:
+            wb.create_sheet(name)
+    expected = ["Grille de contrôle", *_CONTROLE_STATS_SHEETS]
+    ordered = [wb[name] for name in expected]
+    ordered.extend(ws for ws in wb.worksheets if ws.title not in expected)
+    wb._sheets = ordered
+
+
+def _force_workbook_recalc(wb) -> None:
+    calc = getattr(wb, "calculation", None)
+    if calc is None:
+        return
+    try:
+        calc.fullCalcOnLoad = True
+        calc.forceFullCalc = True
+    except AttributeError:
+        return
+
+
+def _openpyxl_safe_value(value):
+    value = _cell(_moa_text(value))
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + value
+    return value
+
+
+def _text_or_none(value) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _dict_text(item: dict, *keys: str) -> str | None:
+    for key in keys:
+        value = item.get(key)
+        text = _text_or_none(value)
+        if text:
+            return text
+    return None
+
+
+def _metadata_cell(ws, label: str, fallback: str):
+    wanted = label.strip().lower()
+    for row in range(1, min(ws.max_row, 12) + 1):
+        cell_label = ws.cell(row, 2).value
+        if isinstance(cell_label, str) and cell_label.strip().lower().startswith(wanted):
+            return ws.cell(row, 3)
+    return ws[fallback]
+
+
+def _refresh_template_metadata(wb, src: ControleMaquettesSource | None, meta: AvpMeta) -> None:
+    if "Grille de contrôle" not in wb.sheetnames:
+        return
+    ws = wb["Grille de contrôle"]
     header = (src.header if src else {}) or {}
-    fallbacks = {"projet": meta.project_name, "esi": meta.project_code, "phase": meta.phase}
-    for label, key in (("Projet", "projet"), ("ESI", "esi"), ("Phase", "phase")):
-        val = header.get(key)
-        if val in (None, ""):
-            val = fallbacks[key]
-        write_safe(ws, row, 0, label, fmts["kpi_key"])
-        write_safe(ws, row, 1, _cell(val), fmts["kpi_val"])
-        row += 1
-    row += 1
+    values = {
+        "Projet": meta.project_name or header.get("projet"),
+        "ESI": meta.project_code or header.get("esi"),
+        "Phase": meta.phase or header.get("phase"),
+    }
+    for label, value in values.items():
+        if value not in (None, ""):
+            _metadata_cell(
+                ws, label, {"Projet": "C5", "ESI": "C6", "Phase": "C7"}[label]
+            ).value = _openpyxl_safe_value(value)
+    if meta.date_controle:
+        _metadata_cell(ws, "Date d'analyse", "C9").value = _openpyxl_safe_value(meta.date_controle)
 
-    # Légende.
-    write_safe(ws, row, 0, "Légende", fmts["h2"])
-    row += 1
+
+def _copy_cell_style(src, dst) -> None:
+    if src.has_style:
+        dst._style = copy(src._style)
+    if src.number_format:
+        dst.number_format = src.number_format
+    if src.alignment:
+        dst.alignment = copy(src.alignment)
+    if src.protection:
+        dst.protection = copy(src.protection)
+
+
+def _copy_template_row_style(ws, src_row: int, dst_row: int, *, max_col: int = 6) -> None:
+    for col in range(1, max_col + 1):
+        _copy_cell_style(ws.cell(src_row, col), ws.cell(dst_row, col))
+
+
+def _find_control_header_row(ws) -> int | None:
+    for row in range(1, min(ws.max_row, 40) + 1):
+        if any(
+            isinstance(ws.cell(row, col).value, str)
+            and ws.cell(row, col).value.strip().lower() == "points de controle"
+            for col in range(1, ws.max_column + 1)
+        ):
+            return row
+    return None
+
+
+def _clear_template_grid_assessments(ws) -> None:
+    header_row = _find_control_header_row(ws)
+    if header_row is None:
+        return
+    for row in range(header_row + 1, ws.max_row + 1):
+        if ws.cell(row, 2).value in (None, ""):
+            continue
+        for col in (5, 6):
+            value = ws.cell(row, col).value
+            if isinstance(value, str) and value.startswith("="):
+                continue
+            ws.cell(row, col).value = None
+
+
+def _append_audit_summary_to_template_grid(wb, result: AuditResult) -> None:
+    if "Grille de contrôle" not in wb.sheetnames:
+        return
+    ws = wb["Grille de contrôle"]
+    header_row = _find_control_header_row(ws)
+    if header_row is None:
+        return
+    _clear_template_grid_assessments(ws)
+    grille = _audit_controle_table(result)
+    if grille is None or not grille.rows:
+        return
+    start = ws.max_row + 2
+    _copy_template_row_style(ws, header_row, start)
+    ws.cell(start, 1).value = "Synthèse audit MCP"
+    for col in range(2, 7):
+        ws.cell(start, col).value = None
+    headers = [
+        "CODE 3F",
+        "POINTS DE CONTROLE",
+        "EXIGENCE CCH BIM 3F",
+        "Outil utilisé",
+        "EVALUATION",
+        "Commentaires CdP Bim",
+    ]
+    _copy_template_row_style(ws, header_row, start + 1)
+    for col, value in enumerate(headers, start=1):
+        ws.cell(start + 1, col).value = value
+    data_style_row = header_row + 1
+    for idx, row_values in enumerate(_controle_rows_for_moa(grille), start=start + 2):
+        _copy_template_row_style(ws, data_style_row, idx)
+        for col, value in enumerate(row_values[: len(headers)], start=1):
+            ws.cell(idx, col).value = _openpyxl_safe_value(value)
+
+
+def _copy_zone_start_row(ws) -> int:
+    for row in range(1, min(ws.max_row, 40) + 1):
+        values = [ws.cell(row, col).value for col in range(1, min(ws.max_column, 5) + 1)]
+        if any(isinstance(value, str) and "coller ici" in value.lower() for value in values):
+            return row + 1
+    return 13
+
+
+def _clear_template_copy_zone(ws, *, start_row: int, end_row: int) -> None:
+    for row in range(start_row, end_row + 1):
+        for col in (1, 2, 3):
+            ws.cell(row, col).value = None
+
+
+def _write_template_counts(
+    wb,
+    sheet_name: str,
+    counts: Counter[str],
+    row_label: str,
+    *,
+    clear_when_empty: bool,
+    end_row: int = 200,
+) -> None:
+    if sheet_name not in wb.sheetnames:
+        return
+    if not counts and not clear_when_empty:
+        return
+    ws = wb[sheet_name]
+    start = _copy_zone_start_row(ws)
+    clear_to = max(end_row, start + len(counts) + 2)
+    _clear_template_copy_zone(ws, start_row=start, end_row=min(clear_to, max(ws.max_row, end_row)))
+    for idx, (label, count) in enumerate(sorted(counts.items(), key=lambda item: item[0].lower())):
+        row = start + idx
+        ws.cell(row, 1).value = row_label if idx == 0 else None
+        ws.cell(row, 2).value = _openpyxl_safe_value(label)
+        ws.cell(row, 3).value = count
+
+
+def _counter_from_dicts(
+    items: list[dict] | None, *keys: str, empty_label: str = "(vide)"
+) -> Counter[str]:
+    counter: Counter[str] = Counter()
+    for item in items or []:
+        label = _dict_text(item, *keys) or empty_label
+        counter[label] += 1
+    return counter
+
+
+def _refresh_template_stats_tabs(wb, snap: ModelSnapshot) -> None:
+    zones = snap.zones or []
+    spaces = snap.spaces or []
+    elements = snap.elements or []
+    _write_template_counts(
+        wb,
+        "Zones Nommage",
+        _counter_from_dicts(zones, "name", "Name", empty_label="(Name vide)"),
+        "Zones",
+        clear_when_empty=True,
+    )
+    _write_template_counts(
+        wb,
+        "Pièces Nommage",
+        _counter_from_dicts(
+            spaces,
+            "longname",
+            "long_name",
+            "LongName",
+            "name",
+            "Name",
+            empty_label="(Name vide)",
+        ),
+        "Pièces",
+        clear_when_empty=True,
+    )
+    _write_template_counts(
+        wb,
+        "Zones ObjectType",
+        _counter_from_dicts(
+            zones,
+            "object_type",
+            "objectType",
+            "ObjectType",
+            "predefined_type",
+            "PredefinedType",
+            empty_label="(ObjectType vide)",
+        ),
+        "Zones",
+        clear_when_empty=True,
+    )
+    missing_materials = Counter(
+        _dict_text(element, "type", "ifc_type", "ifc_class", "IFCType") or "(classe IFC absente)"
+        for element in elements
+        if not _has_material(element)
+    )
+    _write_template_counts(
+        wb,
+        "ARC bsence de matériau",
+        missing_materials,
+        "ObjT Pièces",
+        clear_when_empty=True,
+        end_row=206,
+    )
+    if "ARC bsence de matériau" in wb.sheetnames:
+        ws = wb["ARC bsence de matériau"]
+        if ws.max_row >= 7 and ws.max_column >= 7:
+            ws.cell(7, 7).value = len(elements)
+
+
+def _write_controle_moa_header(ws, fmts, src, meta) -> None:
+    """Entête proche du classeur MOA « Contrôle Maquettes »."""
+    header = (src.header if src else {}) or {}
     legend = (src.legend if src else {}) or {
         0: "Non fourni / non trouvé",
         1: "Insuffisant : à reprendre ou compléter",
         2: "Satisfaisant",
     }
-    for code in sorted(legend):
-        write_safe(ws, row, 0, code, fmts["kpi_key"])
-        write_safe(ws, row, 1, legend[code], fmts["kpi_val"])
-        row += 1
-    row += 1
+    ws.set_column(0, 0, 12)
+    ws.set_column(1, 1, 34)
+    ws.set_column(2, 2, 54)
+    ws.set_column(3, 3, 22)
+    ws.set_column(4, 4, 14)
+    ws.set_column(5, 5, 48)
+    write_safe(ws, 1, 0, "2.         Grille de contrôle des exigences du CCH BIM 3F", fmts["title"])
+    write_safe(
+        ws,
+        2,
+        0,
+        "Contrôle automatisé depuis l'audit BIM et les données extraites de la maquette.",
+        fmts["note"],
+    )
+    fallbacks = {"projet": meta.project_name, "esi": meta.project_code, "phase": meta.phase}
+    for offset, (label, key) in enumerate(
+        (("Projet", "projet"), ("ESI", "esi"), ("Phase", "phase")),
+        start=4,
+    ):
+        val = header.get(key)
+        if val in (None, ""):
+            val = fallbacks[key]
+        write_safe(ws, offset, 1, label, fmts["meta_label"])
+        write_safe(ws, offset, 2, _cell(val), fmts["meta_value"])
+    for idx, code in enumerate(sorted(legend), start=6):
+        write_safe(ws, idx, 4, code, fmts["center"])
+        write_safe(ws, idx, 5, legend[code], fmts["note"])
 
-    # Grille de contrôle. L'audit est la source métier. Si le writer est appelé
-    # sans snapshot/audit (compat bas niveau), la source déjà chargée peut encore
-    # servir de repli ; le flux maquette-first nettoie cette source en amont.
-    write_safe(ws, row, 0, "Grille de contrôle", fmts["h2"])
-    row += 1
-    grille = _audit_controle_table(result)
-    if grille is None and src is not None:
-        grille = src.grille
-    _write_flat_table(ws, fmts, grille, start_row=row)
 
-    # Onglets de stats conformité : synthèse KPI depuis l'audit.
-    for name in _CONTROLE_STATS_SHEETS:
-        ws_s = wb.add_worksheet(name[:31])
-        r = _write_banner(ws_s, fmts, "CONTRÔLE MAQUETTES AVP", name)
-        stats = _controle_stats(name, result, src)
-        write_safe(ws_s, r, 0, "Synthèse", fmts["h2"])
-        _write_stats_block(ws_s, fmts, stats, start_row=r + 1)
-    wb.close()
-    return path
+def _write_controle_moa_table(ws, fmts, grille: SheetTable | None) -> None:
+    headers = [
+        "CODE 3F",
+        "POINTS DE CONTROLE",
+        "EXIGENCE CCH BIM 3F",
+        "Outil utilisé",
+        "EVALUATION",
+        "Commentaires CdP Bim",
+    ]
+    start = 12
+    _write_moa_grid(ws, fmts, [headers], start_row=start)
+    if grille is None or not grille.rows:
+        write_safe(ws, start + 1, 0, NOT_AVAILABLE, fmts["data"])
+        return
+    rows = _controle_rows_for_moa(grille)
+    for i, row in enumerate(rows, start=start + 1):
+        for c, value in enumerate(row[: len(headers)]):
+            fmt = fmts["center"] if c == 4 else fmts["data"]
+            _write_moa_value(ws, i, c, value, fmt)
+
+
+def _controle_rows_for_moa(grille: SheetTable) -> list[list]:
+    """Normalise une grille source/audit vers les 6 colonnes MOA."""
+    headers = [str(h or "").strip() for h in grille.headers]
+    if headers == [
+        "CODE 3F",
+        "POINTS DE CONTROLE",
+        "EXIGENCE CCH BIM 3F",
+        "Outil utilisé",
+        "EVALUATION",
+        "Commentaires CdP Bim",
+    ]:
+        return grille.rows
+    rows: list[list] = []
+    for raw in grille.rows:
+        point = raw[0] if len(raw) > 0 else ""
+        total = raw[1] if len(raw) > 1 else ""
+        conformes = raw[2] if len(raw) > 2 else ""
+        non_conformes = raw[3] if len(raw) > 3 else ""
+        ratio = raw[4] if len(raw) > 4 else ""
+        try:
+            evaluation = 2 if float(non_conformes or 0) == 0 else 1
+        except (TypeError, ValueError):
+            evaluation = ""
+        rows.append(
+            [
+                "",
+                point,
+                "Contrôle automatisé MCP audit-bim-i3f",
+                "Audit BIM / IFC OpenShell",
+                evaluation,
+                (
+                    f"Total: {total}; conformes: {conformes}; "
+                    f"non conformes: {non_conformes}; taux: {ratio}"
+                ),
+            ]
+        )
+    return rows
+
+
+def _controle_stat_rows(name: str, stats: dict | None, meta) -> list[list]:
+    """Onglet statistique proche MOA, alimenté par l'audit quand disponible."""
+    rows = [
+        [],
+        ["", meta.project_name],
+        ["", meta.project_code],
+        [],
+        ["", name],
+        [],
+        ["", "Indicateur", "Total", "Conforme", "Taux Conforme", "Non Conforme", "Taux"],
+    ]
+    if not stats:
+        rows.append(["", NOT_AVAILABLE])
+        return rows
+    rows.append(
+        [
+            "",
+            stats.get("label") or name,
+            stats.get("total"),
+            stats.get("conforme"),
+            stats.get("conforme_ratio"),
+            stats.get("non_conforme"),
+            stats.get("non_conforme_ratio"),
+        ]
+    )
+    return rows
 
 
 def _controle_grid(name: str, src):
@@ -538,26 +936,40 @@ def _audit_controle_table(result: AuditResult | None) -> SheetTable | None:
         if conf is None and total is not None and nc is not None:
             conf = total - nc
         ratio = stats.get("conforme_ratio")
+        eval_value = 2 if isinstance(nc, (int, float)) and nc == 0 else 1
         rows.append(
             [
+                "",
                 name,
-                total if total is not None else "",
-                conf if conf is not None else "",
-                nc if nc is not None else "",
-                round(ratio, 3) if isinstance(ratio, (int, float)) else "",
+                "Contrôle automatisé MCP audit-bim-i3f",
+                "Audit BIM / IFC OpenShell",
+                eval_value,
+                (
+                    f"Total: {total if total is not None else ''}; "
+                    f"conformes: {conf if conf is not None else ''}; "
+                    f"non conformes: {nc if nc is not None else ''}; "
+                    f"taux: {round(ratio, 3) if isinstance(ratio, (int, float)) else ''}"
+                ),
             ]
         )
     if not rows:
         return None
     return SheetTable(
         title="Grille de contrôle",
-        headers=["Point de contrôle", "Total", "Conformes", "Non conformes", "Taux conformité"],
+        headers=[
+            "CODE 3F",
+            "POINTS DE CONTROLE",
+            "EXIGENCE CCH BIM 3F",
+            "Outil utilisé",
+            "EVALUATION",
+            "Commentaires CdP Bim",
+        ],
         rows=rows,
     )
 
 
 def _count_controle_rows(path: Path) -> int:
-    """Compte les lignes de données **sous le titre « Grille de contrôle »**.
+    """Compte les lignes de données sous l'en-tête MOA « POINTS DE CONTROLE ».
 
     Compteur **propre à l'annexe Contrôle** : contrairement à
     :func:`_count_business_rows`, il ignore l'entête projet, la légende, les
@@ -574,23 +986,23 @@ def _count_controle_rows(path: Path) -> int:
         ws = wb["Grille de contrôle"]
         anchor = None
         for r_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
-            if any(isinstance(c, str) and c.strip().lower() == "grille de contrôle" for c in row):
+            if any(isinstance(c, str) and c.strip().lower() == "points de controle" for c in row):
                 anchor = r_idx
                 break
         if anchor is None:
             return 0
         total = 0
-        header_seen = False
         for row in ws.iter_rows(min_row=anchor + 1, values_only=True):
             cells = [c for c in row if c not in (None, "")]
             if not cells:
                 continue
             if str(cells[0]).strip() == NOT_AVAILABLE:
                 continue
-            if not header_seen:
-                header_seen = True  # 1re ligne utile = en-tête de la table
+            if len(row) > 1 and row[1] not in (None, ""):
+                total += 1
+            elif row[0] not in (None, ""):
+                # Repli pour une vieille grille 5 colonnes éventuelle.
                 continue
-            total += 1
         return total
     finally:
         wb.close()
@@ -658,91 +1070,285 @@ def _write_grid(ws, fmts, rows: list[list], *, start_row: int) -> int:
     return r + 1
 
 
+def _moa_formats(wb) -> dict[str, xlsxwriter.format.Format]:
+    base = {"font_name": "Aptos Narrow", "font_size": 11}
+    return {
+        "title": wb.add_format({**base, "bold": True, "font_size": 13}),
+        "note": wb.add_format({**base, "text_wrap": True}),
+        "meta_label": wb.add_format({**base, "bold": True}),
+        "meta_value": wb.add_format({**base}),
+        "header": wb.add_format(
+            {
+                **base,
+                "bold": True,
+                "border": 1,
+                "align": "center",
+                "valign": "vcenter",
+                "text_wrap": True,
+            }
+        ),
+        "data": wb.add_format(
+            {**base, "border": 1, "valign": "top", "text_wrap": True, "num_format": "#,##0.00"}
+        ),
+        "center": wb.add_format({**base, "border": 1, "align": "center", "valign": "vcenter"}),
+        "percent": wb.add_format({**base, "border": 1, "num_format": "0.00%"}),
+    }
+
+
+_MOA_FORMULA_PREFIXES = ("=IF(", "=SUBTOTAL(", "=COUNTA(", "=SUM(")
+
+
+def _moa_text(value):
+    if not isinstance(value, str):
+        return value
+    return (
+        value.replace("Surface (Solibri)", "Surface IFC OpenShell")
+        .replace("Surface\nSolibri", "Surface IFC OpenShell")
+        .replace("Surface Solibri", "Surface IFC OpenShell")
+        .replace("Solibri Surface des Fenêtres", "IFC OpenShell Surface des Fenêtres")
+        .replace("Solibri Surface des Portes", "IFC OpenShell Surface des Portes")
+    )
+
+
+def _is_moa_formula(value) -> bool:
+    return isinstance(value, str) and value.startswith(_MOA_FORMULA_PREFIXES)
+
+
+def _write_moa_value(ws, row: int, col: int, value, fmt) -> None:
+    if _is_moa_formula(value):
+        ws.write_formula(row, col, value, fmt, "")
+    else:
+        write_safe(ws, row, col, _cell(_moa_text(value)), fmt)
+
+
+def _write_moa_grid(ws, fmts, rows: list[list], *, start_row: int = 0) -> int:
+    """Écrit une grille façon MOA depuis A1, sans bannière ni freeze panes."""
+    if not rows:
+        return start_row
+    ncols = max(len(r) for r in rows)
+    header_idx = next((i for i, r in enumerate(rows) if _looks_like_header(r)), 0)
+    for c in range(ncols):
+        sample = [r[c] for r in rows[:30] if c < len(r) and r[c] not in (None, "")]
+        width = max([len(str(_moa_text(v))) for v in sample] + [10])
+        ws.set_column(c, c, min(max(width + 2, 10), 42))
+    for i, rowvals in enumerate(rows):
+        xls_row = start_row + i
+        fmt = fmts["header"] if i == header_idx else fmts["data"]
+        if i == header_idx:
+            ws.set_row(xls_row, 42 if i == 0 else 28)
+        for c in range(ncols):
+            value = rowvals[c] if c < len(rowvals) else None
+            cell_fmt = fmts["percent"] if _is_moa_percent_formula(value) else fmt
+            _write_moa_value(ws, xls_row, c, value, cell_fmt)
+    return start_row + len(rows)
+
+
+def _is_moa_percent_formula(value) -> bool:
+    return isinstance(value, str) and "/D" in value and value.startswith("=IF(")
+
+
 def _build_multisheet_export_xlsx(path, banner: str, title: str, multi, meta) -> Path:
     """Export reproduisant **tous** les onglets source (pivots + détail)."""
-    wb, fmts = _new_workbook(path)
+    wb = xlsxwriter.Workbook(str(path), {"strings_to_formulas": False})
+    fmts = _moa_formats(wb)
     grids = (multi.grids if multi else None) or []
     if not grids:
         ws = wb.add_worksheet(_safe_sheet(title))
-        row = _write_banner(ws, fmts, banner, f"{meta.project_name} {meta.project_code} — {title}")
-        write_safe(ws, row, 0, NOT_AVAILABLE, fmts["row"])
+        write_safe(ws, 0, 0, NOT_AVAILABLE, fmts["data"])
         wb.close()
         return path
     for g in grids:
         ws = wb.add_worksheet(_safe_sheet(g.title))
-        row = _write_banner(
-            ws, fmts, banner, f"{meta.project_name} {meta.project_code} — {g.title}"
-        )
         if g.rows:
-            end = _write_grid(ws, fmts, g.rows, start_row=row)
+            end = _write_moa_grid(ws, fmts, g.rows, start_row=0)
             if _rows_have_computed(g.rows):
-                write_safe(ws, end + 1, 0, _COMPUTED_METHODO_NOTE, fmts["row"])
-        else:
-            # Onglet source vide : préservé (structure I3F stricte) mais
-            # signalé comme tel (ce n'est PAS une donnée manquante).
-            write_safe(ws, row, 0, "(onglet vide dans la source I3F)", fmts["row"])
+                write_safe(ws, end + 1, 0, _COMPUTED_METHODO_NOTE, fmts["note"])
     wb.close()
     return path
 
 
 def _build_enveloppe_xlsx(path, sources, meta) -> Path:
     src = sources.enveloppe if sources else None
-    wb, fmts = _new_workbook(path)
-    # Proximité I3F : conserver le nom d'onglet source (« TDB 2022 04.2… »).
+    wb = xlsxwriter.Workbook(str(path), {"strings_to_formulas": False})
     ws = wb.add_worksheet(
-        _safe_sheet((src.sheet_title if src else None) or "Extraction surface enveloppe")
+        _safe_sheet((src.sheet_title if src else None) or "TDB 2022 04.2 - Extraction s...")
     )
-    row = _write_banner(
-        ws,
-        fmts,
-        "EXTRACTION SURFACE ENVELOPPE",
-        f"{meta.project_name} {meta.project_code} — Extraction surface enveloppe",
-    )
-    row = _write_flat_table(ws, fmts, src.table if src else None, start_row=row)
-    row += 1
-    # Bloc synthèse (logique Tarare, sans Solibri).
-    write_safe(ws, row, 0, "Synthèse", fmts["h2"])
-    row += 1
-    synth = [
-        ("Superficie des façades", src.superficie_facades if src else None),
-        ("écart IFC OpenShell vs Archicad BQ", _env_ecart(src)),
-        ("Superficie des menuiseries", src.superficie_menuiseries if src else None),
-        (
-            "IFC OpenShell Surface des Fenêtres",
-            getattr(src, "superficie_fenetres", None) if src else None,
-        ),
-        (
-            "IFC OpenShell Surface des Portes",
-            getattr(src, "superficie_portes", None) if src else None,
-        ),
-        ("SHAB", src.shab if src else None),
-        ("ratio FAC/SHAB", src.ratio_fac_shab if src else None),
-        ("Seuil 3F 2026", src.seuil_3f if src else None),
-    ]
-    for label, val in synth:
-        write_safe(ws, row, 0, label, fmts["kpi_key"])
-        write_safe(ws, row, 1, NOT_AVAILABLE if val is None else val, fmts["kpi_val"])
-        row += 1
+    fmts = _enveloppe_moa_formats(wb)
 
-    # Diagnostic « hors filtre » : NE POLLUE PAS le total métier — noté à part.
-    hors = getattr(src, "hors_filtre_type", None) if src else None
-    if hors:
-        row += 1
-        write_safe(ws, row, 0, "Hors filtre (diagnostic — hors total métier)", fmts["h2"])
-        row += 1
-        tot = round(
-            sum((h.get("net_side_area_m2") or h.get("netsidearea_m2") or 0) for h in hors), 2
-        )
+    rows = (src.table.rows if src and src.table else []) or []
+    headers = (src.table.headers if src and src.table and src.table.headers else None) or list(
+        ENVELOPPE_MOA_HEADERS
+    )
+
+    widths = [10.86, 47.29, 14.86, 14.57, 11.29, 14.0, 11.43, 11.86, 13.0, 13.0]
+    for c, width in enumerate(widths):
+        ws.set_column(c, c, width)
+    ws.set_row(0, 60)
+
+    for c, h in enumerate(headers[:10]):
         write_safe(
-            ws,
-            row,
-            0,
-            f"{len(hors)} type(s) de murs non retenus — Σ NetSideArea {tot} m² "
-            "(exclu du total façade).",
-            fmts["row"],
+            ws, 0, c, _enveloppe_output_header(h), fmts["header_calc" if c == 3 else "header"]
         )
+
+    for r_idx, rowvals in enumerate(rows, start=1):
+        for c in range(10):
+            value = rowvals[c] if c < len(rowvals) else None
+            write_safe(ws, r_idx, c, _cell(value), fmts["data"])
+
+    n_data = len(rows)
+    first_data = 2
+    last_data = max(first_data, n_data + 1)
+    formula_end_with_blank = last_data + 1
+    summary_row = n_data + 2  # Tarare : 8 lignes → ligne Excel 11.
+
+    d_total = _sum_table_col(rows, 3)
+    e_total = _sum_table_col(rows, 4)
+    f_total = _sum_table_col(rows, 5)
+    men_total = _first_number(src.superficie_menuiseries if src else None, f_total)
+    shab = _first_number(src.shab if src else None)
+    ratio = _first_number(src.ratio_fac_shab if src else None)
+    if ratio is None and shab:
+        ratio = d_total / shab if d_total is not None else None
+    ecart = (e_total / d_total - 1) if d_total else None
+
+    write_safe(ws, summary_row, 2, "Superficie des façades : ", fmts["summary_label_top"])
+    ws.write_formula(
+        summary_row,
+        3,
+        f"=SUM(D{first_data}:D{formula_end_with_blank})",
+        fmts["summary_value_top"],
+        _formula_cached(d_total),
+    )
+    ws.write_formula(
+        summary_row,
+        4,
+        f"=SUM(E{first_data}:E{formula_end_with_blank})",
+        fmts["summary_value"],
+        _formula_cached(e_total),
+    )
+    ws.write_formula(
+        summary_row,
+        5,
+        f"=SUM(F{first_data}:F{last_data})",
+        fmts["summary_value"],
+        _formula_cached(f_total),
+    )
+    write_safe(
+        ws,
+        summary_row,
+        6,
+        "non pertinent : inclus portes et fenêtres",
+        fmts["note"],
+    )
+
+    write_safe(ws, summary_row + 1, 3, "écart : ", fmts["label"])
+    ws.write_formula(
+        summary_row + 1,
+        4,
+        f"=E{summary_row + 1}/D{summary_row + 1}-1",
+        fmts["percent_fill"],
+        _formula_cached(ecart),
+    )
+    write_safe(ws, summary_row + 2, 6, "écart calcul IFC OpenShell à contrôler", fmts["note"])
+
+    write_safe(ws, summary_row + 3, 2, "Superficie des menuiseries : ", fmts["summary_label"])
+    write_safe(
+        ws,
+        summary_row + 3,
+        3,
+        NOT_AVAILABLE if men_total is None else men_total,
+        fmts["summary_value_top"],
+    )
+    write_safe(ws, summary_row + 3, 6, "(murs complexes : murs non découpés ", fmts["note"])
+    write_safe(ws, summary_row + 4, 6, "sur 100% de la périphérie )", fmts["note"])
+
+    write_safe(ws, summary_row + 5, 2, "SHAB : ", fmts["summary_label"])
+    write_safe(
+        ws, summary_row + 5, 3, NOT_AVAILABLE if shab is None else shab, fmts["summary_value_top"]
+    )
+    write_safe(ws, summary_row + 6, 2, "ratio FAC/SHAB : ", fmts["summary_label_plain"])
+    ws.write_formula(
+        summary_row + 6,
+        3,
+        f"=D{summary_row + 1}/D{summary_row + 6}",
+        fmts["ratio"],
+        _formula_cached(ratio),
+    )
+    write_safe(ws, summary_row + 7, 2, "Seuil 3F 2026 : ", fmts["summary_label_plain"])
+    write_safe(
+        ws,
+        summary_row + 7,
+        3,
+        NOT_AVAILABLE if not src or src.seuil_3f is None else src.seuil_3f,
+        fmts["threshold"],
+    )
     wb.close()
     return path
+
+
+def _enveloppe_moa_formats(wb) -> dict[str, xlsxwriter.format.Format]:
+    base = {"font_name": "Aptos Narrow", "font_size": 11}
+    return {
+        "header": wb.add_format(
+            {**base, "border": 1, "align": "center", "valign": "vcenter", "text_wrap": True}
+        ),
+        "header_calc": wb.add_format(
+            {
+                **base,
+                "bold": True,
+                "border": 1,
+                "align": "center",
+                "valign": "vcenter",
+                "text_wrap": True,
+                "bg_color": "#D9EAD3",
+            }
+        ),
+        "data": wb.add_format({**base, "left": 1, "right": 1, "top": 1, "bottom": 7}),
+        "summary_label_top": wb.add_format(
+            {**base, "bold": True, "align": "right", "top": 1, "bottom": 1}
+        ),
+        "summary_label": wb.add_format(
+            {**base, "bold": True, "align": "right", "right": 1, "top": 1, "bottom": 1}
+        ),
+        "summary_label_plain": wb.add_format({**base, "bold": True, "align": "right"}),
+        "summary_value_top": wb.add_format(
+            {**base, "bold": True, "border": 1, "bg_color": "#D9EAD3", "num_format": "#,##0.00"}
+        ),
+        "summary_value": wb.add_format({**base, "border": 1, "num_format": "#,##0.00"}),
+        "label": wb.add_format({**base}),
+        "percent_fill": wb.add_format(
+            {**base, "border": 1, "bg_color": "#D9EAD3", "num_format": "0.00%"}
+        ),
+        "note": wb.add_format({**base}),
+        "ratio": wb.add_format(
+            {**base, "bold": True, "font_color": "#C00000", "num_format": "#,##0.00"}
+        ),
+        "threshold": wb.add_format({**base, "num_format": "0.00"}),
+    }
+
+
+def _enveloppe_output_header(value) -> str:
+    text = str(value or "")
+    return (
+        text.replace("Surface Solibri", "Surface IFC OpenShell")
+        .replace("Solibri Surface des Fenêtres", "IFC OpenShell Surface des Fenêtres")
+        .replace("Solibri Surface des Portes", "IFC OpenShell Surface des Portes")
+    )
+
+
+def _first_number(*values) -> float | None:
+    for value in values:
+        if isinstance(value, (int, float)):
+            return float(value)
+    return None
+
+
+def _formula_cached(value):
+    return value if isinstance(value, (int, float)) else ""
+
+
+def _sum_table_col(rows, idx: int) -> float:
+    return round(sum(r[idx] for r in rows if len(r) > idx and isinstance(r[idx], (int, float))), 2)
 
 
 def _env_ecart(src) -> float | None:
@@ -757,23 +1363,29 @@ def _env_ecart(src) -> float | None:
 
 def _build_menuiseries_xlsx(path, sources, meta) -> Path:
     src = sources.menuiseries if sources else None
-    wb, fmts = _new_workbook(path)
+    wb = xlsxwriter.Workbook(str(path), {"strings_to_formulas": False})
+    fmts = _moa_formats(wb)
     # Proximité I3F : conserver le nom d'onglet source (« TDB 2022 05.1… »).
     ws = wb.add_worksheet(_safe_sheet((src.sheet_title if src else None) or "Menuiseries"))
-    row = _write_banner(
-        ws,
-        fmts,
-        "EXPORT MENUISERIES",
-        f"{meta.project_name} {meta.project_code} — Export Menuiseries",
-    )
-    row = _write_flat_table(ws, fmts, src.table if src else None, start_row=row)
-    row += 1
-    write_safe(ws, row, 0, "Nombre de types de menuiseries", fmts["kpi_key"])
-    nb = src.nombre_types if src else None
-    write_safe(ws, row, 1, NOT_AVAILABLE if nb is None else nb, fmts["kpi_val"])
-    row += 2
-    if src and src.table and _rows_have_computed(src.table.rows):
-        write_safe(ws, row, 0, _COMPUTED_METHODO_NOTE, fmts["row"])
+    table = src.table if src else None
+    if table is None or not table.headers:
+        write_safe(ws, 0, 0, NOT_AVAILABLE, fmts["data"])
+        wb.close()
+        return path
+
+    rows = [list(table.headers), *table.rows]
+    ncols = max(len(r) for r in rows) if rows else len(table.headers)
+    rows.append([""] * ncols)
+    summary = [""] * ncols
+    if ncols > 1:
+        summary[1] = "Nombre de types de menuiseries"
+    if ncols > 2:
+        last = max(2, len(table.rows) + 1)
+        summary[2] = f"=COUNTA(D2:D{last})" if table.rows else (src.nombre_types if src else None)
+    rows.append(summary)
+    end = _write_moa_grid(ws, fmts, rows, start_row=0)
+    if _rows_have_computed(table.rows):
+        write_safe(ws, end + 1, 0, _COMPUTED_METHODO_NOTE, fmts["note"])
     wb.close()
     return path
 
@@ -797,20 +1409,26 @@ def _build_plancher_xlsx(path, sources, meta) -> Path:
 # ── Consolidé « Analyse BIM AVP » (.docx, helpers word_report réutilisés) ───
 
 
+_MOA_FONT = "Calibri"
+_MOA_TABLE_HEADER = "D9EAD3"
+_MOA_TABLE_SECTION = "EAF2F8"
+
+
 def _setup_docx() -> Document:
     doc = Document()
     style = doc.styles["Normal"]
-    style.font.name = BIMDATA_FONT_PRIMARY
+    style.font.name = _MOA_FONT
     style.font.size = Pt(10)
-    style.font.color.rgb = _hex_to_rgb(BIMDATA_GRANITE)
+    style.font.color.rgb = RGBColor(0, 0, 0)
     rpr = style.element.get_or_add_rPr()
     rfonts = rpr.find(qn("w:rFonts"))
     if rfonts is None:
         rfonts = OxmlElement("w:rFonts")
         rpr.append(rfonts)
-    rfonts.set(qn("w:ascii"), BIMDATA_FONT_PRIMARY)
-    rfonts.set(qn("w:hAnsi"), BIMDATA_FONT_PRIMARY)
+    rfonts.set(qn("w:ascii"), _MOA_FONT)
+    rfonts.set(qn("w:hAnsi"), _MOA_FONT)
     rfonts.set(qn("w:cs"), BIMDATA_FONT_FALLBACK)
+    _configure_section(doc.sections[0], WD_ORIENT.PORTRAIT)
     return doc
 
 
@@ -818,127 +1436,554 @@ def _pct(v) -> str:
     return f"{v * 100:.0f} %" if isinstance(v, (int, float)) else NOT_AVAILABLE
 
 
-def _build_analyse_bim_avp_docx(path, result, sources, meta, snap=None) -> Path:
+def _build_analyse_bim_avp_docx(
+    path, result, sources, meta, snap=None, controle_xlsx: Path | None = None
+) -> Path:
     doc = _setup_docx()
-
-    # Titre / bandeau.
-    title = doc.add_paragraph()
-    run = title.add_run(f"BIMDATA — Analyse BIM {meta.phase}")
-    run.bold = True
-    run.font.size = Pt(12)
-    run.font.color.rgb = _hex_to_rgb(BIMDATA_SECONDARY)
-    h = doc.add_paragraph()
-    run = h.add_run(f"Rapport d'analyse BIM {meta.phase} — {meta.project_name} {meta.project_code}")
-    run.bold = True
-    run.font.size = Pt(22)
-    run.font.color.rgb = _hex_to_rgb(BIMDATA_PRIMARY)
-
-    _kpi_table(
-        doc,
-        [
-            ("Projet", f"{meta.project_name} {meta.project_code}"),
-            ("Phase", meta.phase),
-            ("Date", date.today().isoformat()),
-            ("Auteur", meta.auditor),
-        ],
-    )
-
     ctrl = sources.controle if sources else None
     env = sources.enveloppe if sources else None
     pieces = _stat_lookup(ctrl, "Pièces Nommage")
     zones = _stat_lookup(ctrl, "Zones Nommage")
     materiau = _stat_lookup(ctrl, "ARC absence de matériau")
 
-    # 1. Données d'entrée
-    _add_heading(doc, "1. Données d'entrée", level=1)
-    _write_donnees_entree(doc, ctrl, meta)
-
-    # 2. Usages BIM 3F
-    _add_heading(doc, "2. Usages BIM 3F", level=1)
-    if meta.usages_bim:
-        for u in meta.usages_bim:
-            doc.add_paragraph(f"• {u}", style="List Bullet")
-    else:
-        doc.add_paragraph("Usages BIM 3F : " + NOT_AVAILABLE + ".")
-
-    # 3. Synthèse
-    _add_heading(doc, "3. Synthèse", level=1)
-    doc.add_paragraph(
-        f"Analyse BIM de la maquette {meta.project_name} {meta.project_code} en phase "
-        f"{meta.phase}, consolidant le contrôle des maquettes, les exports SHAB, "
-        "zones/espaces, enveloppe et menuiseries. Les indicateurs ci-dessous "
-        "proviennent de la maquette IFC et des calculs IFC OpenShell ; toute "
-        "donnée absente est signalée « Information non disponible dans les "
-        "documents fournis. »."
-    )
+    _write_moa_cover_page(doc, ctrl, meta)
+    doc.add_page_break()
+    _write_moa_contents_and_inputs(doc, ctrl, meta, result, sources, snap)
     _write_audit_synthese(doc, result)
     _write_computed_coverage(doc, snap)
+    _write_ecarts(doc, result, sources, snap)
+    _write_moa_indicateurs(doc, pieces, zones, materiau, env)
 
-    # 4. Indicateurs de conformité
-    _add_heading(doc, "4. Indicateurs de conformité", level=1)
+    _set_orientation(doc, WD_ORIENT.LANDSCAPE)
+    _write_moa_control_grid_pages(doc, ctrl, meta, controle_xlsx)
+    _write_moa_control_annex_pages(
+        doc,
+        ctrl,
+        meta,
+        controle_xlsx,
+        use_source_cached_values=(snap is None and result is None),
+    )
+
+    doc.save(str(path))
+    return path
+
+
+def _configure_section(section, orient) -> None:
+    section.orientation = orient
+    if orient == WD_ORIENT.LANDSCAPE:
+        section.page_width = Cm(29.7)
+        section.page_height = Cm(21)
+        section.left_margin = Cm(0.9)
+        section.right_margin = Cm(0.9)
+        section.top_margin = Cm(0.8)
+        section.bottom_margin = Cm(0.8)
+    else:
+        section.page_width = Cm(21)
+        section.page_height = Cm(29.7)
+        section.left_margin = Cm(1.7)
+        section.right_margin = Cm(1.7)
+        section.top_margin = Cm(1.3)
+        section.bottom_margin = Cm(1.3)
+
+
+def _set_docx_run_font(run, *, size: float = 10, bold: bool | None = None) -> None:
+    run.font.name = _MOA_FONT
+    run.font.size = Pt(size)
+    run.font.color.rgb = RGBColor(0, 0, 0)
+    if bold is not None:
+        run.bold = bold
+    rpr = run._element.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = OxmlElement("w:rFonts")
+        rpr.append(rfonts)
+    rfonts.set(qn("w:ascii"), _MOA_FONT)
+    rfonts.set(qn("w:hAnsi"), _MOA_FONT)
+    rfonts.set(qn("w:cs"), BIMDATA_FONT_FALLBACK)
+
+
+def _add_moa_paragraph(
+    doc: Document,
+    text: str = "",
+    *,
+    size: float = 10,
+    bold: bool = False,
+    align=None,
+    space_after: float = 3,
+):
+    p = doc.add_paragraph()
+    if align is not None:
+        p.alignment = align
+    p.paragraph_format.space_after = Pt(space_after)
+    run = p.add_run(text)
+    _set_docx_run_font(run, size=size, bold=bold)
+    return p
+
+
+def _write_moa_title(doc: Document, text: str, *, size: float = 14) -> None:
+    p = _add_moa_paragraph(doc, text, size=size, bold=True, space_after=6)
+    p.paragraph_format.keep_with_next = True
+
+
+def _write_moa_cover_page(doc: Document, ctrl, meta: AvpMeta) -> None:
+    _add_moa_paragraph(
+        doc,
+        "Rapport d’analyse des maquettes numériques",
+        size=12,
+        bold=True,
+        space_after=38,
+    )
+    _add_moa_paragraph(
+        doc,
+        "Rapport d’analyse\ndes maquettes numériques – 3F",
+        size=22,
+        bold=True,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        space_after=22,
+    )
+    operation = _operation_label(meta)
+    _add_moa_paragraph(
+        doc,
+        operation,
+        size=13,
+        bold=True,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        space_after=8,
+    )
+    _add_moa_paragraph(
+        doc,
+        f"Programme {meta.project_code}" if meta.project_code else "Programme",
+        size=12,
+        bold=True,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        space_after=28,
+    )
+    _add_moa_paragraph(
+        doc,
+        f"Les maquettes IFC remises pour le rendu {meta.phase} ont permis une analyse "
+        f"partielle de la phase {meta.phase} :",
+        size=10,
+        space_after=6,
+    )
+    _write_moa_usages(doc, meta)
+    _write_moa_phase_table(doc, ctrl, meta)
+
+
+def _operation_label(meta: AvpMeta) -> str:
+    if meta.nombre_logements and meta.project_name:
+        return f"Opération de construction de {meta.nombre_logements} à {meta.project_name}"
+    if meta.project_name and meta.project_code:
+        return f"Opération {meta.project_name} – Programme {meta.project_code}"
+    if meta.project_name:
+        return f"Opération {meta.project_name}"
+    return "Opération"
+
+
+def _write_moa_usages(doc: Document, meta: AvpMeta) -> None:
+    if meta.usages_bim:
+        for usage in meta.usages_bim:
+            _add_moa_paragraph(doc, str(usage), size=10, space_after=2)
+    else:
+        _add_moa_paragraph(doc, "Usages BIM 3F : " + NOT_AVAILABLE + ".", size=10, space_after=2)
+    if meta.temoin_virtuel:
+        _add_moa_paragraph(doc, str(meta.temoin_virtuel), size=10, space_after=12)
+
+
+def _write_moa_phase_table(doc: Document, ctrl, meta: AvpMeta) -> None:
+    h = (ctrl.header if ctrl else {}) or {}
+    date_controle = meta.date_controle or h.get("date d'analyse")
+    auteur = meta.auteur_controle or meta.auditor
+    rows = [
+        ["Phase", "Date du contrôle", "Contrôle effectué par :"],
+        [meta.phase, _fmt_meta(date_controle), _fmt_meta(auteur)],
+    ]
+    _write_docx_table(doc, rows, widths=(3.0, 5.0, 8.0), font_size=10, header_rows=1)
+
+
+def _write_moa_contents_and_inputs(
+    doc: Document, ctrl, meta: AvpMeta, result, sources, snap=None
+) -> None:
+    _add_moa_paragraph(doc, "Rapport d’analyse des maquettes numériques", size=11, bold=True)
+    _write_moa_title(doc, "Table des matières", size=16)
+    for label, page in (
+        ("1. Données d’entrées", "2"),
+        ("2. Grille de contrôle", "3"),
+        ("3. Annexes de contrôle", "4"),
+    ):
+        _add_moa_paragraph(doc, f"{label} {' .' * 42} {page}", size=10, space_after=1)
+    _write_moa_title(doc, "1. Données d’entrées", size=14)
+    h = (ctrl.header if ctrl else {}) or {}
+    n_models = _snapshot_model_count(
+        snap if snap is not None else (result.snapshot if result else None)
+    )
+    _add_moa_paragraph(doc, _models_transmitted_label(n_models), size=10, space_after=3)
+    _add_moa_paragraph(doc, "Exports IFC réalisés le :", size=10, space_after=2)
+    export_date = h.get("maquettes ifc transmises le") or h.get("date d'analyse")
+    model_name = _snapshot_model_name(
+        snap if snap is not None else (result.snapshot if result else None)
+    )
+    if export_date not in (None, ""):
+        _add_moa_paragraph(doc, f"{_fmt_meta(export_date)} : {model_name}", size=10, space_after=6)
+    else:
+        _add_moa_paragraph(doc, NOT_AVAILABLE, size=10, space_after=6)
+    _write_donnees_entree(doc, ctrl, meta)
+    _write_moa_title(doc, "Synthèse technique MCP", size=12)
+
+
+def _snapshot_model_count(snap) -> int | None:
+    if snap is None:
+        return None
+    models = getattr(snap, "models", None)
+    if isinstance(models, list) and models:
+        return len(models)
+    model = getattr(snap, "model", None)
+    return 1 if model else None
+
+
+def _models_transmitted_label(n_models: int | None) -> str:
+    if not isinstance(n_models, int):
+        return "Maquettes transmises : " + NOT_AVAILABLE
+    return (
+        f"{n_models} maquette{'s' if n_models > 1 else ''} transmise{'s' if n_models > 1 else ''}"
+    )
+
+
+def _snapshot_model_name(snap) -> str:
+    model = getattr(snap, "model", None) if snap is not None else None
+    if isinstance(model, dict):
+        name = model.get("name")
+        if name:
+            return str(name)
+    return "maquette IFC"
+
+
+def _write_moa_indicateurs(doc: Document, pieces, zones, materiau, env) -> None:
     ratio = env.ratio_fac_shab if env else None
-    seuil = env.seuil_3f if env else None  # jamais inventé : None si absent de la source
+    seuil = env.seuil_3f if env else None
     if isinstance(ratio, (int, float)) and isinstance(seuil, (int, float)):
         ratio_ok = "Conforme" if ratio >= seuil else "Non conforme"
     else:
         ratio_ok = NOT_AVAILABLE
-    seuil_label = (
-        f"Seuil 3F 2026 (≥ {seuil})" if isinstance(seuil, (int, float)) else "Seuil 3F 2026"
-    )
-    _kpi_table(
-        doc,
+    rows = [
+        ["Indicateur", "Valeur"],
         [
-            (
-                "Taux de conformité nommage pièces",
-                _pct(pieces.get("conforme_ratio")) if pieces else NOT_AVAILABLE,
-            ),
-            (
-                "Taux de conformité nommage zones",
-                _pct(zones.get("conforme_ratio")) if zones else NOT_AVAILABLE,
-            ),
-            (
-                "Éléments sans matériau (taux)",
-                _pct(materiau.get("non_conforme_ratio")) if materiau else NOT_AVAILABLE,
-            ),
-            (
-                "Ratio FAC/SHAB",
-                f"{ratio:.3f}" if isinstance(ratio, (int, float)) else NOT_AVAILABLE,
-            ),
-            (seuil_label, ratio_ok),
+            "Taux de conformité nommage pièces",
+            _pct(pieces.get("conforme_ratio")) if pieces else NOT_AVAILABLE,
         ],
+        [
+            "Taux de conformité nommage zones",
+            _pct(zones.get("conforme_ratio")) if zones else NOT_AVAILABLE,
+        ],
+        [
+            "Éléments sans matériau (taux)",
+            _pct(materiau.get("non_conforme_ratio")) if materiau else NOT_AVAILABLE,
+        ],
+        ["Ratio FAC/SHAB", f"{ratio:.3f}" if isinstance(ratio, (int, float)) else NOT_AVAILABLE],
+        [
+            f"Seuil 3F 2026 (≥ {seuil})" if isinstance(seuil, (int, float)) else "Seuil 3F 2026",
+            ratio_ok,
+        ],
+    ]
+    _write_docx_table(doc, rows, widths=(7.5, 4.0), font_size=8.5, header_rows=1)
+
+
+def _write_moa_control_grid_pages(
+    doc: Document, ctrl, meta: AvpMeta, controle_xlsx: Path | None
+) -> None:
+    _write_moa_title(doc, "3. Grille de contrôle des exigences du CCH BIM 3F", size=13)
+    _add_moa_paragraph(
+        doc,
+        "Les maquettes numériques ont été analysées suivant la liste des critères suivants :",
+        size=8,
+        space_after=4,
+    )
+    _write_moa_grid_metadata(doc, ctrl, meta)
+    rows = _control_grid_rows_from_xlsx(controle_xlsx) if controle_xlsx else []
+    if not rows and ctrl and ctrl.grille:
+        rows = [ctrl.grille.headers, *_controle_rows_for_moa(ctrl.grille)]
+    if not rows:
+        _add_moa_paragraph(doc, NOT_AVAILABLE, size=9)
+        return
+    _write_docx_table(
+        doc,
+        rows,
+        widths=_GRILLE_COL_WIDTHS,
+        font_size=6.2,
+        header_rows=1,
+        max_rows=85,
+        repeat_header=True,
     )
 
-    # 5. Écarts / traçabilité IFC OpenShell
-    _add_heading(doc, "5. Écarts", level=1)
-    _write_ecarts(doc, result, sources, snap)
 
-    # 6. Grille de contrôle (paysage pour la lisibilité des 6 colonnes)
-    _set_orientation(doc, WD_ORIENT.LANDSCAPE)
-    _add_heading(doc, "6. Grille de contrôle", level=1)
-    _write_grille_table(doc, ctrl)
-    _set_orientation(doc, WD_ORIENT.PORTRAIT)
+def _write_moa_grid_metadata(doc: Document, ctrl, meta: AvpMeta) -> None:
+    h = (ctrl.header if ctrl else {}) or {}
+    left = [
+        ["Projet", meta.project_name or _fmt_meta(h.get("projet"))],
+        ["ESI", meta.project_code or _fmt_meta(h.get("esi"))],
+        ["Phase", meta.phase or _fmt_meta(h.get("phase"))],
+        ["Maquettes IFC transmises le", _fmt_meta(h.get("maquettes ifc transmises le"))],
+        ["Date d'analyse", _fmt_meta(h.get("date d'analyse"))],
+        ["Version d'analyse", _fmt_meta(h.get("version d'analyse"))],
+    ]
+    legend = (ctrl.legend if ctrl else {}) or {
+        0: "Non fourni / non trouvé",
+        1: "Insuffisant : à reprendre ou compléter",
+        2: "Satisfaisant",
+    }
+    rows = []
+    for idx in range(max(len(left), len(legend))):
+        left_row = left[idx] if idx < len(left) else ["", ""]
+        code = sorted(legend)[idx] if idx < len(legend) else ""
+        rows.append(
+            [left_row[0], left_row[1], "" if idx else "Légende :", code, legend.get(code, "")]
+        )
+    _write_docx_table(doc, rows, widths=(4.0, 4.0, 2.0, 1.2, 6.0), font_size=7.2)
 
-    # 7. Points bloquants
-    _add_heading(doc, "7. Points bloquants", level=1)
-    blockers = _points_bloquants(ctrl, env, ratio, seuil)
-    if blockers:
-        for b in blockers:
-            doc.add_paragraph(f"• {b}", style="List Bullet")
-    else:
-        doc.add_paragraph("Aucun point bloquant identifié à partir des livrables fournis.")
 
-    # 8. Recommandations AMO BIM
-    _add_heading(doc, "8. Recommandations AMO BIM", level=1)
-    recs = _recommandations(pieces, zones, materiau, ratio, seuil)
-    for r in recs:
-        doc.add_paragraph(f"• {r}", style="List Bullet")
+def _write_moa_control_annex_pages(
+    doc: Document,
+    ctrl,
+    meta: AvpMeta,
+    controle_xlsx: Path | None,
+    *,
+    use_source_cached_values: bool = False,
+) -> None:
+    for sheet_name in _CONTROLE_STATS_SHEETS:
+        doc.add_page_break()
+        _write_moa_title(doc, f"onglet {sheet_name}", size=12)
+        rows = _control_annex_rows_from_xlsx(controle_xlsx, sheet_name) if controle_xlsx else []
+        grid = _controle_grid(sheet_name, ctrl)
+        if use_source_cached_values and grid and grid.rows:
+            rows = grid.rows
+        elif rows:
+            rows = _inject_annex_summary_values(rows, _stat_lookup(ctrl, sheet_name), sheet_name)
+        if not rows:
+            rows = grid.rows if grid else []
+        if not rows:
+            rows = _fallback_control_annex_rows(sheet_name, _stat_lookup(ctrl, sheet_name), meta)
+        _write_docx_table(
+            doc,
+            rows,
+            widths=_annex_widths(sheet_name),
+            font_size=5.8,
+            header_rows=0,
+            max_rows=_annex_row_cap(sheet_name),
+        )
 
-    # 9. Annexes — statistiques de conformité
-    _add_heading(doc, "9. Annexes — statistiques de conformité", level=1)
-    _write_stats_annex(doc, ctrl)
 
-    doc.save(str(path))
-    return path
+def _control_grid_rows_from_xlsx(controle_xlsx: Path | None) -> list[list]:
+    if not controle_xlsx or not Path(controle_xlsx).exists():
+        return []
+    wb = openpyxl.load_workbook(controle_xlsx, data_only=False, read_only=True)
+    try:
+        if "Grille de contrôle" not in wb.sheetnames:
+            return []
+        ws = wb["Grille de contrôle"]
+        header_row = _find_control_header_row(ws)
+        if header_row is None:
+            return []
+        rows: list[list] = []
+        for row in ws.iter_rows(min_row=header_row, max_col=6, values_only=True):
+            values = [_docx_excel_value(v) for v in row]
+            if not any(values):
+                continue
+            rows.append(values)
+        return rows
+    finally:
+        wb.close()
+
+
+def _control_annex_rows_from_xlsx(controle_xlsx: Path | None, sheet_name: str) -> list[list]:
+    if not controle_xlsx or not Path(controle_xlsx).exists():
+        return []
+    wb = openpyxl.load_workbook(controle_xlsx, data_only=True, read_only=True)
+    try:
+        if sheet_name not in wb.sheetnames:
+            return []
+        ws = wb[sheet_name]
+        max_cols = min(ws.max_column, 11)
+        max_rows = min(ws.max_row, _annex_row_cap(sheet_name))
+        rows: list[list] = []
+        for row in ws.iter_rows(min_row=1, max_row=max_rows, max_col=max_cols, values_only=True):
+            values = [_docx_excel_value(v) for v in row]
+            if any(values):
+                rows.append(values)
+        return rows
+    finally:
+        wb.close()
+
+
+def _docx_excel_value(value) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y")
+    if isinstance(value, date):
+        return value.strftime("%d/%m/%Y")
+    if isinstance(value, float):
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+    if isinstance(value, str) and value.startswith("="):
+        return ""
+    text = str(value)
+    if "openpyxl.worksheet.formula" in text:
+        return ""
+    return text
+
+
+def _inject_annex_summary_values(
+    rows: list[list], stats: dict | None, sheet_name: str
+) -> list[list]:
+    if not stats:
+        return rows
+    out = [list(row) for row in rows]
+    for row in out:
+        label = str(row[1] if len(row) > 1 else "").strip().lower()
+        if "matériau" in sheet_name.lower() or "materiau" in _norm(sheet_name):
+            if "sans" in label and "mat" in label:
+                _set_row_value(row, 2, stats.get("non_conforme"))
+                _set_row_value(row, 3, _pct(stats.get("non_conforme_ratio")))
+                _set_row_value(row, 5, "Nombre d'élements :")
+                _set_row_value(row, 6, stats.get("total"))
+            elif "type" in label:
+                _set_row_value(row, 2, _count_annex_types(out))
+            continue
+        if "noms" in label and "type" not in label:
+            _set_row_value(row, 2, stats.get("total"))
+            _set_row_value(row, 3, stats.get("conforme"))
+            _set_row_value(row, 4, _pct(stats.get("conforme_ratio")))
+            _set_row_value(row, 5, stats.get("non_conforme"))
+            _set_row_value(row, 6, _pct(stats.get("non_conforme_ratio")))
+        elif "type" in label:
+            _set_row_value(row, 2, _count_annex_types(out))
+    return out
+
+
+def _set_row_value(row: list, idx: int, value) -> None:
+    while len(row) <= idx:
+        row.append("")
+    if value not in (None, ""):
+        row[idx] = str(value)
+
+
+def _count_annex_types(rows: list[list]) -> int:
+    values = {
+        str(row[1]).strip()
+        for row in rows
+        if len(row) > 2
+        and str(row[1]).strip()
+        and str(row[2]).strip()
+        and not str(row[1]).strip().lower().startswith(("name", "object", "ifc"))
+    }
+    return len(values)
+
+
+def _fallback_control_annex_rows(sheet_name: str, stats: dict | None, meta: AvpMeta) -> list[list]:
+    rows = [[meta.project_code], [meta.project_code], [f"onglet {sheet_name}"]]
+    if not stats:
+        rows.append([NOT_AVAILABLE])
+        return rows
+    if "matériau" in sheet_name.lower():
+        rows.extend(
+            [
+                ["", "MN"],
+                [
+                    stats.get("label"),
+                    stats.get("non_conforme"),
+                    _pct(stats.get("non_conforme_ratio")),
+                ],
+                ["Total éléments", stats.get("total")],
+            ]
+        )
+        return rows
+    rows.extend(
+        [
+            ["", "", "MN", "", "Conforme", "", "Non Conforme"],
+            [
+                "",
+                stats.get("label"),
+                stats.get("total"),
+                stats.get("conforme"),
+                _pct(stats.get("conforme_ratio")),
+                stats.get("non_conforme"),
+                _pct(stats.get("non_conforme_ratio")),
+            ],
+        ]
+    )
+    return rows
+
+
+def _annex_row_cap(sheet_name: str) -> int:
+    if sheet_name == "Zones Nommage":
+        return 48
+    if sheet_name == "Pièces Nommage":
+        return 62
+    if "matériau" in sheet_name.lower():
+        return 42
+    return 58
+
+
+def _annex_widths(sheet_name: str) -> tuple[float, ...]:
+    if "matériau" in sheet_name.lower():
+        return (2.4, 5.2, 1.4, 4.0, 1.0, 5.2, 1.8, 1.0)
+    if sheet_name == "Pièces Nommage":
+        return (2.0, 3.6, 1.1, 2.3, 1.0, 3.0, 1.0, 1.0, 3.0, 4.0, 1.0)
+    return (2.0, 4.2, 1.1, 2.3, 1.0, 3.0, 1.0, 1.0, 4.2, 4.4)
+
+
+def _write_docx_table(
+    doc: Document,
+    rows: list[list],
+    *,
+    widths: tuple[float, ...] | None = None,
+    font_size: float = 8,
+    header_rows: int = 0,
+    max_rows: int | None = None,
+    repeat_header: bool = False,
+):
+    if max_rows is not None:
+        rows = rows[:max_rows]
+    if not rows:
+        return None
+    ncols = max(len(row) for row in rows)
+    table = doc.add_table(rows=0, cols=ncols)
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
+    table.autofit = False
+    table.allow_autofit = False
+    for row_idx, values in enumerate(rows):
+        cells = table.add_row().cells
+        if repeat_header and row_idx == 0:
+            _set_repeat_table_header(table.rows[0])
+        for col_idx, cell in enumerate(cells):
+            value = values[col_idx] if col_idx < len(values) else ""
+            cell.text = "" if value is None else str(value)
+            cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+            if widths and col_idx < len(widths):
+                cell.width = Cm(widths[col_idx])
+            if row_idx < header_rows or _looks_like_moa_section_row(values):
+                _shade_cell(
+                    cell, _MOA_TABLE_HEADER if row_idx < header_rows else _MOA_TABLE_SECTION
+                )
+            for paragraph in cell.paragraphs:
+                paragraph.paragraph_format.space_after = Pt(0)
+                for run in paragraph.runs:
+                    _set_docx_run_font(run, size=font_size, bold=row_idx < header_rows)
+    return table
+
+
+def _looks_like_moa_section_row(values: list) -> bool:
+    non_empty = [v for v in values if v not in (None, "")]
+    if len(non_empty) > 2:
+        return False
+    first = str(values[0] if values else "").strip()
+    return first.isdigit() or first in {"Zones", "Pièces", "ObjT Pièces"}
+
+
+def _set_repeat_table_header(row) -> None:
+    tr_pr = row._tr.get_or_add_trPr()
+    tbl_header = OxmlElement("w:tblHeader")
+    tbl_header.set(qn("w:val"), "true")
+    tr_pr.append(tbl_header)
 
 
 def _fmt_meta(v) -> str:
@@ -953,14 +1998,7 @@ def _set_orientation(doc, orient) -> None:
     """Nouvelle section avec orientation portrait/paysage (lisibilité des
     tableaux larges en livrable client)."""
     sec = doc.add_section(WD_SECTION.NEW_PAGE)
-    sec.orientation = orient
-    w, h = sec.page_width, sec.page_height
-    if orient == WD_ORIENT.LANDSCAPE and w < h:
-        sec.page_width, sec.page_height = h, w
-    elif orient == WD_ORIENT.PORTRAIT and w > h:
-        sec.page_width, sec.page_height = h, w
-    sec.left_margin = Cm(1.5)
-    sec.right_margin = Cm(1.5)
+    _configure_section(sec, orient)
 
 
 # Largeurs (cm) des 6 colonnes de la grille de contrôle en paysage.
@@ -1016,13 +2054,13 @@ def _write_audit_synthese(doc, result) -> None:
     """Synthèse de l'audit BIMData réel (sévérité, thèmes, quantités
     manquantes) — le consolidé ne doit pas ignorer l'``AuditResult``."""
     if result is None:
-        doc.add_paragraph("Audit BIMData automatisé : " + NOT_AVAILABLE + " (aucun audit chargé).")
+        doc.add_paragraph("Audit automatisé : " + NOT_AVAILABLE + " (aucun audit chargé).")
         return
     by_sev = result.count_by_severity()
     by_theme = result.count_by_theme()
     by_type = result.count_by_error_type()
     p = doc.add_paragraph()
-    p.add_run("Audit BIMData automatisé de la maquette active").bold = True
+    p.add_run("Audit automatisé de la maquette active").bold = True
     # Répartition par sévérité COMPLÈTE (CRITICAL→INFO) pour que le total
     # se réconcilie côté client.
     _kpi_table(
@@ -1213,12 +2251,14 @@ def _controle_from_audit_or_metadata(
 ) -> ControleMaquettesSource | None:
     """Construit la source Contrôle utilisée par les livrables.
 
-    Les données métier (grille + stats) viennent de l'``AuditResult``. La
-    source MOA éventuelle ne fournit que l'entête projet et la légende, utiles
-    au contexte documentaire mais pas aux contrôles.
+    Les données métier mesurables (grille + stats) viennent de l'``AuditResult``.
+    La source MOA éventuelle fournit l'entête, la légende et surtout le classeur
+    template à conserver pour rester conforme au livrable maître d'ouvrage.
     """
     header = dict(src.header) if src and src.header else {}
     legend = dict(src.legend) if src and src.legend else {}
+    template_path = getattr(src, "template_path", None)
+    stat_grids = dict(src.stat_grids) if src and src.stat_grids else {}
     grille = _audit_controle_table(result)
     stats: dict[str, dict] = {}
     if result is not None:
@@ -1226,9 +2266,16 @@ def _controle_from_audit_or_metadata(
             value = _audit_stats(name, result)
             if value:
                 stats[name] = value
-    if not header and not legend and grille is None and not stats:
+    if not header and not legend and grille is None and not stats and not template_path:
         return None
-    return ControleMaquettesSource(header=header, legend=legend, grille=grille, stats=stats)
+    return ControleMaquettesSource(
+        template_path=template_path,
+        header=header,
+        legend=legend,
+        grille=grille,
+        stats=stats,
+        stat_grids=stat_grids,
+    )
 
 
 def _ifc_first_sources(
@@ -1392,7 +2439,7 @@ def write_avp_i3f_report_pack(
     elif sources is None:
         sources = AvpSources()
 
-    controle = _build_controle_maquettes_xlsx(out / fn_controle, result, sources, meta)
+    controle = _build_controle_maquettes_xlsx(out / fn_controle, result, sources, meta, snap)
     shab = _build_multisheet_export_xlsx(
         out / fn_shab,
         "EXPORT SHAB MAQUETTE",
@@ -1410,7 +2457,9 @@ def write_avp_i3f_report_pack(
     enveloppe = _build_enveloppe_xlsx(out / fn_env, sources, meta)
     menuiseries = _build_menuiseries_xlsx(out / fn_men, sources, meta)
     plancher = _build_plancher_xlsx(out / fn_plancher, sources, meta)
-    analyse = _build_analyse_bim_avp_docx(out / fn_analyse, result, sources, meta, snap)
+    analyse = _build_analyse_bim_avp_docx(
+        out / fn_analyse, result, sources, meta, snap, controle_xlsx=controle
+    )
 
     pdf = docx_to_pdf(analyse) if export_pdf else None
 

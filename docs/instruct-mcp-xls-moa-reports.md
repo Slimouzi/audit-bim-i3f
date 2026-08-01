@@ -245,10 +245,10 @@ Regles:
 | Murs d'enveloppe par layer `Extérieurs périphériques` | Oui si layers extraits | Deja implemente |
 | Menuiseries portes/fenetres | Oui | `IfcWindow`, `IfcDoor` et variantes StandardCase deja gerees |
 | Materiaux | Oui partiel | Depend de `material_list`/`materials` |
-| Dalles/planchers | Non dans le pack AVP | A ajouter via `IfcSlab` |
+| Dalles/planchers | Oui | `IfcSlab` / `IfcCovering`, format MOA a deux onglets |
 | Surfaces et dimensions IFC OpenShell | Oui si quantites IFC extraites/calculables | Source metier des rapports generes |
 | Tableaux croises Excel natifs | Non reconstruits strictement | Utiliser template ou source XLS |
-| Styles MOA exacts | Non | Generation actuelle applique la charte BIMData |
+| Styles MOA exacts | Partiel | Generation actuelle reconstruit les feuilles MOA sans bandeau BIMData ; le mode template reste requis pour preserver les styles natifs strictement |
 
 ## Criteres d'acceptation
 

@@ -61,6 +61,7 @@ class SheetTable:
 
 @dataclass
 class ControleMaquettesSource:
+    template_path: Path | None = None
     header: dict[str, Any] = field(default_factory=dict)  # projet, esi, phase, dates, version
     grille: SheetTable | None = None
     legend: dict[int, str] = field(default_factory=dict)  # 0/1/2 -> libellé
@@ -205,7 +206,7 @@ def _open(path: str | Path):
 
 def read_controle(path: str | Path) -> ControleMaquettesSource:
     wb = _open(path)
-    src = ControleMaquettesSource()
+    src = ControleMaquettesSource(template_path=Path(path))
     ws = _find_sheet(wb, "grille")
     if ws is not None:
         # Bloc entête (label en col B, valeur col C).
@@ -365,18 +366,31 @@ def read_envelope_json(path: str | Path) -> EnveloppeSource:
     fenetres = doc.get("superficie_menuiseries_fenetres_m2")
     portes = doc.get("superficie_menuiseries_portes_m2")
     rows: list[list[Any]] = []
-    for i, e in enumerate(par):
+    for e in sorted(par, key=lambda x: str(x.get("type") or "")):
         area = _first_present(e, "net_side_area_m2", "netsidearea_m2")
+        ifc_area = _first_present(
+            e,
+            "surface_ifc_openshell_m2",
+            "ifc_openshell_surface_m2",
+            "net_side_area_m2",
+            "netsidearea_m2",
+        )
+        openings = _first_present(
+            e,
+            "superficie_ouvertures_exterieures_m2",
+            "archicad_openings_m2",
+            "menuiseries_m2",
+        )
         rows.append(
             [
-                "IfcWall",  # A Composant
+                "Mur",  # A Composant (libellé MOA)
                 e.get("type"),  # B Type
                 _join_values(e.get("etages")),  # C Étages
                 area,  # D Archicad BQ NetSideArea
-                area,  # E Surface IFC OpenShell (source unique → = D)
-                None,  # F ArchiCAD ouvertures ext. (non fourni)
-                fenetres if i == 0 else None,  # G total fenêtres (1re ligne)
-                portes if i == 0 else None,  # H total portes
+                ifc_area,  # E Surface IFC OpenShell
+                openings,  # F ouvertures ext. si ventilées par type
+                _first_present(e, "fenetres_m2", "windows_m2"),  # G fenêtres
+                _first_present(e, "portes_m2", "doors_m2"),  # H portes
                 _first_present(e, "nombre", "n"),  # I Nombre
                 None,  # J Couleur
             ]

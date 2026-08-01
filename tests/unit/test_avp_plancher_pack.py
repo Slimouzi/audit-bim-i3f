@@ -66,12 +66,12 @@ def _all_text(path) -> str:
 
 
 def test_build_plancher_from_snapshot_lists_slabs():
-    # Multi-onglets (comme SHAB/Zones) : 1 onglet « Planchers » en repli maquette.
+    # Multi-onglets comme le classeur MOA : détail « Dalles Ok » + synthèse « Planchers ».
     src = build_plancher_from_snapshot(_snap_with_slabs())
     assert src is not None
-    assert len(src.grids) == 1
+    assert [g.title for g in src.grids] == ["TDB 2022 xx.2 - Dalles Ok", "Planchers"]
     rows = src.grids[0].rows
-    names = [r[0] for r in rows]
+    names = [r[1] for r in rows]
     assert "Dalle RDC" in names and "Dalle R+1" in names
     # Surface tracée par source (BaseQuantities vs Superficie calculée).
     surfaces = [r[3] for r in rows if len(r) > 3]

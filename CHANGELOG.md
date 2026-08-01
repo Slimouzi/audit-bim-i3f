@@ -7,6 +7,25 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added (MOA — rapport « Contrôle maquettes » + rapport d'analyse consolidé)
+
+- **Rapport « Contrôle maquettes »** au format MOA (grille de contrôle + onglets
+  statistiques) : grille remplie depuis l'audit BIM (`POINTS DE CONTROLE`) et, si un
+  classeur source `… controle maquettes.xlsx` est disponible, **mode template** qui
+  reconstruit les feuilles MOA attendues (`Grille de contrôle` + feuilles stats) et
+  rafraîchit les métadonnées (projet, date d'analyse).
+- **`… Rapport analyse BIM.docx`** (+ `.pdf` best-effort) — rapport consolidé : pages
+  grille de contrôle MOA et annexes alimentées depuis le `controle_xlsx` quand il est
+  fourni. 7ᵉ livrable du pack AVP.
+- **Auto-découverte des sources** dans les racines d'entrée : `generate_avp_i3f_pack`
+  résout automatiquement un `envelope.json` unique et un `… controle maquettes.xlsx`
+  unique (retourne `controle_xlsx_used` / `envelope_json` effectivement utilisés) ;
+  un argument explicite reste prioritaire.
+- **Reformulation honnête** : la génération courante **reconstruit** les onglets /
+  colonnes / formules principales au format MOA (sans bandeau BIMData) mais ne préserve
+  pas pivots et styles natifs. Le verrou `_MOA_TEMPLATE_MODE_AVAILABLE` reste **False**
+  → `can_generate_identical` **toujours False** (repro stricte = futur mode `moa_template`).
+
 ### Fixed (Extraction surface enveloppe — envelope.json prime sur le snapshot)
 
 - **Correctif : le pack AVP retombait sur le repli « 484 murs » du snapshot** malgré un

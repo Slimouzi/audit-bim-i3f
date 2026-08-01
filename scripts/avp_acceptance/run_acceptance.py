@@ -1,9 +1,9 @@
 """Acceptation RÉELLE du pack AVP sur une vraie maquette BIMData.
 
 Génère le pack AVP depuis un modèle BIMData réel (config via l'environnement),
-puis vérifie que **les 5 annexes** sont non vides et **habillées de la charte
-BIMData**. **Read-only côté BIMData** (extraction seule ; aucune écriture, aucune
-publication).
+puis vérifie que **les 5 annexes** sont non vides et que le rapport Word suit
+le modèle MOA/I3F. **Read-only côté BIMData** (extraction seule ; aucune
+écriture, aucune publication).
 
 ⚠️ Le pack généré (xlsx/docx) contient des **données client** : il ne doit JAMAIS
 être versionné. Le script **refuse** d'écrire dans le dépôt — passe un dossier de
@@ -30,21 +30,22 @@ PLACEHOLDER_PROJECT_NAME = "ACCEPTANCE"
 WORD_MIN_PARAGRAPHS = 10
 WORD_MIN_SIGNIFICANT_CELLS = 10
 
-# Intitulés MÉTIER attendus des 9 sections : le contrôle vérifie le numéro **ET**
+# Intitulés MÉTIER attendus du rapport MOA : le contrôle vérifie le numéro **ET**
 # l'intitulé (un « 1. Foo … 9. Bar » avec les bons numéros mais de faux titres est
 # refusé). On matche par mot-clé (sous-chaîne, insensible à la casse/accents).
 WORD_SECTION_TITLES = {
-    1: "Données d'entrée",
-    2: "Usages BIM 3F",
-    3: "Synthèse",
-    4: "Indicateurs",
-    5: "Écarts",
-    6: "Grille",
-    7: "Points bloquants",
-    8: "Recommandations",
-    9: "Annexes",
+    1: "Données",
+    2: "Grille",
+    3: "Annexes",
 }
 _WORD_SECTION_RE = re.compile(r"^\s*([1-9])\.\s*(.+?)\s*$")
+WORD_MOA_TITLE = "Rapport d’analyse des maquettes numériques"
+WORD_MOA_ANNEXES = (
+    "onglet Zones Nommage",
+    "onglet Pièces Nommage",
+    "onglet ARC bsence de matériau",
+    "onglet Zones ObjectType",
+)
 
 
 def _norm_title(s: str) -> str:
@@ -85,10 +86,11 @@ def inspect_word_report(
     - **contenu non vide** : ``>= min_paragraphs`` paragraphes ET
       ``>= min_significant_cells`` cellules **significatives** (non vides et
       distinctes de ``not_available``) ;
-    - **sections 1 à 9** présentes (paragraphes commençant par ``"1."``…``"9."``) ;
+    - **structure MOA** : titre du modèle, sections 1 à 3, annexes de contrôle ;
     - **métadonnées** : ``expected_project_name`` (le **vrai** nom de projet
       BIMData, jamais le bouchon) présent dans le document, et ``phase`` présente ;
-    - **charte** BIMData (wordmark / primaire / police) sans KORHUS.
+    - absence d'ancienne marque KORHUS. Les drapeaux BIMData historiques restent
+      retournés pour diagnostic, mais ne sont plus requis pour ce livrable MOA.
     """
     from docx import Document
 
@@ -107,8 +109,8 @@ def inspect_word_report(
 
     doc_txt = "\n".join(p.text for p in doc.paragraphs) + "\n" + "\n".join(cell_texts)
 
-    # Sections : on capture numéro + intitulé, et on vérifie que CHAQUE numéro
-    # 1..9 porte le BON intitulé métier (pas seulement « N. quelque chose »).
+    # Sections : on capture numéro + intitulé, et on vérifie que chaque numéro
+    # attendu porte le bon intitulé métier (pas seulement « N. quelque chose »).
     found_titles: dict[int, str] = {}
     for text in paragraphs:
         m = _WORD_SECTION_RE.match(text)
@@ -117,8 +119,10 @@ def inspect_word_report(
     sections_present = sorted(found_titles)
     sections_ok = all(
         n in found_titles and _norm_title(WORD_SECTION_TITLES[n]) in _norm_title(found_titles[n])
-        for n in range(1, 10)
+        for n in WORD_SECTION_TITLES
     )
+    moa_title = _norm_title(WORD_MOA_TITLE) in _norm_title(doc_txt)
+    annexes_present = all(_norm_title(label) in _norm_title(doc_txt) for label in WORD_MOA_ANNEXES)
 
     # Le bouchon ne satisfait JAMAIS le contrôle : on exige le vrai nom BIMData.
     real_name = expected_project_name or ""
@@ -132,12 +136,21 @@ def inspect_word_report(
 
     charte = _charte_flags(docx_path, wordmark, primary, font)
     non_empty = len(paragraphs) >= min_paragraphs and significant_cells >= min_significant_cells
-    ok = non_empty and sections_ok and metadata_present and all(charte.values())
+    ok = (
+        non_empty
+        and sections_ok
+        and metadata_present
+        and moa_title
+        and annexes_present
+        and charte["no_korhus"]
+    )
     return {
         "n_paragraphs": len(paragraphs),
         "n_significant_cells": significant_cells,
         "sections_present": sections_present,
         "sections_ok": sections_ok,
+        "moa_title": moa_title,
+        "annexes_present": annexes_present,
         "non_empty": non_empty,
         "metadata_present": metadata_present,
         **charte,

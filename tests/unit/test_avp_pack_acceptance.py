@@ -1,11 +1,10 @@
-"""Acceptation du pack AVP I3F — les **5 annexes non vides** + **charte BIMData**.
+"""Acceptation du pack AVP I3F — annexes non vides + formats MOA attendus.
 
 Test d'acceptation déterministe (hors-ligne, CI) : sur un snapshot représentatif
 (le chemin réel piloté par la maquette, ``sources=None``), le pack doit livrer les
-CINQ annexes xlsx avec des lignes métier, toutes habillées de la charte BIMData
-(wordmark, primaire ``#2F374A``, police Roboto) et **sans** trace de l'ancienne
-charte (KORHUS). Double la garde runtime ``_qa_empty_deliverables`` d'une garantie
-de test permanente.
+annexes xlsx avec des lignes métier, dans le format MOA (pas de bandeau BIMData).
+Aucune annexe ne doit porter l'ancienne charte (KORHUS). Double la garde runtime
+``_qa_empty_deliverables`` d'une garantie de test permanente.
 """
 
 from __future__ import annotations
@@ -79,6 +78,17 @@ def _representative_result() -> AuditResult:
         ],
     }
     door = {"uuid": "D1", "type": "IfcDoor", "name": "P1"}
+    slab = {
+        "uuid": "SL1",
+        "type": "IfcSlab",
+        "name": "Dalle R+1",
+        "property_sets": [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": "NetArea"}, "value": 12.98}],
+            }
+        ],
+    }
     space = {
         "uuid": "S1",
         "type": "IfcSpace",
@@ -99,19 +109,20 @@ def _representative_result() -> AuditResult:
         storeys=[{"uuid": "ST1", "name": "R+1"}],
         spaces=[space],
         zones=[zone],
-        elements=[wall, window, door],
+        elements=[wall, window, door, slab],
     ).index()
     return AuditResult(phase=BIMPhase.AVP, catalog=_catalog(), snapshot=snap, findings=[])
 
 
 def _annexes(pack) -> dict[str, Path]:
-    """Les 5 annexes xlsx du pack, par libellé métier."""
+    """Les annexes xlsx du pack, par libellé métier."""
     return {
         "Contrôle": pack.controle_xlsx,
         "SHAB": pack.shab_xlsx,
         "Zones/Espaces": pack.zones_espaces_xlsx,
         "Enveloppe": pack.enveloppe_xlsx,
         "Menuiseries": pack.menuiseries_xlsx,
+        "Plancher": pack.plancher_xlsx,
     }
 
 
@@ -126,7 +137,7 @@ def _annex_rows(label: str, path: Path) -> int:
     return _count_controle_rows(path) if label == "Contrôle" else _count_business_rows(path)
 
 
-def test_five_annexes_are_non_empty(tmp_path):
+def test_xlsx_annexes_are_non_empty(tmp_path):
     pack = write_avp_i3f_report_pack(
         _representative_result(),
         tmp_path / "out",
@@ -136,12 +147,12 @@ def test_five_annexes_are_non_empty(tmp_path):
         export_pdf=False,
     )
     annexes = _annexes(pack)
-    assert len(annexes) == 5
+    assert len(annexes) == 6
     empty = {label: p.name for label, p in annexes.items() if _annex_rows(label, p) == 0}
     assert not empty, f"annexes vides: {empty}"
 
 
-def test_charte_bimdata_on_all_five_annexes(tmp_path):
+def test_xlsx_annexes_use_moa_layout_not_bimdata_banner(tmp_path):
     pack = write_avp_i3f_report_pack(
         _representative_result(),
         tmp_path / "out",
@@ -150,15 +161,18 @@ def test_charte_bimdata_on_all_five_annexes(tmp_path):
         project_code="Y",
         export_pdf=False,
     )
-    wordmark = WORDMARK.encode().upper()
-    primary = BIMDATA_PRIMARY.encode().upper()
-    font = BIMDATA_FONT_PRIMARY.encode().upper()
     for label, p in _annexes(pack).items():
         blob = _xml_blob(p)
-        assert wordmark in blob, f"wordmark BIMDATA absent: {label}"
-        assert primary in blob, f"primaire {BIMDATA_PRIMARY} absent: {label}"
-        assert font in blob, f"police {BIMDATA_FONT_PRIMARY} absente: {label}"
+        assert b"BIMDATA" not in blob, f"bandeau BIMDATA trouvé dans l'annexe MOA: {label}"
         assert b"KORHUS" not in blob, f"ancienne charte (KORHUS) trouvée: {label}"
+        wb = openpyxl.load_workbook(p)
+        assert not any(
+            isinstance(c.value, str) and c.value.startswith("BIMDATA —")
+            for ws in wb.worksheets
+            for row in ws.iter_rows()
+            for c in row
+        )
+        wb.close()
 
 
 def test_controle_grid_is_populated_from_audit(tmp_path):
@@ -319,17 +333,20 @@ def test_controle_grid_excel_cell_values(tmp_path):
     )
     wb = openpyxl.load_workbook(pack.controle_xlsx, data_only=True)
     ws = wb["Grille de contrôle"]
-    # header: [Point de contrôle, Total, Conformes, Non conformes, Taux conformité]
+    # header MOA: [CODE 3F, POINTS..., EXIGENCE..., Outil..., EVALUATION, Commentaires]
     by_point = {
-        row[0]: row
+        row[1]: row
         for row in ws.iter_rows(values_only=True)
-        if row and row[0] in ("Zones Nommage", "Zones ObjectType", "ARC absence de matériau")
+        if row
+        and len(row) > 1
+        and row[1] in ("Zones Nommage", "Zones ObjectType", "ARC bsence de matériau")
     }
     wb.close()
-    # Non conformes = colonne d'index 3.
-    assert by_point["Zones Nommage"][3] == 1  # Name invalide
-    assert by_point["Zones ObjectType"][3] == 0  # ObjectType valide (PAS confondu)
-    assert by_point["ARC absence de matériau"][3] == 0  # matériau Béton présent
+    assert by_point["Zones Nommage"][4] == 1  # Name invalide → évaluation à reprendre
+    assert "non conformes: 1" in by_point["Zones Nommage"][5]
+    assert by_point["Zones ObjectType"][4] == 2  # ObjectType valide (PAS confondu)
+    assert "non conformes: 0" in by_point["Zones ObjectType"][5]
+    assert by_point["ARC bsence de matériau"][4] == 2  # matériau Béton présent
 
 
 # ── Acceptation du rapport Word (analyse BIM AVP) ─────────────────────────
@@ -370,5 +387,7 @@ def test_word_report_accepted_on_real_pack(tmp_path):
     assert result["n_paragraphs"] >= 10
     assert result["n_significant_cells"] >= 10
     assert result["sections_ok"] is True
+    assert result["moa_title"] is True
+    assert result["annexes_present"] is True
     assert result["metadata_present"] is True
     assert result["no_korhus"] is True

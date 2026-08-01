@@ -79,11 +79,12 @@ def _docx_text(path):
 
 def test_source_quantite_column_distinguishes_computed_vs_model():
     ms, _total = build_shab_from_snapshot(_snapshot())
-    rows = ms.grids[0].rows
+    rows = next(g.rows for g in ms.grids if g.title.startswith("TDB 2022 01.3"))
     header = rows[0]
     assert "Source quantité" in header
     idx = header.index("Source quantité")
-    by_name = {r[0 + 1]: r[idx] for r in rows[1:]}  # libellé en col 1
+    piece_idx = header.index("Pièce")
+    by_name = {r[piece_idx]: r[idx] for r in rows[1:] if len(r) > idx}
     assert by_name["CH1"] == "Calculée (IfcOpenShell)"
     assert by_name["CH2"] == "Maquette"
 

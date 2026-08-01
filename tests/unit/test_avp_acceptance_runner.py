@@ -36,16 +36,18 @@ def _brand(run):
 
 
 def _valid_docx(
-    path, *, project_text="PROG", phase_text="AVP", sections=range(1, 10), significant_cells=12
+    path, *, project_text="PROG", phase_text="AVP", sections=range(1, 4), significant_cells=12
 ):
     """Fabrique un docx qui satisfait TOUS les critères (base des cas négatifs)."""
     d = _Docx()
+    d.add_paragraph().add_run(runner.WORD_MOA_TITLE)
     for n in sections:
         title = runner.WORD_SECTION_TITLES[n]  # vrai intitulé métier attendu
         _brand(d.add_paragraph().add_run(f"{n}. {title}"))
     for i in range(5):
         d.add_paragraph().add_run(f"Contenu réel {i}")
-    d.add_paragraph().add_run(WORDMARK)  # wordmark BIMDATA
+    for annex in runner.WORD_MOA_ANNEXES:
+        d.add_paragraph().add_run(annex)
     d.add_paragraph().add_run(f"Projet {project_text} — Phase {phase_text}")  # métadonnées
     t = d.add_table(rows=max(1, significant_cells), cols=1)
     for i in range(significant_cells):
@@ -75,15 +77,14 @@ def test_word_valid_synthetic_passes(tmp_path):
 
 
 def test_word_reject_thin_branded_docx(tmp_path):
-    # DOCX 1×1 brandé : charte OK mais contenu maigre → rejeté.
+    # DOCX 1×1 : structure maigre → rejeté.
     p = tmp_path / "thin.docx"
     d = _Docx()
-    _brand(d.add_paragraph().add_run(f"1. {WORDMARK}"))  # brandé + wordmark, 1 paragraphe
+    d.add_paragraph().add_run(runner.WORD_MOA_TITLE)
     t = d.add_table(rows=1, cols=1)
     t.rows[0].cells[0].text = "donnée"  # 1 cellule
     d.save(str(p))
     r = _inspect(p)
-    assert r["wordmark"] and r["primary"] and r["font"]  # bien brandé
     assert r["non_empty"] is False
     assert r["ok"] is False
 
@@ -103,31 +104,33 @@ def test_word_reject_cells_only_not_available(tmp_path):
 
 
 def test_word_reject_missing_required_section(tmp_path):
-    # Sections 1..8 seulement (9 manquante) → sections_ok False.
-    p = _valid_docx(tmp_path / "missing.docx", sections=range(1, 9))
+    # Sections 1..2 seulement (3 manquante) → sections_ok False.
+    p = _valid_docx(tmp_path / "missing.docx", sections=range(1, 3))
     r = _inspect(p)
-    assert 9 not in r["sections_present"]
+    assert 3 not in r["sections_present"]
     assert r["sections_ok"] is False
     assert r["ok"] is False
 
 
 def test_word_reject_numbers_present_wrong_titles(tmp_path):
-    # Les 9 numéros sont présents mais les INTITULÉS sont faux (« 1. Foo »… « 9.
+    # Les numéros sont présents mais les INTITULÉS sont faux (« 1. Foo »… « 3.
     # Bar ») → le contrôle par intitulé métier doit refuser.
     p = tmp_path / "wrongtitles.docx"
     d = _Docx()
-    for n in range(1, 10):
+    d.add_paragraph().add_run(runner.WORD_MOA_TITLE)
+    for n in range(1, 4):
         _brand(d.add_paragraph().add_run(f"{n}. Titre bidon {n}"))
     for i in range(5):
         d.add_paragraph().add_run(f"Contenu réel {i}")
-    d.add_paragraph().add_run(WORDMARK)
+    for annex in runner.WORD_MOA_ANNEXES:
+        d.add_paragraph().add_run(annex)
     d.add_paragraph().add_run("Projet PROG — Phase AVP")
     t = d.add_table(rows=12, cols=1)
     for i in range(12):
         t.rows[i].cells[0].text = f"valeur {i}"
     d.save(str(p))
     r = _inspect(p)
-    assert r["sections_present"] == list(range(1, 10))  # numéros bien présents…
+    assert r["sections_present"] == list(range(1, 4))  # numéros bien présents…
     assert r["sections_ok"] is False  # …mais intitulés faux → refus
     assert r["ok"] is False
 
@@ -143,12 +146,14 @@ def test_word_accepts_unaccented_titles(tmp_path):
 
     p = tmp_path / "noaccents.docx"
     d = _Docx()
-    for n in range(1, 10):
+    d.add_paragraph().add_run(runner.WORD_MOA_TITLE)
+    for n in range(1, 4):
         title = _strip_accents(runner.WORD_SECTION_TITLES[n]).upper()
         _brand(d.add_paragraph().add_run(f"{n}. {title}"))
     for i in range(5):
         d.add_paragraph().add_run(f"Contenu réel {i}")
-    d.add_paragraph().add_run(WORDMARK)
+    for annex in runner.WORD_MOA_ANNEXES:
+        d.add_paragraph().add_run(annex)
     d.add_paragraph().add_run("Projet PROG — Phase AVP")
     t = d.add_table(rows=12, cols=1)
     for i in range(12):

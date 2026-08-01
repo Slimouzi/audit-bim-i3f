@@ -9,6 +9,9 @@ import openpyxl
 import pytest
 
 from audit_bim.extraction.model_data import ModelSnapshot
+from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp import tools_reporting as mcp_reporting
+from audit_bim.mcp.session import _Session, current_session
 from audit_bim.reporting.avp_i3f import (
     AvpMeta,
     _build_enveloppe_xlsx,
@@ -77,8 +80,10 @@ def test_read_envelope_json_one_row_per_type(tmp_path):
     src = read_envelope_json(_write_json(tmp_path))
     assert len(src.table.rows) == 8  # 8 lignes métier, pas 484
     assert src.sheet_title == "TDB 2022 04.2 - Extraction s..."
-    assert src.table.rows[0][2] == "R+1, R+2"
-    assert src.table.rows[0][8] == 40
+    assert all(r[0] == "Mur" for r in src.table.rows)
+    by_type = {r[1]: r for r in src.table.rows}
+    assert by_type["ME_36"][2] == "R+1, R+2"
+    assert by_type["ME_36"][8] == 40
     d_sum = round(sum(r[3] for r in src.table.rows), 2)
     assert d_sum == pytest.approx(2071.18)  # Σ NetSideArea filtré
     assert src.ratio_fac_shab == pytest.approx(0.9568)
@@ -106,26 +111,54 @@ def test_moa_columns_present_solibri_absent(tmp_path):
 
 def test_eight_business_rows_and_d_sum(tmp_path):
     grid = _build(tmp_path)
-    # 8 lignes métier (Composant = « IfcWall »), pas 484.
-    assert sum(1 for row in grid for c in row if c == "IfcWall") == 8
+    # 8 lignes métier (Composant = « Mur »), pas 484.
+    assert sum(1 for row in grid for c in row if c == "Mur") == 8
     # Somme colonne D « Archicad BQ NetSideArea » ≈ 2071,18 (pas 3053,49).
     header_row = next(r for r in grid if "Archicad BQ NetSideArea" in [str(c) for c in r])
     d_idx = [str(c) for c in header_row].index("Archicad BQ NetSideArea")
     d_vals = [
-        row[d_idx] for row in grid if len(row) > d_idx and isinstance(row[d_idx], (int, float))
+        row[d_idx]
+        for row in grid
+        if row[0] == "Mur" and len(row) > d_idx and isinstance(row[d_idx], (int, float))
     ]
     assert round(sum(d_vals), 2) == pytest.approx(2071.18)
     assert 3053.49 not in d_vals
 
 
-def test_synthesis_ratio_and_hors_filtre_note(tmp_path):
+def test_synthesis_ratio_and_no_client_hors_filtre_note(tmp_path):
     text = _all_text(_build(tmp_path))
     assert "ratio FAC/SHAB" in text and "0.9568" in text
     assert "Superficie des façades" in text
-    assert "écart IFC OpenShell vs Archicad BQ" in text
+    assert "écart :" in text
     assert "Seuil 3F 2026" in text
-    # hors_filtre en diagnostic, hors du total métier.
-    assert "Hors filtre" in text and "exclu du total façade" in text
+    # hors_filtre reste disponible dans la source, mais pas dans le classeur MOA client.
+    assert "Hors filtre" not in text and "exclu du total façade" not in text
+
+
+def test_tarare_layout_coordinates_and_formulas(tmp_path):
+    src = read_envelope_json(_write_json(tmp_path))
+    out = tmp_path / "enveloppe.xlsx"
+    _build_enveloppe_xlsx(out, AvpSources(enveloppe=src), AvpMeta(project_name="MN_BAT"))
+    wb = openpyxl.load_workbook(out, data_only=False)
+    ws = wb.active
+    try:
+        assert ws.freeze_panes is None
+        assert ws.max_row == 18
+        assert ws["A1"].value == "Composant"
+        assert ws["A2"].value == "Mur"
+        assert ws["A10"].value is None
+        assert ws["C11"].value == "Superficie des façades : "
+        assert ws["D11"].value == "=SUM(D2:D10)"
+        assert ws["E11"].value == "=SUM(E2:E10)"
+        assert ws["F11"].value == "=SUM(F2:F9)"
+        assert ws["D12"].value == "écart : "
+        assert ws["E12"].value == "=E11/D11-1"
+        assert ws["C14"].value == "Superficie des menuiseries : "
+        assert ws["C16"].value == "SHAB : "
+        assert ws["D17"].value == "=D11/D16"
+        assert ws["C18"].value == "Seuil 3F 2026 : "
+    finally:
+        wb.close()
 
 
 def test_envelope_json_keeps_priority_when_snapshot_exists(tmp_path):
@@ -167,4 +200,110 @@ def test_envelope_json_keeps_priority_when_snapshot_exists(tmp_path):
     assert "Layer" not in text
     assert "Surface IFC OpenShell (m²)" not in text
     assert "Surface IFC OpenShell" in text
-    assert sum(1 for row in grid for c in row if c == "IfcWall") == 8
+    assert "BIMDATA" not in text
+    assert sum(1 for row in grid for c in row if c == "Mur") == 8
+
+
+def test_mcp_auto_uses_unique_envelope_json_from_input_dir(tmp_path, monkeypatch):
+    input_dir = tmp_path / "in"
+    output_dir = tmp_path / "out"
+    input_dir.mkdir()
+    output_dir.mkdir()
+    env_json = input_dir / "250613_MN_BAT_envelope.json"
+    env_json.write_text(json.dumps(_ENVELOPE_DOC), encoding="utf-8")
+    monkeypatch.setenv("AUDIT_INPUT_DIR", str(input_dir))
+    monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(output_dir))
+
+    sess = _Session()
+    sess.snapshot = ModelSnapshot(
+        project={"name": "MCP_Audit"},
+        model={"name": "250613_MN_BAT.ifc"},
+        elements=[
+            {
+                "uuid": "W1",
+                "type": "IfcWall",
+                "Name": "Mur elementaire",
+                "layers": [{"name": "221 - MURS - Extérieurs périphériques.Exndo"}],
+                "property_sets": [
+                    {
+                        "name": "Qto_WallBaseQuantities",
+                        "properties": [{"definition": {"name": "NetSideArea"}, "value": 3053.49}],
+                    }
+                ],
+            }
+        ],
+    ).index()
+    token = current_session.set(sess)
+    try:
+        res = mcp_server.generate_avp_i3f_pack(
+            project_name="MCP_Audit",
+            project_code="0546L",
+            phase="PRO",
+            auditor="Stanislas Limouzi",
+            export_pdf=False,
+        )
+    finally:
+        current_session.reset(token)
+
+    assert res.get("status") != "needs_context"
+    assert res["envelope_json_used"] == str(env_json)
+    env_path = next(p for p in res["paths"] if "Extraction surface enveloppe" in p)
+    wb = openpyxl.load_workbook(env_path, data_only=True)
+    ws = wb.active
+    grid = [[c for c in row] for row in ws.iter_rows(values_only=True)]
+    wb.close()
+    assert ws.title == "TDB 2022 04.2 - Extraction s..."
+    assert sum(1 for row in grid for c in row if c == "Mur") == 8
+
+
+def test_mcp_auto_uses_local_envelope_json_when_input_dir_unset(tmp_path, monkeypatch):
+    input_dir = tmp_path / "audit_in"
+    output_dir = tmp_path / "out"
+    input_dir.mkdir()
+    output_dir.mkdir()
+    env_json = input_dir / "250613_MN_BAT_envelope.json"
+    env_json.write_text(json.dumps(_ENVELOPE_DOC), encoding="utf-8")
+    monkeypatch.delenv("AUDIT_INPUT_DIR", raising=False)
+    monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(output_dir))
+    monkeypatch.setattr(mcp_reporting, "_auto_envelope_roots", lambda: [input_dir])
+
+    sess = _Session()
+    sess.snapshot = ModelSnapshot(
+        project={"name": "MCP_Audit"},
+        model={"name": "250613_MN_BAT.ifc"},
+        elements=[
+            {
+                "uuid": "W1",
+                "type": "IfcWall",
+                "Name": "Mur elementaire",
+                "layers": [{"name": "221 - MURS - Extérieurs périphériques.Exndo"}],
+                "property_sets": [
+                    {
+                        "name": "Qto_WallBaseQuantities",
+                        "properties": [{"definition": {"name": "NetSideArea"}, "value": 3053.49}],
+                    }
+                ],
+            }
+        ],
+    ).index()
+    token = current_session.set(sess)
+    try:
+        res = mcp_server.generate_avp_i3f_pack(
+            project_name="MCP_Audit",
+            project_code="0546L",
+            phase="PRO",
+            auditor="Stanislas Limouzi",
+            export_pdf=False,
+        )
+    finally:
+        current_session.reset(token)
+
+    assert res.get("status") != "needs_context"
+    assert res["envelope_json_used"] == str(env_json)
+    env_path = next(p for p in res["paths"] if "Extraction surface enveloppe" in p)
+    wb = openpyxl.load_workbook(env_path, data_only=True)
+    ws = wb.active
+    grid = [[c for c in row] for row in ws.iter_rows(values_only=True)]
+    wb.close()
+    assert ws.title == "TDB 2022 04.2 - Extraction s..."
+    assert sum(1 for row in grid for c in row if c == "Mur") == 8
