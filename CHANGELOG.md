@@ -7,6 +7,31 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed (surface MCP — aliases métier en compat LEGACY opt-in)
+
+- **Réduction de la surface exposée par défaut** : les **8 aliases métier**
+  (`prepare_bcf_from_findings`, `apply_bcf_plan`, `prepare_smartviews_from_findings`,
+  `apply_smartviews_plan`, `prepare_classification_corrections`,
+  `apply_classification_corrections`, `prepare_doe_enrichment_from_file`,
+  `apply_doe_enrichment`) ne sont **plus enregistrés par défaut** → 53 → **45 tools**
+  canoniques (moins de bruit côté Claude/harness).
+- **Opt-in de compat** via **`AUDIT_BIM_ENABLE_LEGACY_ALIASES=true`** (`1`/`true`/`yes`/`on`).
+  Absent ou faux ⇒ `audit_bim/mcp/aliases.py` **n'est pas importé**. `server.py` ne tire
+  plus `aliases` au niveau module : les ré-exports de compat `server.<alias>` sont
+  **lazy** (PEP 562). **Aucun changement** des tools canoniques ni de leur payload.
+- **Prompt AMO recalé sur les tools canoniques** : le workflow DOE du prompt
+  recommandait `prepare_doe_enrichment_from_file` / `apply_doe_enrichment` (aliases
+  désactivés par défaut) → remplacés par `prepare_doe_enrichment_plan` /
+  `apply_doe_enrichment_plan`. Un test interdit tout alias LEGACY dans
+  `AMO_BIM_I3F_PROMPT` en mode par défaut (sinon Claude appellerait un tool absent).
+- **Docs recalées** : `docs/mcp_tools.md` et `docs/workflow_amo_bim.md` — le workflow
+  recommandé n'emploie que des noms **canoniques** ; les aliases sont regroupés dans une
+  section « Aliases LEGACY (opt-in) » dédiée.
+- **Compat lazy complète** : `apply_doe_enrichment` ajouté à `_LEGACY_ALIAS_REEXPORTS`
+  (les 8 aliases accessibles via `server.<alias>`).
+- Tests : inventaire en sous-processus (`test_mcp_aliases_optin.py`) — aliases absents par
+  défaut / présents sous le flag / canoniques inchangés dans les deux modes ; + garde prompt.
+
 ### Added (MOA — rapport « Contrôle maquettes » + rapport d'analyse consolidé)
 
 - **Rapport « Contrôle maquettes »** au format MOA (grille de contrôle + onglets

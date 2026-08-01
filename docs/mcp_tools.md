@@ -1,6 +1,9 @@
 # Tools MCP — référence
 
-Le serveur `audit-bim-i3f` expose **49 tools MCP** répartis en 6 catégories.
+Le serveur `audit-bim-i3f` expose par défaut **45 tools MCP canoniques** répartis
+en 6 catégories. Les **8 aliases métier** sont désormais **LEGACY opt-in** (cf.
+[Aliases métier](#aliases-métier--compat-legacy-opt-in)) : absents par défaut, ils
+portent le total à **53** quand ils sont activés.
 La table ci-dessous est la **source de vérité** pour la documentation
 utilisateur et les contrôles de migration.
 
@@ -51,16 +54,9 @@ section *Interroger la maquette*.
 | `prepare_classification_update_plan` | actif | R+disque | — | aucun |
 | `apply_classification_update_plan` | actif | W | **oui** | écrasement classifs IFC existantes (signalé en `risks`) |
 
-### Aliases métier (re-dispatch vers les tools ci-dessus)
-
-| Alias | Tool sous-jacent | Pour |
-|---|---|---|
-| `prepare_bcf_from_findings` | `prepare_bcf_topics` | workflow lisible AMO |
-| `apply_bcf_plan` | `apply_bcf_topics` | idem |
-| `prepare_smartviews_from_findings` | `prepare_smart_views_plan` | idem |
-| `apply_smartviews_plan` | `apply_smart_views_plan` | idem |
-| `prepare_classification_corrections` | `prepare_classification_update_plan` | idem |
-| `apply_classification_corrections` | `apply_classification_update_plan` | idem |
+> **Aliases métier** : les variantes `*_from_findings` / `*_corrections` /
+> `*_plan` re-dispatchent vers ces tools mais sont **LEGACY opt-in** (absentes par
+> défaut). Voir [Aliases métier — compat LEGACY opt-in](#aliases-métier--compat-legacy-opt-in).
 
 ### Workflow / revue
 
@@ -104,8 +100,9 @@ section *Interroger la maquette*.
 | `doe_match_only` | actif (historique) | R | — | équivalent à `match_doe_to_ifc` |
 | `prepare_doe_enrichment_plan` | actif | R+disque | — | prépare un WritePlan scellé avec pré-calcul des conflits |
 | `apply_doe_enrichment_plan` | actif | W | **oui** | écrit les Psets sur les éléments IFC matchés |
-| `prepare_doe_enrichment_from_file` | actif (alias) | R+disque | — | alias métier de `prepare_doe_enrichment_plan` |
-| `apply_doe_enrichment` | actif (alias) | W | **oui** | alias métier de `apply_doe_enrichment_plan` |
+
+> Les aliases DOE `prepare_doe_enrichment_from_file` / `apply_doe_enrichment` sont
+> **LEGACY opt-in** (cf. section dédiée), pas dans le workflow recommandé.
 
 ### Autres écritures (à migrer vers prepare/apply dans une release ultérieure)
 
@@ -140,6 +137,32 @@ d'inventaire (`test_mcp_inventory.py`) atteste leur absence du registre MCP.
 La publication via `full_audit(push_mode=…)` **ne pousse plus** : elle **prépare**
 des plans BCF/Smart Views et renvoie leur chemin ; l'écriture passe ensuite par
 `apply_*`.
+
+## Aliases métier — compat LEGACY opt-in
+
+Les **8 aliases** ci-dessous donnent un vocabulaire AMO plus parlant mais
+**re-dispatchent à 100 %** vers un tool canonique (même signature, même
+comportement). Depuis la réduction de surface MCP, ils sont **opt-in** :
+
+- **Par défaut, ils ne sont pas enregistrés** — `audit_bim/mcp/aliases.py` n'est
+  même pas importé (moins de bruit côté Claude/harness).
+- Pour les réexposer : lancer le serveur avec
+  **`AUDIT_BIM_ENABLE_LEGACY_ALIASES=true`** (valeurs acceptées : `1`/`true`/`yes`/`on`).
+- Les tools **canoniques ne changent pas** selon le flag.
+
+| Alias LEGACY | Tool canonique équivalent |
+|---|---|
+| `prepare_bcf_from_findings` | `prepare_bcf_topics` |
+| `apply_bcf_plan` | `apply_bcf_topics` |
+| `prepare_smartviews_from_findings` | `prepare_smart_views_plan` |
+| `apply_smartviews_plan` | `apply_smart_views_plan` |
+| `prepare_classification_corrections` | `prepare_classification_update_plan` |
+| `apply_classification_corrections` | `apply_classification_update_plan` |
+| `prepare_doe_enrichment_from_file` | `prepare_doe_enrichment_plan` |
+| `apply_doe_enrichment` | `apply_doe_enrichment_plan` |
+
+> Migration recommandée : appeler directement les tools canoniques. Les aliases
+> seront retirés une fois les appelants migrés.
 
 ## Garanties transverses
 
