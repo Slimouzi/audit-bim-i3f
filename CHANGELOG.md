@@ -7,6 +7,35 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (pack AVP — quantités absentes : livrable faux au lieu d'un refus)
+
+- **Un pack pouvait sortir avec des lignes et des colonnes de quantités vides**
+  — SHAB, Zones/Espaces, Menuiseries et Plancher remplis de « Information non
+  disponible ». Plus dangereux qu'un livrable vide : il paraît complet et se
+  lit comme un résultat. La QA gate ne comptait que les **lignes**, jamais les
+  **valeurs**.
+- **Cause** : le snapshot BIMData ne porte pas de `BaseQuantities` et les
+  quantités calculées n'avaient pas été fusionnées — `generate_avp_i3f_pack`
+  dépendait d'un `extract_model_snapshot(compute_missing_quantities=True, …)`
+  préalable, sans moyen de le demander lui-même ni de signaler son absence.
+- **`computed_quantities_json` ajouté à `generate_avp_i3f_pack`** : validé via
+  le contrat `computed_base_quantities/v1`, fusionné **gap-only** dans le
+  snapshot avant génération (jamais d'écrasement d'une valeur native), avec la
+  couverture stockée sur le snapshot et rendue dans la réponse.
+- **Nouvelle QA gate « quantités critiques vides »** : espaces sans aucune
+  surface, menuiseries sans aucune largeur/hauteur, dalles sans aucune aire →
+  refus explicite `error="missing_quantities"` + `needs_computed_quantities_json`
+  et la marche à suivre, au lieu de produire le pack.
+- **`list_avp_i3f_xls_reports` signale le besoin en amont**
+  (`needs_computed_quantities_json`, `reports_without_quantities`,
+  `next_action`) — pour fournir le JSON avant de générer, pas pour découvrir le
+  refus après.
+- Tests : `test_avp_pack_computed_quantities.py` (12) — refus sans JSON,
+  génération avec, et **valeurs numériques réellement présentes** dans les
+  quatre annexes (SHAB, Zones/Espaces, Menuiseries, Plancher), traçabilité
+  « Calculée (IfcOpenShell) », fusion gap-only préservant le natif, schéma
+  inconnu refusé avant génération.
+
 ### Fixed (pack AVP — identité projet et auteur du contrôle)
 
 - **Un pack pouvait être livré au nom d'un AUTRE chantier.** Le classeur de

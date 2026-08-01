@@ -217,6 +217,59 @@ def count_menuiseries(snap: ModelSnapshot | None) -> int:
     return sum(len(snap.of_class(cls)) for cls in _MENUISERIE_CLASSES)
 
 
+# --------------------------------------------------------------------------- #
+#  Comptage des QUANTITÉS exploitables (QA gate « colonnes vides »)
+# --------------------------------------------------------------------------- #
+#
+# Un livrable avec des lignes mais des colonnes de quantités **toutes vides**
+# est plus dangereux qu'un livrable vide : il a l'air complet. Cela arrive
+# quand le snapshot BIMData ne porte pas de BaseQuantities et que les quantités
+# calculées (contrat ``computed_base_quantities/v1``) n'ont pas été fusionnées.
+# Ces compteurs mesurent la cause — combien d'éléments portent réellement la
+# quantité attendue — et non le symptôme dans le fichier produit.
+
+
+def count_spaces_with_area(snap: ModelSnapshot | None) -> int:
+    """Espaces portant une surface exploitable (BaseQuantities ou repli)."""
+    if snap is None:
+        return 0
+    n = 0
+    for item in snap.spaces or []:
+        surface, _src = _surface_with_source(_rich(snap, item), _SPACE_BQ_ORDER)
+        if surface is not None:
+            n += 1
+    return n
+
+
+def count_menuiseries_with_dimensions(snap: ModelSnapshot | None) -> int:
+    """Menuiseries portant une largeur **ou** une hauteur exploitable."""
+    if snap is None:
+        return 0
+    n = 0
+    for cls in _MENUISERIE_CLASSES:
+        for item in snap.of_class(cls):
+            el = _rich(snap, item)
+            if (
+                _base_quantity_ordered(el, ("Width", "OverallWidth")) is not None
+                or _base_quantity_ordered(el, ("Height", "OverallHeight")) is not None
+            ):
+                n += 1
+    return n
+
+
+def count_planchers_with_area(snap: ModelSnapshot | None) -> int:
+    """Dalles portant une aire exploitable (``NetArea`` et replis)."""
+    if snap is None:
+        return 0
+    n = 0
+    for cls in _SLAB_CLASSES:
+        for item in snap.of_class(cls):
+            el = _rich(snap, item)
+            if _base_quantity_ordered(el, _SLAB_BQ_ORDER) is not None:
+                n += 1
+    return n
+
+
 def snapshot_shab_total(snap: ModelSnapshot | None) -> float | None:
     """SHAB totale de la maquette : somme des surfaces des espaces avec le
     **même repli** que les annexes (BaseQuantities puis « Superficie

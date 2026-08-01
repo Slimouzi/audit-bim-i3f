@@ -125,22 +125,40 @@ class AvpReportPack:
 
 
 class AvpQaError(RuntimeError):
-    """Livrable(s) client vide(s) alors que la maquette contient des données.
+    """Livrable(s) client inexploitable(s) alors que la maquette a des données.
 
-    Levée par la QA gate post-génération : un export sort sans aucune ligne
-    métier alors que le snapshot expose des espaces / murs / zones
-    exploitables. On refuse de livrer un fichier qui ne contient que le
-    bandeau.
+    Deux cas, tous deux refusés avant livraison :
+
+    - ``kind="empty"`` — un export sort sans aucune ligne métier alors que le
+      snapshot expose des espaces / murs / zones exploitables ;
+    - ``kind="missing_quantities"`` — l'export a des lignes mais **toutes ses
+      colonnes de quantités sont vides**. C'est le cas le plus trompeur : le
+      fichier paraît complet et se lit comme un résultat.
     """
 
-    def __init__(self, empty: list[str]):
+    def __init__(self, empty: list[str], *, kind: str = "empty"):
         self.empty = empty
-        super().__init__(
-            "Annexe(s) vide(s) malgré des données exploitables dans la maquette : "
-            + ", ".join(empty)
-            + ". Livraison refusée (ni sources I3F ni extraction snapshot n'ont "
-            "produit de lignes)."
-        )
+        self.kind = kind
+        if kind == "missing_quantities":
+            message = (
+                "Annexe(s) sans aucune quantité exploitable : "
+                + ", ".join(empty)
+                + ". Le livrable aurait des lignes mais des colonnes vides. "
+                "Le snapshot ne porte pas de BaseQuantities : relancer "
+                "``extract_model_snapshot(compute_missing_quantities=True, "
+                "computed_quantities_json=…)``, ou passer "
+                "``computed_quantities_json`` à ``generate_avp_i3f_pack`` — le "
+                "JSON `computed_base_quantities/v1` est produit par "
+                "``export_computed_base_quantities`` (MCP ifc-geometry)."
+            )
+        else:
+            message = (
+                "Annexe(s) vide(s) malgré des données exploitables dans la maquette : "
+                + ", ".join(empty)
+                + ". Livraison refusée (ni sources I3F ni extraction snapshot n'ont "
+                "produit de lignes)."
+            )
+        super().__init__(message)
 
 
 # Marqueurs d'échafaudage à ignorer lors du comptage des lignes métier.

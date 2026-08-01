@@ -14,7 +14,10 @@ from ...extraction.model_data import ModelSnapshot
 from ..avp_snapshot import (
     count_envelope_walls,
     count_menuiseries,
+    count_menuiseries_with_dimensions,
     count_planchers,
+    count_planchers_with_area,
+    count_spaces_with_area,
 )
 from ..avp_sources import (
     AvpSourcePaths,
@@ -274,6 +277,11 @@ def write_avp_i3f_report_pack(
     if empty:
         raise AvpQaError(empty)
 
+    # Lignes présentes mais quantités absentes : le livrable serait faux.
+    sans_quantites = _qa_missing_quantities(snap)
+    if sans_quantites:
+        raise AvpQaError(sans_quantites, kind="missing_quantities")
+
     return pack
 
 
@@ -318,5 +326,30 @@ def _qa_empty_deliverables(
     if count_menuiseries(snap) > 0 and _count_business_rows(pack.menuiseries_xlsx) == 0:
         problems.append("Menuiseries")
     if count_planchers(snap) > 0 and _count_business_rows(pack.plancher_xlsx) == 0:
+        problems.append("Plancher")
+    return problems
+
+
+def _qa_missing_quantities(snap) -> list[str]:
+    """Annexes dont les colonnes de **quantités** seraient intégralement vides.
+
+    Un livrable avec des lignes mais aucune valeur numérique est pire qu'un
+    livrable vide : il paraît complet et se lit comme un résultat. Le cas se
+    produit quand le snapshot BIMData ne porte pas de ``BaseQuantities`` et que
+    les quantités calculées (contrat ``computed_base_quantities/v1``) n'ont pas
+    été fusionnées — ``compute_missing_quantities`` non demandé, ou
+    ``computed_quantities_json`` non transmis.
+
+    On refuse alors la génération plutôt que de produire un pack faux.
+    """
+    if snap is None:
+        return []
+    problems: list[str] = []
+    if snap.spaces and count_spaces_with_area(snap) == 0:
+        # SHAB et Zones/Espaces reposent toutes deux sur la surface d'espace.
+        problems += ["SHAB", "Zones/Espaces"]
+    if count_menuiseries(snap) > 0 and count_menuiseries_with_dimensions(snap) == 0:
+        problems.append("Menuiseries")
+    if count_planchers(snap) > 0 and count_planchers_with_area(snap) == 0:
         problems.append("Plancher")
     return problems
