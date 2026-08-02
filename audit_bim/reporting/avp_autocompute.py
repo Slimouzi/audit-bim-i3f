@@ -138,27 +138,73 @@ def _read_contract(
     return doc
 
 
+def _sandbox_roots() -> list[Path]:
+    """Racines de lecture légitimes pour un ``.ifc``.
+
+    L'entrée (``AUDIT_INPUT_DIR``) et l'export (``AUDIT_OUTPUT_DIR``) — ce
+    dernier parce que ``download_model_ifc`` y dépose le fichier du modèle actif.
+    """
+    racines: list[Path] = []
+    for var in ("AUDIT_INPUT_DIR", "AUDIT_OUTPUT_DIR"):
+        valeur = os.getenv(var)
+        if valeur:
+            racines.append(Path(valeur).expanduser().resolve())
+    return racines
+
+
 def _validate_ifc_path(ifc_path: str | Path) -> Path:
     """Valide un ``.ifc`` **fourni par l'appelant**, jamais accepté tel quel.
 
-    Deux sandbox légitimes : la lecture (``AUDIT_INPUT_DIR``) et l'export
-    (``AUDIT_OUTPUT_DIR``), ce dernier parce que ``download_model_ifc`` y dépose
-    le fichier du modèle actif. Hors de ces deux racines → refus.
+    Deux étapes distinctes, pour que chaque contrôle s'applique toujours :
+
+    1. **confinement** — le fichier doit être sous une racine autorisée. On
+       réutilise les validations de la sandbox (lecture, puis export : c'est là
+       que ``download_model_ifc`` dépose la maquette), avec un repli explicite
+       pour le cas ci-dessous ;
+    2. **contrôles propres à la maquette** — extension, fichier régulier, et
+       plafond ``AUDIT_MAX_IFC_MB``.
+
+    La séparation compte : ``safe_input_path`` refuse au-delà de
+    ``AUDIT_MAX_INPUT_MB`` (50 Mo), plafond calibré pour des classeurs et des
+    PDF. Une maquette réelle le dépasse largement — celle de référence pèse
+    167 Mo — et ``download_model_ifc`` en accepte jusqu'à 500 Mo. Laisser le
+    plafond des documents décider reviendrait à refuser tous les modèles de
+    production.
     """
+    cible: Path | None = None
     try:
-        return safe_input_path(ifc_path, allowed_extensions={".ifc"})
+        cible = safe_input_path(ifc_path, allowed_extensions={".ifc"})
     except UnsafePathError:
-        pass
-    try:
-        cible = safe_export_read_path(ifc_path)
-    except (UnsafePathError, OSError) as exc:
-        raise GeometryInputMissing(
-            f"Chemin .ifc refusé par la sandbox : {ifc_path}. Le fichier doit "
-            "être sous ``AUDIT_INPUT_DIR``, ou sous ``AUDIT_OUTPUT_DIR`` s'il "
-            "vient de ``download_model_ifc``."
-        ) from exc
+        try:
+            cible = safe_export_read_path(ifc_path)
+        except (UnsafePathError, OSError):
+            cible = None
+
+    if cible is None:
+        # Repli : maquette trop volumineuse pour la sandbox documentaire, mais
+        # légitime. Le confinement est revérifié ici, il n'est jamais relâché.
+        brut = Path(ifc_path)
+        if ".." in brut.parts:
+            raise GeometryInputMissing(f"Chemin .ifc refusé (traversée) : {ifc_path}")
+        resolu = brut.expanduser().resolve()
+        racines = _sandbox_roots()
+        if racines and not any(resolu.is_relative_to(r) for r in racines):
+            raise GeometryInputMissing(
+                f"Chemin .ifc refusé par la sandbox : {ifc_path}. Le fichier doit "
+                "être sous ``AUDIT_INPUT_DIR``, ou sous ``AUDIT_OUTPUT_DIR`` s'il "
+                "vient de ``download_model_ifc``."
+            )
+        cible = resolu
+
     if cible.suffix.lower() != ".ifc" or not cible.is_file():
         raise GeometryInputMissing(f"Chemin .ifc invalide ou introuvable : {ifc_path}")
+    plafond_mo = int(os.getenv("AUDIT_MAX_IFC_MB", "500"))
+    taille_mo = cible.stat().st_size / (1024 * 1024)
+    if taille_mo > plafond_mo:
+        raise GeometryInputMissing(
+            f"Maquette trop volumineuse : {taille_mo:.0f} Mo > {plafond_mo} Mo "
+            "(``AUDIT_MAX_IFC_MB``)."
+        )
     return cible
 
 

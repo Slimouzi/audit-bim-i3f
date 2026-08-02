@@ -653,3 +653,52 @@ def test_contract_from_a_bimdata_cache_ifc_is_reused(session, tmp_path, backend)
     assert second.get("status") not in ("error", "needs_context"), second
     assert backend["quantites"] == 1, "le contrat du cache BIMData doit être réutilisé"
     assert second["auto_computed"]["quantities"]["reused"] is True
+
+
+# ── plafond de taille : une maquette n'est pas un classeur ─────────────
+
+
+def test_large_ifc_is_accepted(session, tmp_path, backend, monkeypatch):
+    """Une maquette dépassant le plafond des DOCUMENTS reste lisible.
+
+    ``safe_input_path`` applique ``AUDIT_MAX_INPUT_MB`` (50 Mo), calibré pour
+    des classeurs et des PDF. Les maquettes réelles le dépassent largement — la
+    maquette de référence pèse 167 Mo — et ``download_model_ifc`` en accepte
+    jusqu'à 500 Mo. Appliquer le plafond des documents refuserait tous les
+    modèles de production ; c'est ce qui se produisait.
+    """
+    monkeypatch.setenv("AUDIT_MAX_INPUT_MB", "1")  # plafond documents très bas
+    monkeypatch.setenv("AUDIT_MAX_IFC_MB", "500")
+    gros = tmp_path / "DIEPPE-7427L.ifc"
+    gros.write_bytes(b"0" * (2 * 1024 * 1024))  # 2 Mo > plafond documents
+
+    res = _generer(ifc_path=str(gros))
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert backend["quantites"] == 1
+
+
+def test_ifc_beyond_its_own_cap_is_refused(session, tmp_path, backend, monkeypatch):
+    """Le plafond spécifique aux maquettes, lui, s'applique bien."""
+    monkeypatch.setenv("AUDIT_MAX_INPUT_MB", "1")
+    monkeypatch.setenv("AUDIT_MAX_IFC_MB", "1")
+    gros = tmp_path / "DIEPPE-7427L.ifc"
+    gros.write_bytes(b"0" * (2 * 1024 * 1024))
+
+    res = _generer(ifc_path=str(gros))
+
+    assert res["status"] == "needs_context"
+    assert "AUDIT_MAX_IFC_MB" in res["message"]
+    assert backend["quantites"] == 0
+
+
+def test_path_traversal_is_refused_even_for_large_ifc(session, tmp_path, backend, monkeypatch):
+    """Le repli « gros fichier » ne rouvre pas la porte à une traversée."""
+    monkeypatch.setenv("AUDIT_MAX_INPUT_MB", "1")
+    gros = tmp_path / "DIEPPE-7427L.ifc"
+    gros.write_bytes(b"0" * (2 * 1024 * 1024))
+
+    res = _generer(ifc_path=f"{tmp_path}/../{tmp_path.name}/DIEPPE-7427L.ifc")
+
+    assert res["status"] == "needs_context"
+    assert backend["quantites"] == 0
