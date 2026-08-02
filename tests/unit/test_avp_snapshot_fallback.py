@@ -495,12 +495,24 @@ def test_tool_passes_state_snapshot_without_audit(tmp_path, monkeypatch):
     from audit_bim.mcp.session import _Session, current_session
 
     monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
+    # Test HERMÉTIQUE : dossier d'entrée vide, et auto-calcul enveloppe coupé.
+    # Sans cela, il dépendait des fichiers présents dans le workspace (un
+    # ``*_envelope.json`` traînant le faisait passer en local et échouer en CI).
+    # L'auto-résolution a ses propres tests : test_avp_pack_autocompute.py.
+    entree = tmp_path / "in_vide"
+    entree.mkdir()
+    monkeypatch.setenv("AUDIT_INPUT_DIR", str(entree))
     sess = _Session()
     sess.snapshot = _synthetic_result().snapshot  # snapshot chargé, pas d'audit
     token = current_session.set(sess)
     try:
         res = mcp_server.generate_avp_i3f_pack(
-            project_name="X", project_code="Y", phase="AVP", auditor="AMO BIM", export_pdf=False
+            project_name="X",
+            project_code="Y",
+            phase="AVP",
+            auditor="AMO BIM",
+            export_pdf=False,
+            auto_compute_envelope=False,
         )
     finally:
         current_session.reset(token)

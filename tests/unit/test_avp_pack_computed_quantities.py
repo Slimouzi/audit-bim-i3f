@@ -117,8 +117,12 @@ def _nombres(path) -> list[float]:
     return [c for c in _cells(path) if isinstance(c, (int, float)) and not isinstance(c, bool)]
 
 
-def _generer(*, computed=None, **kw):
+def _generer(*, computed=None, auto=False, **kw):
+    """Génération de test. ``auto=False`` par défaut : ces tests portent sur la
+    QA gate elle-même, pas sur l'auto-résolution (fichier dédié)."""
     return mcp_server.generate_avp_i3f_pack(
+        auto_compute_quantities=auto,
+        auto_compute_envelope=auto,
         project_name="Dieppe",
         project_code="7427L",
         phase="APD",

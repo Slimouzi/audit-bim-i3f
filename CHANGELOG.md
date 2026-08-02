@@ -7,6 +7,36 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added (pack AVP — auto-résolution des contrats géométriques)
+
+- **`generate_avp_i3f_pack` se soigne tout seul.** Si le snapshot ne porte pas
+  les `BaseQuantities`, le tool **retrouve ou calcule** le contrat
+  `computed_base_quantities/v1`, le fusionne (gap-only, dans une copie de
+  travail) puis génère. Idem pour `envelope_quantities/v1`. Plus aucune
+  consigne manuelle : `auto_compute_quantities` et `auto_compute_envelope`
+  valent `True` par défaut.
+- **Le calcul est appelé comme une fonction Python**, pas via un second serveur
+  MCP : `ifc_openshell_mcp.enrichers.base_quantities` et `analyzers.envelope`
+  sont des fonctions pures (ni FastMCP ni serveur). Un import est déterministe
+  et testable ; un appel MCP → MCP dépendrait du harnais.
+- Nouvel orchestrateur `ensure_computed_quantities_json(snapshot, ifc_path=None,
+  force=False)` et son pendant `ensure_envelope_json` : snapshot déjà pourvu →
+  rien ; contrat déjà calculé → réutilisé ; sinon calcul depuis le `.ifc` actif
+  (résolu via le cache `download_model_ifc` puis le dossier d'entrée) ; sinon
+  demande **ciblée** (`ifc_path` ou backend), jamais un « il manque des
+  quantités » sans suite.
+- **Sandbox** : un JSON fourni par l'utilisateur passe par `safe_input_path` ;
+  un JSON produit ici vit sous `AUDIT_OUTPUT_DIR/contracts_v1/` et est relu par
+  le chemin d'export — `AUDIT_INPUT_DIR` ne couvre pas ce dossier.
+- **Enveloppe** : le calcul n'est lancé que si la maquette a des murs
+  d'enveloppe, et une décomposition **vide** est une erreur explicite nommant
+  `envelope_layer_pattern` / `envelope_type_pattern` — jamais une annexe
+  « conforme » sans contenu.
+- `force_recompute_quantities=True` recalcule et remplace le contrat.
+- Backend géométrique en **dépendance optionnelle** : absent → message nommant
+  le paquet et la commande d'installation, jamais un livrable incomplet.
+- Tests : `test_avp_pack_autocompute.py` (16).
+
 ### Fixed (pack AVP — quantités absentes : livrable faux au lieu d'un refus)
 
 - **Un pack pouvait sortir avec des lignes et des colonnes de quantités vides**

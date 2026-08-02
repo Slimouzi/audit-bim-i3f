@@ -344,6 +344,10 @@ def set_active_model(
     # Invalide les caches downstream
     _State.snapshot = None
     _State.result = None
+    # Le .ifc rapatrié appartient au modèle PRÉCÉDENT : le garder ferait
+    # calculer les quantités et l'enveloppe de l'ancienne maquette sur la
+    # nouvelle cible — des surfaces d'un autre bâtiment, sans aucun signal.
+    _State.ifc_path = None
     # E8 — le store de suggestions est construit sur les UUIDs du modèle précédent :
     # sans invalidation, un plan de classifications scellé sur la NOUVELLE cible
     # porterait les UUIDs de l'ANCIENNE → écritures parasites sur le mauvais modèle
@@ -512,12 +516,16 @@ def download_model_ifc(cache_dir: str = ".audit_cache", overwrite: bool = False)
     """
     _State.ensure_client()
     safe_dir = safe_export_dir(cache_dir)
-    return download_ifc(
+    res = download_ifc(
         _State.client,
         cache_dir=str(safe_dir),
         max_mb=config.AUDIT_MAX_IFC_MB,
         overwrite=overwrite,
     )
+    # Mémorisé en session : c'est la corrélation la plus sûre entre le modèle
+    # actif et un fichier .ifc pour le calcul géométrique.
+    _State.ifc_path = res.get("path")
+    return res
 
 
 @mcp.tool()

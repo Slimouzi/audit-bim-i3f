@@ -93,6 +93,9 @@ class _Session:
         self.classification_system: str = "UniFormat II"
         self.doe_available: bool | None = None
 
+        # Chemin du .ifc rapatrié par ``download_model_ifc`` : source la plus
+        # fiable pour corréler un calcul géométrique au modèle actif.
+        self.ifc_path: str | None = None
         self.snapshot: ModelSnapshot | None = None
         self.result: AuditResult | None = None
         self.suggestion_store: ClassificationSuggestionStore | None = None

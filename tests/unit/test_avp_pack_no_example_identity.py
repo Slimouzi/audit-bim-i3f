@@ -116,7 +116,6 @@ def test_explicit_identity_names_every_deliverable(session):
         project_code="7427L",
         phase="AVP",
         auditor="CdP BIM 3F",
-        date_controle="260801",
         export_pdf=False,
     )
 
@@ -124,10 +123,15 @@ def test_explicit_identity_names_every_deliverable(session):
     assert res["project_name"] == "Dieppe"
     assert res["project_code"] == "7427L"
 
+    # Le préfixe est la date de GÉNÉRATION : la calculer, ne pas la coder en
+    # dur — un littéral ne passerait que le jour où le test a été écrit.
+    from datetime import datetime
+
+    attendu = f"{datetime.now().strftime('%y%m%d')} Dieppe 7427L AVP - "
     noms = [Path(p).name for p in res["paths"]]
     assert noms, "le pack doit produire des livrables"
     for nom in noms:
-        assert nom.startswith("260801 Dieppe 7427L AVP - "), nom
+        assert nom.startswith(attendu), nom
 
 
 def test_no_example_identity_anywhere_in_the_generated_pack(session):

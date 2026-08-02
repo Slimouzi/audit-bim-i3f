@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 import unicodedata
 from datetime import datetime
 from pathlib import Path
 
+from ..reporting.avp.pack import _qa_missing_quantities
+from ..reporting.avp_snapshot import count_envelope_walls
 from ..reporting.context import build_report_context, merge_user_context
 from ..reporting.word_report import NOT_AVAILABLE, write_word_report
 from ..reporting.xlsx_annex import write_xlsx_annex
@@ -65,18 +68,49 @@ def _unique_envelope_json(roots: list[Path]) -> str | None:
     return str(candidates[0])
 
 
-def _auto_envelope_json() -> str | None:
-    """Détecte un ``*_envelope.json`` unique dans les dossiers d'entrée connus.
+def _envelope_json_matches_model(path: str | Path) -> bool:
+    """L'``envelope.json`` détecté porte-t-il bien sur le **modèle actif** ?
 
-    Le pack enveloppe conforme dépend du contrat ifc-geometry. Quand le client
-    MCP oublie de passer explicitement ``envelope_json`` mais que le fichier est
-    déjà présent dans un dossier d'entrée connu, on l'utilise plutôt que de
-    retomber silencieusement sur le dump snapshot élémentaire.
+    Un fichier « seul dans le dossier » n'est pas pour autant le bon : reprendre
+    l'enveloppe d'une autre maquette livrerait les façades d'un autre bâtiment,
+    sans aucun signal. On exige donc une corrélation :
+
+    - contrat V1 → ``source.ifc_file`` doit correspondre au modèle actif ;
+    - fichier legacy (sans provenance) → seul le **nom du fichier** peut
+      corréler ; à défaut, on l'ignore et on recalcule.
+    """
+    snap = _State.snapshot
+    modele = ((snap.model or {}).get("name") if snap else None) or ""
+    stem_modele = Path(str(modele)).stem
+    if not stem_modele:
+        return False
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    source = (doc.get("source") or {}).get("ifc_file") if isinstance(doc, dict) else None
+    if source:
+        return Path(str(source)).stem == stem_modele
+    # Legacy sans provenance : le nom du fichier est le seul indice disponible.
+    return Path(path).stem.startswith(stem_modele)
+
+
+def _auto_envelope_json() -> str | None:
+    """Détecte un ``*_envelope.json`` **du modèle actif** dans les dossiers connus.
+
+    La détection ne suffit pas : le fichier doit être corrélé au modèle actif
+    (cf. :func:`_envelope_json_matches_model`). Sinon on préfère recalculer.
     """
     root_raw = os.getenv("AUDIT_INPUT_DIR")
-    if root_raw:
-        return _unique_envelope_json([Path(root_raw)])
-    return _unique_envelope_json(_auto_envelope_roots())
+    trouve = (
+        _unique_envelope_json([Path(root_raw)])
+        if root_raw
+        else _unique_envelope_json(_auto_envelope_roots())
+    )
+    if trouve and not _envelope_json_matches_model(trouve):
+        _server_logger.info("envelope.json ignoré (ne correspond pas au modèle actif) : %s", trouve)
+        return None
+    return trouve
 
 
 def _normalized_filename(value: str) -> str:
@@ -224,10 +258,8 @@ def list_avp_i3f_xls_reports(
 
     phase = _State.phase.value if _State.phase else None
     # Signal d'amont : les rapports auraient des lignes mais des colonnes de
-    # quantités vides. Remonté ICI pour que l'appelant fournisse le JSON calculé
-    # AVANT de générer, plutôt que de découvrir le refus à la génération.
-    from ..reporting.avp.pack import _qa_missing_quantities
-
+    # quantités vides. Remonté ICI pour information ; la génération, elle,
+    # résout le manque automatiquement (``auto_compute_quantities``).
     sans_quantites = _qa_missing_quantities(snap)
     out = {
         "status": "ok",
@@ -262,6 +294,12 @@ def generate_avp_i3f_pack(
     enveloppe_xlsx: str | None = None,
     envelope_json: str | None = None,
     computed_quantities_json: str | None = None,
+    auto_compute_quantities: bool = True,
+    auto_compute_envelope: bool = True,
+    force_recompute_quantities: bool = False,
+    ifc_path: str | None = None,
+    envelope_layer_pattern: str | None = None,
+    envelope_type_pattern: str | None = None,
     menuiseries_xlsx: str | None = None,
     plancher_xlsx: str | None = None,
     project_name: str | None = None,
@@ -309,6 +347,22 @@ def generate_avp_i3f_pack(
             comme identité projet — au plus proposée en ``suggestion``, et
             seulement si l'appelant a désigné le classeur. Les surfaces et
             dimensions exportées viennent de la maquette IFC.
+        auto_compute_quantities: **défaut ``True``** — si le snapshot ne porte
+            pas les ``BaseQuantities`` nécessaires, le contrat
+            ``computed_base_quantities/v1`` est retrouvé ou **calculé
+            localement** depuis le ``.ifc`` actif, puis fusionné. Aucune
+            consigne manuelle n'est requise. ``False`` → l'absence de quantités
+            devient un refus.
+        auto_compute_envelope: **défaut ``True``** — idem pour
+            ``envelope_quantities/v1`` quand ``envelope_json`` n'est ni fourni
+            ni détecté.
+        force_recompute_quantities: recalcule le contrat même si un fichier
+            existe déjà (rejeu de recette, maquette modifiée).
+        ifc_path: ``.ifc`` à utiliser pour le calcul. ``None`` → résolu depuis
+            le cache ``download_model_ifc`` puis le dossier d'entrée.
+        envelope_layer_pattern, envelope_type_pattern: motifs de sélection des
+            murs d'enveloppe (calque ArchiCAD, nom de type). Nécessaires sur les
+            maquettes où la détection géométrique ne suffit pas.
         computed_quantities_json: JSON ``computed_base_quantities/v1`` produit
             par ``export_computed_base_quantities`` (MCP ifc-geometry). Fusionné
             **gap-only** dans le snapshot avant génération : comble les
@@ -384,8 +438,51 @@ def generate_avp_i3f_pack(
     # → onglet par_type (8 lignes métier), prioritaire sur le repli snapshot (484
     # murs) et sur le .xlsx source.
     envelope_json_used = envelope_json or _auto_envelope_json()
+    auto_envelope = None
+    # On ne calcule que ce qui est attendu : sans mur d'enveloppe dans la
+    # maquette, l'annexe n'a pas lieu d'être et lancer un calcul serait du bruit
+    # (voire un refus sur une maquette qui n'en a pas besoin).
+    #
+    # EXCEPTION IMPORTANTE : des motifs explicites valent demande explicite. Le
+    # cas réel est précisément celui où BIMData ne remonte pas le calque alors
+    # qu'IfcOpenShell sait le lire dans l'IFC — s'en tenir au snapshot ferait
+    # rater l'enveloppe sur les maquettes qui en ont le plus besoin.
+    motifs_explicites = bool(envelope_layer_pattern or envelope_type_pattern)
+    envelope_attendue = _State.snapshot is not None and (
+        motifs_explicites or count_envelope_walls(_State.snapshot) > 0
+    )
+    if envelope_json_used is None and auto_compute_envelope and envelope_attendue:
+        from ..extraction.geometry_backend import GeometryBackendUnavailable
+        from ..reporting.avp_autocompute import GeometryInputMissing, ensure_envelope_json
+
+        try:
+            auto_envelope = ensure_envelope_json(
+                _State.snapshot,
+                ifc_path=ifc_path,
+                layer_pattern=envelope_layer_pattern,
+                type_pattern=envelope_type_pattern,
+                session_ifc_path=getattr(_State, "ifc_path", None),
+                model_ids=(_State.cloud_id, _State.project_id, _State.model_id),
+            )
+            envelope_json_used = auto_envelope["json_path"]
+        except (GeometryInputMissing, GeometryBackendUnavailable) as exc:
+            return {
+                "status": "needs_context",
+                "missing": [getattr(exc, "missing", "geometry_backend")],
+                "error": "cannot_compute_envelope",
+                "message": str(exc),
+                "questions": [
+                    {"key": getattr(exc, "missing", "geometry_backend"), "question": str(exc)}
+                ],
+            }
     if envelope_json_used:
-        safe_env = safe_input_path(envelope_json_used, allowed_extensions={".json"})
+        # Même règle de sandbox que pour les quantités : fichier produit ici →
+        # chemin d'export ; fichier fourni → validation en lecture.
+        safe_env = (
+            Path(envelope_json_used)
+            if auto_envelope is not None
+            else safe_input_path(envelope_json_used, allowed_extensions={".json"})
+        )
         sources.enveloppe = read_envelope_json(safe_env)
         envelope_json_used = str(safe_env)
 
@@ -395,6 +492,45 @@ def generate_avp_i3f_pack(
     computed_coverage = None
     computed_json_used = None
     working_snapshot = _State.snapshot
+    # Auto-résolution : si le snapshot ne porte pas les quantités et qu'aucun
+    # JSON n'est fourni, on le retrouve ou on le calcule — plutôt que d'exiger
+    # de l'appelant qu'il pense à enchaîner les outils lui-même.
+    auto_quantities = None
+    if (
+        computed_quantities_json is None
+        and auto_compute_quantities
+        and _State.snapshot is not None
+        and _qa_missing_quantities(_State.snapshot)
+    ):
+        from ..extraction.geometry_backend import GeometryBackendUnavailable
+        from ..reporting.avp_autocompute import (
+            GeometryInputMissing,
+            ensure_computed_quantities_json,
+        )
+
+        try:
+            auto_quantities = ensure_computed_quantities_json(
+                _State.snapshot,
+                ifc_path=ifc_path,
+                force=force_recompute_quantities,
+                session_ifc_path=getattr(_State, "ifc_path", None),
+                model_ids=(_State.cloud_id, _State.project_id, _State.model_id),
+            )
+        except (GeometryInputMissing, GeometryBackendUnavailable) as exc:
+            return {
+                "status": "needs_context",
+                "missing": [getattr(exc, "missing", "geometry_backend")],
+                "error": "cannot_compute_quantities",
+                "message": str(exc),
+                "questions": [
+                    {
+                        "key": getattr(exc, "missing", "geometry_backend"),
+                        "question": str(exc),
+                    }
+                ],
+            }
+        computed_quantities_json = auto_quantities["json_path"]
+
     if computed_quantities_json:
         from ..extraction.computed_quantities import (
             load_computed_quantities,
@@ -410,7 +546,14 @@ def generate_avp_i3f_pack(
                     "appeler ``extract_model_snapshot`` avant ``generate_avp_i3f_pack``."
                 ),
             }
-        safe_cq = safe_input_path(computed_quantities_json, allowed_extensions={".json"})
+        # Sandbox : un fichier FOURNI par l'utilisateur est validé en lecture ;
+        # un fichier que NOUS venons de produire vit sous ``AUDIT_OUTPUT_DIR``,
+        # que ``safe_input_path`` ne couvre pas nécessairement.
+        safe_cq = (
+            Path(computed_quantities_json)
+            if auto_quantities is not None
+            else safe_input_path(computed_quantities_json, allowed_extensions={".json"})
+        )
         doc = load_computed_quantities(safe_cq)  # valide le contrat (sinon ValueError)
         # Copie de travail : la fusion est gap-only, donc muter le snapshot de
         # SESSION la rendrait non rejouable — un second appel avec un JSON
@@ -611,6 +754,10 @@ def generate_avp_i3f_pack(
         "envelope_json_used": envelope_json_used,
         "computed_quantities_json_used": computed_json_used,
         "computed_quantities_coverage": computed_coverage,
+        "auto_computed": {
+            "quantities": auto_quantities,
+            "envelope": auto_envelope,
+        },
     }
 
 
