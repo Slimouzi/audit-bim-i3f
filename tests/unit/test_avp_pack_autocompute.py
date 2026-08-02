@@ -474,3 +474,119 @@ def test_explicit_patterns_trigger_envelope_even_without_layer(session, ifc_disp
     assert res.get("status") not in ("error", "needs_context"), res
     assert backend["enveloppe"] == 1
     assert res["auto_computed"]["envelope"]["computed"] is True
+
+
+# ── corrélation au modèle actif : disponible ≠ pertinent ───────────────
+
+
+def test_unrelated_single_ifc_is_never_used(session, tmp_path, backend):
+    """Snapshot Dieppe + un seul .ifc, celui d'un AUTRE chantier → refus.
+
+    « Le seul fichier du dossier » n'est pas un repli : calculer dessus
+    livrerait les surfaces d'un autre bâtiment, sans aucun signal.
+    """
+    (tmp_path / "250613_MN_BAT.ifc").write_text("ISO-10303-21;", encoding="utf-8")
+
+    res = _generer()
+
+    assert res["status"] == "needs_context"
+    assert res["missing"] == ["ifc_path"]
+    assert backend["quantites"] == 0, "aucun calcul sur une maquette non corrélée"
+
+
+def test_unrelated_envelope_json_is_ignored_and_recomputed(session, tmp_path, backend):
+    """Un ``*_envelope.json`` d'un autre modèle n'est pas repris."""
+    ifc = tmp_path / "DIEPPE-7427L.ifc"
+    ifc.write_text("ISO-10303-21;", encoding="utf-8")
+    etranger = tmp_path / "250613_MN_BAT_envelope.json"
+    etranger.write_text(
+        json.dumps(
+            {
+                "schema": "envelope_quantities/v1",
+                "source": {"ifc_file": "250613_MN_BAT.ifc"},
+                "summary": {"superficie_facades_m2": 1.0, "shab_m2": 1.0},
+                "par_type": [{"type": "X", "etages": [], "net_side_area_m2": 1.0, "n": 1}],
+                "hors_filtre_type": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    res = _generer(
+        envelope_layer_pattern="221|extérieurs périphériques",
+        envelope_type_pattern="^ME[ _]",
+    )
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert backend["enveloppe"] == 1, "l'enveloppe étrangère doit être recalculée"
+    assert "250613_MN_BAT" not in str(res["envelope_json_used"])
+
+
+def test_downloaded_ifc_is_used_even_with_a_cache_name(session, tmp_path, backend):
+    """Le .ifc de ``download_model_ifc`` porte un nom de CACHE, pas le nom métier.
+
+    Il est mémorisé en session : c'est la corrélation la plus sûre, et elle ne
+    dépend d'aucune convention de nommage.
+    """
+    sess, _ = session
+    cache = tmp_path / "ifc"
+    cache.mkdir()
+    fichier = cache / "34140_3281472_1744293_2026-08-02.ifc"
+    fichier.write_text("ISO-10303-21;", encoding="utf-8")
+    sess.ifc_path = str(fichier)
+
+    res = _generer()
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert backend["quantites"] == 1
+
+
+def test_bimdata_cache_is_matched_by_ids(session, tmp_path, backend):
+    """Sans chemin en session, le cache est retrouvé par ses identifiants."""
+    sess, _ = session
+    sess.cloud_id, sess.project_id, sess.model_id = "34140", "3281472", "1744293"
+    cache = tmp_path / "ifc"
+    cache.mkdir()
+    (cache / "34140_3281472_1744293_2026-08-02.ifc").write_text("ISO-10303-21;", encoding="utf-8")
+
+    res = _generer()
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert backend["quantites"] == 1
+
+
+def test_explicit_envelope_json_is_accepted_and_validated(session, tmp_path, backend):
+    """L'utilisateur peut forcer un envelope.json : sandboxé et schéma validé."""
+    ifc = tmp_path / "DIEPPE-7427L.ifc"
+    ifc.write_text("ISO-10303-21;", encoding="utf-8")
+    fourni = tmp_path / "mon_envelope.json"
+    fourni.write_text(
+        json.dumps(
+            {
+                "schema": "envelope_quantities/v1",
+                "source": {"ifc_file": "DIEPPE-7427L.ifc"},
+                "summary": {"superficie_facades_m2": 2071.18, "shab_m2": 2164.68},
+                "par_type": [
+                    {"type": "ME_36", "etages": ["RDC"], "net_side_area_m2": 2071.18, "n": 24}
+                ],
+                "hors_filtre_type": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    res = _generer(envelope_json=str(fourni))
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert backend["enveloppe"] == 0, "un fichier fourni n'est pas recalculé"
+    assert res["envelope_json_used"].endswith("mon_envelope.json")
+
+
+def test_explicit_envelope_json_with_unknown_schema_is_refused(session, tmp_path, backend):
+    ifc = tmp_path / "DIEPPE-7427L.ifc"
+    ifc.write_text("ISO-10303-21;", encoding="utf-8")
+    mauvais = tmp_path / "mauvais_envelope.json"
+    mauvais.write_text(json.dumps({"schema": "autre/v9"}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Schéma non reconnu"):
+        _generer(envelope_json=str(mauvais))

@@ -512,12 +512,16 @@ def download_model_ifc(cache_dir: str = ".audit_cache", overwrite: bool = False)
     """
     _State.ensure_client()
     safe_dir = safe_export_dir(cache_dir)
-    return download_ifc(
+    res = download_ifc(
         _State.client,
         cache_dir=str(safe_dir),
         max_mb=config.AUDIT_MAX_IFC_MB,
         overwrite=overwrite,
     )
+    # Mémorisé en session : c'est la corrélation la plus sûre entre le modèle
+    # actif et un fichier .ifc pour le calcul géométrique.
+    _State.ifc_path = res.get("path")
+    return res
 
 
 @mcp.tool()

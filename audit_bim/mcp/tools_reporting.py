@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 import unicodedata
@@ -67,18 +68,49 @@ def _unique_envelope_json(roots: list[Path]) -> str | None:
     return str(candidates[0])
 
 
-def _auto_envelope_json() -> str | None:
-    """Détecte un ``*_envelope.json`` unique dans les dossiers d'entrée connus.
+def _envelope_json_matches_model(path: str | Path) -> bool:
+    """L'``envelope.json`` détecté porte-t-il bien sur le **modèle actif** ?
 
-    Le pack enveloppe conforme dépend du contrat ifc-geometry. Quand le client
-    MCP oublie de passer explicitement ``envelope_json`` mais que le fichier est
-    déjà présent dans un dossier d'entrée connu, on l'utilise plutôt que de
-    retomber silencieusement sur le dump snapshot élémentaire.
+    Un fichier « seul dans le dossier » n'est pas pour autant le bon : reprendre
+    l'enveloppe d'une autre maquette livrerait les façades d'un autre bâtiment,
+    sans aucun signal. On exige donc une corrélation :
+
+    - contrat V1 → ``source.ifc_file`` doit correspondre au modèle actif ;
+    - fichier legacy (sans provenance) → seul le **nom du fichier** peut
+      corréler ; à défaut, on l'ignore et on recalcule.
+    """
+    snap = _State.snapshot
+    modele = ((snap.model or {}).get("name") if snap else None) or ""
+    stem_modele = Path(str(modele)).stem
+    if not stem_modele:
+        return False
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    source = (doc.get("source") or {}).get("ifc_file") if isinstance(doc, dict) else None
+    if source:
+        return Path(str(source)).stem == stem_modele
+    # Legacy sans provenance : le nom du fichier est le seul indice disponible.
+    return Path(path).stem.startswith(stem_modele)
+
+
+def _auto_envelope_json() -> str | None:
+    """Détecte un ``*_envelope.json`` **du modèle actif** dans les dossiers connus.
+
+    La détection ne suffit pas : le fichier doit être corrélé au modèle actif
+    (cf. :func:`_envelope_json_matches_model`). Sinon on préfère recalculer.
     """
     root_raw = os.getenv("AUDIT_INPUT_DIR")
-    if root_raw:
-        return _unique_envelope_json([Path(root_raw)])
-    return _unique_envelope_json(_auto_envelope_roots())
+    trouve = (
+        _unique_envelope_json([Path(root_raw)])
+        if root_raw
+        else _unique_envelope_json(_auto_envelope_roots())
+    )
+    if trouve and not _envelope_json_matches_model(trouve):
+        _server_logger.info("envelope.json ignoré (ne correspond pas au modèle actif) : %s", trouve)
+        return None
+    return trouve
 
 
 def _normalized_filename(value: str) -> str:
@@ -429,6 +461,8 @@ def generate_avp_i3f_pack(
                 ifc_path=ifc_path,
                 layer_pattern=envelope_layer_pattern,
                 type_pattern=envelope_type_pattern,
+                session_ifc_path=getattr(_State, "ifc_path", None),
+                model_ids=(_State.cloud_id, _State.project_id, _State.model_id),
             )
             envelope_json_used = auto_envelope["json_path"]
         except (GeometryInputMissing, GeometryBackendUnavailable) as exc:
@@ -476,7 +510,11 @@ def generate_avp_i3f_pack(
 
         try:
             auto_quantities = ensure_computed_quantities_json(
-                _State.snapshot, ifc_path=ifc_path, force=force_recompute_quantities
+                _State.snapshot,
+                ifc_path=ifc_path,
+                force=force_recompute_quantities,
+                session_ifc_path=getattr(_State, "ifc_path", None),
+                model_ids=(_State.cloud_id, _State.project_id, _State.model_id),
             )
         except (GeometryInputMissing, GeometryBackendUnavailable) as exc:
             return {

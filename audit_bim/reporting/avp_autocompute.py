@@ -138,19 +138,9 @@ def _validate_ifc_path(ifc_path: str | Path) -> Path:
     return cible
 
 
-def resolve_active_ifc(ifc_path: str | Path | None, snapshot) -> Path | None:
-    """Localise le ``.ifc`` du modèle actif, sans réseau.
-
-    Ordre : chemin explicite (validé sandbox) → cache de ``download_model_ifc``
-    → dossier d'entrée. Toute **ambiguïté** est refusée : calculer sur la
-    mauvaise maquette produirait un livrable faux et silencieux.
-    """
-    if ifc_path:
-        return _validate_ifc_path(ifc_path)
-
-    stem = _stem(None, snapshot)
+def _candidats_ifc() -> list[Path]:
+    """Tous les ``.ifc`` visibles depuis les sandbox d'entrée et de sortie."""
     candidats: list[Path] = []
-
     sortie = os.getenv("AUDIT_OUTPUT_DIR")
     if sortie:
         candidats.extend(sorted(Path(sortie).rglob("*.ifc")))
@@ -159,7 +149,56 @@ def resolve_active_ifc(ifc_path: str | Path | None, snapshot) -> Path | None:
     for racine in racines:
         if racine.is_dir():
             candidats.extend(sorted(racine.glob("*.ifc")))
+    return candidats
 
+
+def _cache_bimdata_prefix(model_ids: tuple[str | None, ...] | None) -> str | None:
+    """Préfixe du cache ``download_model_ifc`` : ``<cloud>_<projet>_<modele>_``."""
+    if not model_ids or not all(model_ids[:3]):
+        return None
+    return "_".join(str(x) for x in model_ids[:3]) + "_"
+
+
+def resolve_active_ifc(
+    ifc_path: str | Path | None,
+    snapshot,
+    *,
+    session_ifc_path: str | Path | None = None,
+    model_ids: tuple[str | None, ...] | None = None,
+) -> Path | None:
+    """Localise le ``.ifc`` **du modèle actif**, sans réseau.
+
+    Le fichier doit être **corrélé** au modèle actif, jamais simplement
+    disponible : calculer sur une autre maquette produirait un livrable faux et
+    silencieux — des surfaces d'un autre bâtiment, sans aucun signal.
+
+    Sources acceptées, dans l'ordre :
+
+    1. ``ifc_path`` explicite (validé sandbox) ;
+    2. chemin retourné par ``download_model_ifc`` et mémorisé en session ;
+    3. cache BIMData, dont le nom porte ``cloud_id``/``project_id``/``model_id`` ;
+    4. ``.ifc`` dont le *stem* est **exactement** celui du modèle actif.
+
+    Un unique ``.ifc`` non corrélé n'est **pas** un repli : si le modèle actif
+    est nommé et qu'aucune source ne correspond, on préfère demander.
+    """
+    if ifc_path:
+        return _validate_ifc_path(ifc_path)
+
+    if session_ifc_path:
+        p = Path(session_ifc_path)
+        if p.is_file():
+            return p
+
+    candidats = _candidats_ifc()
+
+    prefixe = _cache_bimdata_prefix(model_ids)
+    if prefixe:
+        caches = sorted({c.resolve() for c in candidats if c.stem.startswith(prefixe)})
+        if caches:
+            return caches[-1]  # le plus récent (modified_date en suffixe)
+
+    stem = _stem(None, snapshot)
     if stem and stem != "modele":
         exacts = sorted({c.resolve() for c in candidats if c.stem == stem})
         if len(exacts) > 1:
@@ -171,8 +210,13 @@ def resolve_active_ifc(ifc_path: str | Path | None, snapshot) -> Path | None:
             )
         if exacts:
             return exacts[0]
-    # Sans nom de modèle exploitable, on n'accepte qu'un candidat UNIQUE :
-    # choisir arbitrairement entre plusieurs maquettes serait un pari.
+        # Modèle actif NOMMÉ mais aucun fichier corrélé : on ne se rabat pas sur
+        # « le seul .ifc du dossier ». Un fichier disponible n'est pas un
+        # fichier pertinent.
+        return None
+
+    # Modèle actif sans nom exploitable : un candidat UNIQUE reste acceptable,
+    # faute de quoi aucun calcul ne serait jamais possible dans ce cas.
     uniques = {c.resolve() for c in candidats}
     return next(iter(uniques)) if len(uniques) == 1 else None
 
@@ -182,6 +226,8 @@ def ensure_computed_quantities_json(
     *,
     ifc_path: str | Path | None = None,
     force: bool = False,
+    session_ifc_path: str | Path | None = None,
+    model_ids: tuple[str | None, ...] | None = None,
 ) -> dict[str, Any]:
     """Garantit la disponibilité du contrat ``computed_base_quantities/v1``.
 
@@ -212,7 +258,9 @@ def ensure_computed_quantities_json(
                 "coverage": existant.get("coverage"),
             }
 
-    source = resolve_active_ifc(ifc_path, snapshot)
+    source = resolve_active_ifc(
+        ifc_path, snapshot, session_ifc_path=session_ifc_path, model_ids=model_ids
+    )
     if source is None:
         raise GeometryInputMissing(
             "Aucun fichier .ifc du modèle actif n'a été trouvé pour calculer les "
@@ -240,6 +288,8 @@ def ensure_envelope_json(
     layer_pattern: str | None = None,
     type_pattern: str | None = None,
     force: bool = False,
+    session_ifc_path: str | Path | None = None,
+    model_ids: tuple[str | None, ...] | None = None,
 ) -> dict[str, Any]:
     """Garantit la disponibilité du contrat ``envelope_quantities/v1``.
 
@@ -258,7 +308,9 @@ def ensure_envelope_json(
         if existant is not None:
             return {"json_path": str(cible), "reused": True, "computed": False}
 
-    source = resolve_active_ifc(ifc_path, snapshot)
+    source = resolve_active_ifc(
+        ifc_path, snapshot, session_ifc_path=session_ifc_path, model_ids=model_ids
+    )
     if source is None:
         raise GeometryInputMissing(
             "Aucun fichier .ifc du modèle actif n'a été trouvé pour calculer "
