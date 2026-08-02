@@ -529,6 +529,9 @@ def test_downloaded_ifc_is_used_even_with_a_cache_name(session, tmp_path, backen
     dépend d'aucune convention de nommage.
     """
     sess, _ = session
+    # `download_model_ifc` suppose `set_active_model` : la session porte donc
+    # toujours les identifiants qui permettent de rattacher le cache à la cible.
+    sess.cloud_id, sess.project_id, sess.model_id = "34140", "3281472", "1744293"
     cache = tmp_path / "ifc"
     cache.mkdir()
     fichier = cache / "34140_3281472_1744293_2026-08-02.ifc"
@@ -590,3 +593,63 @@ def test_explicit_envelope_json_with_unknown_schema_is_refused(session, tmp_path
 
     with pytest.raises(ValueError, match="Schéma non reconnu"):
         _generer(envelope_json=str(mauvais))
+
+
+# ── changement de modèle : le .ifc de l'ancienne cible ne doit pas suivre ──
+
+
+def test_stale_session_ifc_is_not_used_after_model_change(session, tmp_path, backend):
+    """Télécharger MN_BAT, basculer sur Dieppe, générer : jamais MN_BAT.
+
+    C'est le scénario réel : ``download_model_ifc`` mémorise un chemin, puis
+    ``set_active_model`` change de cible. Sans recroisement, le calcul repartait
+    sur la maquette précédente et livrait les surfaces d'un autre bâtiment.
+    """
+    sess, _ = session
+    ancien = tmp_path / "250613_MN_BAT.ifc"
+    ancien.write_text("ISO-10303-21;", encoding="utf-8")
+    sess.ifc_path = str(ancien)  # hérité de la cible précédente
+
+    res = _generer()  # le snapshot de session est Dieppe
+
+    assert res["status"] == "needs_context"
+    assert res["missing"] == ["ifc_path"]
+    assert backend["quantites"] == 0, "aucun calcul sur l'IFC de l'ancienne cible"
+
+
+def test_set_active_model_clears_the_memorised_ifc(session, monkeypatch):
+    """``set_active_model`` invalide le chemin mémorisé, comme les autres caches."""
+    from audit_bim.mcp import tools_session
+
+    sess, _ = session
+    sess.ifc_path = "/chemin/vers/250613_MN_BAT.ifc"
+    monkeypatch.setattr(tools_session, "BIMDataClient", lambda **_kw: object())
+
+    tools_session.set_active_model(cloud_id="34140", project_id="3281472", model_id="1744293")
+
+    assert sess.ifc_path is None
+    assert sess.snapshot is None  # cohérent avec les autres invalidations
+
+
+def test_contract_from_a_bimdata_cache_ifc_is_reused(session, tmp_path, backend):
+    """P2 : un contrat calculé depuis un .ifc de CACHE reste réutilisable.
+
+    Sa provenance porte le nom d'identifiants BIMData, pas le nom métier :
+    sans reconnaissance de cette forme, chaque génération recalculait.
+    """
+    sess, _ = session
+    sess.cloud_id, sess.project_id, sess.model_id = "34140", "3281472", "1744293"
+    cache = tmp_path / "ifc"
+    cache.mkdir()
+    fichier = cache / "34140_3281472_1744293_2026-08-02.ifc"
+    fichier.write_text("ISO-10303-21;", encoding="utf-8")
+    sess.ifc_path = str(fichier)
+
+    premier = _generer()
+    assert premier.get("status") not in ("error", "needs_context"), premier
+    assert backend["quantites"] == 1
+
+    second = _generer()
+    assert second.get("status") not in ("error", "needs_context"), second
+    assert backend["quantites"] == 1, "le contrat du cache BIMData doit être réutilisé"
+    assert second["auto_computed"]["quantities"]["reused"] is True

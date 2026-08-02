@@ -73,18 +73,34 @@ def _stem(ifc_path: str | Path | None, snapshot) -> str:
     return Path(name).stem if name else "modele"
 
 
-def _contract_matches_model(doc: dict[str, Any], snapshot, ifc_path: str | Path | None) -> bool:
+def _contract_matches_model(
+    doc: dict[str, Any],
+    snapshot,
+    ifc_path: str | Path | None,
+    *,
+    session_ifc_path: str | Path | None = None,
+    model_ids: tuple[str | None, ...] | None = None,
+) -> bool:
     """Le contrat porte-t-il bien sur le **modèle actif** ?
 
     Un nom de fichier qui « tombe bien » ne suffit pas : réutiliser le contrat
     d'une autre maquette produirait des surfaces d'un autre bâtiment, sans
-    aucun signal. On compare donc la provenance déclarée (``source.ifc_file``)
-    au ``.ifc`` visé ou au modèle actif ; en cas de doute, on recalcule.
+    aucun signal. On compare la provenance déclarée (``source.ifc_file``) aux
+    formes de nom légitimes de la cible — nom métier **et** nom de cache
+    BIMData, sans quoi un contrat calculé depuis un ``.ifc`` téléchargé serait
+    recalculé à chaque génération. En cas de doute, on recalcule.
     """
     source = (doc.get("source") or {}).get("ifc_file")
     if not source:
         return False  # provenance inconnue -> on ne parie pas
     stem_contrat = Path(str(source)).stem
+
+    prefixe = _cache_bimdata_prefix(model_ids)
+    if prefixe and stem_contrat.startswith(prefixe):
+        return True
+    if session_ifc_path and stem_contrat == Path(session_ifc_path).stem:
+        return True
+
     attendus = {s for s in (_stem(ifc_path, snapshot), _stem(None, snapshot)) if s}
     attendus.discard("modele")
     return bool(attendus) and stem_contrat in attendus
@@ -96,6 +112,8 @@ def _read_contract(
     *,
     snapshot=None,
     ifc_path: str | Path | None = None,
+    session_ifc_path: str | Path | None = None,
+    model_ids: tuple[str | None, ...] | None = None,
 ) -> dict[str, Any] | None:
     """Relit un contrat déjà produit **sous le dossier d'export**.
 
@@ -109,7 +127,13 @@ def _read_contract(
         return None
     if not isinstance(doc, dict) or doc.get("schema") != expected_schema:
         return None
-    if snapshot is not None and not _contract_matches_model(doc, snapshot, ifc_path):
+    if snapshot is not None and not _contract_matches_model(
+        doc,
+        snapshot,
+        ifc_path,
+        session_ifc_path=session_ifc_path,
+        model_ids=model_ids,
+    ):
         return None
     return doc
 
@@ -152,6 +176,19 @@ def _candidats_ifc() -> list[Path]:
     return candidats
 
 
+def _ifc_correspond(chemin: Path, prefixe: str | None, stem_modele: str | None) -> bool:
+    """Ce ``.ifc`` appartient-il à la cible courante ?
+
+    Deux formes de nom légitimes : celle du cache ``download_model_ifc``
+    (identifiants BIMData en préfixe) et le nom métier du modèle actif. Sans
+    l'une des deux, le fichier n'est pas rattachable à la cible — et un fichier
+    non rattachable ne doit jamais servir de base de calcul.
+    """
+    if prefixe and chemin.stem.startswith(prefixe):
+        return True
+    return bool(stem_modele) and stem_modele != "modele" and chemin.stem == stem_modele
+
+
 def _cache_bimdata_prefix(model_ids: tuple[str | None, ...] | None) -> str | None:
     """Préfixe du cache ``download_model_ifc`` : ``<cloud>_<projet>_<modele>_``."""
     if not model_ids or not all(model_ids[:3]):
@@ -185,20 +222,26 @@ def resolve_active_ifc(
     if ifc_path:
         return _validate_ifc_path(ifc_path)
 
+    prefixe = _cache_bimdata_prefix(model_ids)
+    stem_modele = _stem(None, snapshot)
+
     if session_ifc_path:
+        # Défense en profondeur : `set_active_model` remet ce champ à None,
+        # mais on ne s'en remet pas à cette seule invalidation. Un chemin
+        # mémorisé n'est accepté que s'il CORRESPOND à la cible courante —
+        # sinon on l'ignore et la résolution continue.
         p = Path(session_ifc_path)
-        if p.is_file():
+        if p.is_file() and _ifc_correspond(p, prefixe, stem_modele):
             return p
 
     candidats = _candidats_ifc()
 
-    prefixe = _cache_bimdata_prefix(model_ids)
     if prefixe:
         caches = sorted({c.resolve() for c in candidats if c.stem.startswith(prefixe)})
         if caches:
             return caches[-1]  # le plus récent (modified_date en suffixe)
 
-    stem = _stem(None, snapshot)
+    stem = stem_modele
     if stem and stem != "modele":
         exacts = sorted({c.resolve() for c in candidats if c.stem == stem})
         if len(exacts) > 1:
@@ -249,6 +292,8 @@ def ensure_computed_quantities_json(
             SCHEMA_COMPUTED_BASE_QUANTITIES_V1,
             snapshot=snapshot,
             ifc_path=ifc_path,
+            session_ifc_path=session_ifc_path,
+            model_ids=model_ids,
         )
         if existant is not None:
             return {
@@ -303,7 +348,12 @@ def ensure_envelope_json(
     )
     if not force:
         existant = _read_contract(
-            cible, SCHEMA_ENVELOPE_QUANTITIES_V1, snapshot=snapshot, ifc_path=ifc_path
+            cible,
+            SCHEMA_ENVELOPE_QUANTITIES_V1,
+            snapshot=snapshot,
+            ifc_path=ifc_path,
+            session_ifc_path=session_ifc_path,
+            model_ids=model_ids,
         )
         if existant is not None:
             return {"json_path": str(cible), "reused": True, "computed": False}

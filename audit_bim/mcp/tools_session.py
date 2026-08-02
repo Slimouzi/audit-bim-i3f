@@ -344,6 +344,10 @@ def set_active_model(
     # Invalide les caches downstream
     _State.snapshot = None
     _State.result = None
+    # Le .ifc rapatrié appartient au modèle PRÉCÉDENT : le garder ferait
+    # calculer les quantités et l'enveloppe de l'ancienne maquette sur la
+    # nouvelle cible — des surfaces d'un autre bâtiment, sans aucun signal.
+    _State.ifc_path = None
     # E8 — le store de suggestions est construit sur les UUIDs du modèle précédent :
     # sans invalidation, un plan de classifications scellé sur la NOUVELLE cible
     # porterait les UUIDs de l'ANCIENNE → écritures parasites sur le mauvais modèle
