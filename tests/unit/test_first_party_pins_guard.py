@@ -201,11 +201,63 @@ def test_installed_version_mismatch_is_caught(depot):
     assert "un pin correct ne dit rien" in ecarts[0]
 
 
-def test_absent_package_only_fails_in_strict_mode(depot):
-    chemin = depot(geo_tag="ifc-geometry-mcp-v0.3.0")
-    souple = check(Path(chemin), strict_installed=False)
-    strict = check(Path(chemin), strict_installed=True)
-    assert len(strict) >= len(souple)
+def test_absent_optional_package_is_refused_in_strict_mode(depot, monkeypatch):
+    """Un paquet **optionnel absent** doit échouer en mode strict.
+
+    C'est l'angle mort du garde-fou : hors mode strict, une brique non installée
+    est simplement ignorée — et « ignoré » ressemble à « conforme » dans un
+    rapport vert. Or c'est exactement le cas d'``ifc-geometry-mcp``, installé
+    par le seul extra ``geometry`` : un job qui ne l'installe pas ne prouve rien
+    sur sa version.
+
+    ``installed_version`` est substitué pour rendre le test déterministe, quel
+    que soit l'environnement où il tourne.
+    """
+    import check_first_party_pins as guard
+
+    monkeypatch.setattr(
+        guard,
+        "installed_version",
+        lambda nom: None if nom == "ifc-geometry-mcp" else "0.3.0",
+    )
+    chemin = depot(core_tag="bim-core-v0.3.0", geo_tag="ifc-geometry-mcp-v0.3.0")
+
+    souple = guard.check(Path(chemin), strict_installed=False)
+    strict = guard.check(Path(chemin), strict_installed=True)
+
+    assert not any("ifc-geometry-mcp" in e for e in souple), (
+        "hors mode strict, une brique absente est tolérée"
+    )
+    manquants = [e for e in strict if "ifc-geometry-mcp" in e and "non installé" in e]
+    assert manquants, "en mode strict, une brique absente doit être refusée"
+
+
+def test_strict_mode_is_silent_when_everything_is_installed(depot, monkeypatch):
+    """Le mode strict n'invente pas d'écart quand tout concorde."""
+    import check_first_party_pins as guard
+
+    monkeypatch.setattr(guard, "installed_version", lambda _nom: "0.3.0")
+    chemin = depot(core_tag="bim-core-v0.3.0", geo_tag="ifc-geometry-mcp-v0.3.0")
+
+    assert guard.check(Path(chemin), strict_installed=True) == []
+
+
+def test_ci_installs_the_geometry_backend_for_the_strict_check():
+    """Garde-fou du garde-fou : la CI doit installer ``ifc-geometry-mcp``.
+
+    Sans cette installation, le contrôle d'environnement passe en ignorant
+    précisément le paquet dont l'incident est parti. Ce test relie le script à
+    son usage réel en CI — les deux étaient corrects séparément et inopérants
+    ensemble.
+    """
+    ci = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    strictes = [ligne for ligne in ci.splitlines() if "--strict-installed" in ligne]
+    assert strictes, "aucun appel en mode strict dans la CI"
+    assert "ifc-geometry-mcp.git@ifc-geometry-mcp-v" in ci, (
+        "le job strict doit installer ifc-geometry-mcp depuis son tag"
+    )
 
 
 # ── briques du script ──────────────────────────────────────────────────
