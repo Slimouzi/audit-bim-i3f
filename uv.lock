@@ -125,6 +125,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "reportlab" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.metadata]
@@ -158,6 +159,7 @@ requires-dist = [
     { name = "reportlab", marker = "extra == 'test'", specifier = ">=4.0" },
     { name = "requests", specifier = ">=2.31,<3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
+    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'test'", specifier = ">=2.0" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "xlsxwriter", specifier = ">=3.2,<4" },
 ]
