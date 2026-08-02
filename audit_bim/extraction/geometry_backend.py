@@ -9,14 +9,10 @@ Pourquoi pas un appel MCP → MCP : cela dépendrait du harnais (tools énumér�
 l'ouverture d'une conversation, serveur chargé au démarrage), donc d'un contexte
 que le produit ne contrôle pas. Un import Python est déterministe et testable.
 
-Le backend est une **dépendance optionnelle** : ifcopenshell est lourd et tous
-les déploiements d'audit-bim n'en ont pas besoin. Son absence n'est jamais une
-erreur silencieuse — elle produit un message qui nomme ce qui manque et comment
-l'installer.
-
-Il n'est pas encore déclaré en extra du paquet : cela suppose un **tag immuable**
-d'ifc-geometry (master porte la version 0.2.0, non taguée à ce jour). D'ici là,
-l'installation est explicite et documentée par le message d'erreur.
+Le backend est une **dépendance optionnelle** (extra ``geometry``) : ifcopenshell
+est lourd et tous les déploiements d'audit-bim n'en ont pas besoin. Son absence
+n'est jamais une erreur silencieuse — elle produit un message qui nomme ce qui
+manque et comment l'installer.
 """
 
 from __future__ import annotations
@@ -25,8 +21,9 @@ from pathlib import Path
 from typing import Any
 
 BACKEND_DISTRIBUTION = "ifc-geometry-mcp"
-#: Installation du backend, tant qu'il n'est pas déclaré en extra du paquet.
-BACKEND_INSTALL = "pip install 'git+https://github.com/Slimouzi/ifc-geometry-mcp.git@master'"
+#: Extra à installer pour activer le calcul géométrique local.
+BACKEND_EXTRA = "geometry"
+BACKEND_INSTALL = f"pip install 'audit-bim-i3f[{BACKEND_EXTRA}]'"
 
 
 class GeometryBackendUnavailable(RuntimeError):
@@ -98,6 +95,7 @@ def compute_envelope_payload(
 
 __all__ = [
     "BACKEND_DISTRIBUTION",
+    "BACKEND_EXTRA",
     "BACKEND_INSTALL",
     "GeometryBackendUnavailable",
     "backend_available",
