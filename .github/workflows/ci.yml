@@ -26,7 +26,7 @@ jobs:
         run: ruff format --check audit_bim tests scripts
 
   first-party-pins:
-    name: Cohérence des versions first-party
+    name: Cohérence des versions first-party (fichiers)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -37,6 +37,9 @@ jobs:
       # apparaît dans pyproject.toml, uv.lock, les workflows et le README, sans
       # que rien ne relie ces endroits. release.yml a ainsi porté une génération
       # de retard sur chaque brique sans jamais échouer. Ce job ferme la porte.
+      # Périmètre : cohérence des FICHIERS entre eux, sans installation. Le
+      # contrôle de l'ENVIRONNEMENT (paquet installé vs tag) vit dans le job de
+      # tests, où les briques sont réellement installées.
       - name: Vérifier pyproject / uv.lock / workflows / README
         run: python scripts/check_first_party_pins.py
       - name: Guard — no raw BIMData _post in audit_bim
@@ -84,6 +87,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
+      # Le job dédié ne vérifie que les FICHIERS : rien n'y est installé. Ici les
+      # briques first-party le sont (depuis leurs tags), donc le contrôle
+      # « paquet installé == tag attendu » s'exerce réellement — c'est lui qui
+      # aurait attrapé le backend resté en 0.2.0 face à un pin en 0.3.0.
+      - name: Vérifier que l'environnement correspond aux tags épinglés
+        run: python scripts/check_first_party_pins.py
       - name: Run pytest with coverage
         run: |
           pytest --cov=audit_bim --cov-report=xml --cov-report=term tests/unit
