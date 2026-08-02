@@ -98,6 +98,9 @@ test = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
     "reportlab>=4.0",
+    # Lecture de pyproject.toml / uv.lock par le garde-fou de versions
+    # (``tomllib`` n'existe qu'à partir de Python 3.11).
+    "tomli>=2.0; python_version < '3.11'",
 ]
 ocr = [
     "pytesseract>=0.3",

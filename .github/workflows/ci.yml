@@ -24,6 +24,21 @@ jobs:
         run: ruff check audit_bim tests scripts
       - name: Ruff format check
         run: ruff format --check audit_bim tests scripts
+
+  first-party-pins:
+    name: Cohérence des versions first-party
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # Les paquets first-party sont résolus par tag Git immuable : leur version
+      # apparaît dans pyproject.toml, uv.lock, les workflows et le README, sans
+      # que rien ne relie ces endroits. release.yml a ainsi porté une génération
+      # de retard sur chaque brique sans jamais échouer. Ce job ferme la porte.
+      - name: Vérifier pyproject / uv.lock / workflows / README
+        run: python scripts/check_first_party_pins.py
       - name: Guard — no raw BIMData _post in audit_bim
         # Les écritures BIMData doivent passer par les méthodes nommées de
         # bimdata-write (create_classification, assign_classification_elements,

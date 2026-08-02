@@ -7,6 +7,25 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added (CI — garde-fou de cohérence des versions first-party)
+
+- **`scripts/check_first_party_pins.py`** + job CI dédié. Les paquets
+  first-party sont résolus par **tag Git immuable** et leur version apparaît à
+  quatre endroits — `pyproject.toml` (contrainte et tag), `uv.lock`, les
+  workflows, le README — sans que rien ne relie ces endroits.
+- Le script échoue si : le tag ne satisfait pas la contrainte déclarée (pin hors
+  borne), `uv.lock` verrouille un autre tag ou n'a pas l'entrée, un workflow ou
+  le README cite un autre tag, ou le paquet **installé** diffère du tag attendu.
+- Ce dernier contrôle est le moins évident et le plus utile : un `pyproject.toml`
+  correct ne dit rien de ce qui est réellement installé.
+- Motivé par deux dérives **survenues** : `release.yml` a porté une génération
+  de retard sur chaque brique sans jamais échouer (bornes larges → tags périmés
+  silencieusement valides), et l'extra `geometry` a épinglé une version en
+  arrière du tag publié.
+- Tests : `test_first_party_pins_guard.py` (21) — chaque cas rejoue une dérive
+  réelle sur une fixture minimale, plus une vérification que **le dépôt lui-même**
+  reste cohérent.
+
 ### Fixed (auto-calcul — une maquette n'est pas un classeur)
 
 - **Toute maquette réelle était refusée** par l'auto-calcul : la validation du
