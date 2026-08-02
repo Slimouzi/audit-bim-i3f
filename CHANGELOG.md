@@ -7,6 +7,23 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Fixed (auto-calcul — une maquette n'est pas un classeur)
+
+- **Toute maquette réelle était refusée** par l'auto-calcul : la validation du
+  `.ifc` passait par `safe_input_path`, dont le plafond `AUDIT_MAX_INPUT_MB`
+  (50 Mo) est calibré pour des classeurs et des PDF. La maquette de référence
+  pèse 167 Mo, et `download_model_ifc` en accepte jusqu'à 500 Mo
+  (`AUDIT_MAX_IFC_MB`). Le défaut était invisible en test — les `.ifc`
+  synthétiques y font quelques octets.
+- La validation sépare désormais **confinement** (sandbox de lecture puis
+  d'export, jamais relâché, traversée refusée) et **contrôles propres à la
+  maquette** (extension, fichier régulier, plafond `AUDIT_MAX_IFC_MB`), ces
+  derniers appliqués quel que soit le chemin de validation retenu.
+- Vérifié de bout en bout sur la maquette réelle `250613_MN_BAT.ifc` (167 Mo)
+  avec le backend IfcOpenShell réellement installé : 1 315 quantités calculées
+  sur 896 éléments, enveloppe à 8 types métier / 2 071,18 m² / SHAB 2 164,68 /
+  ratio 0,9568, et réutilisation instantanée du contrat au second appel.
+
 ### Added (pack AVP — auto-résolution des contrats géométriques)
 
 - **`generate_avp_i3f_pack` se soigne tout seul.** Si le snapshot ne porte pas
