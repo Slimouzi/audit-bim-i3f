@@ -21,7 +21,6 @@ from .app import mcp
 from .phase import (
     _VALID_PHASES,
     _detect_snapshot_phase,
-    _map_phase,
     _phase_question_dict,
     _snapshot_address_suggestion,
     _snapshot_description,
@@ -597,13 +596,10 @@ def generate_avp_i3f_pack(
     # Chargement unique des sources (lues aussi pour résoudre le code ESI).
     sources = load_sources(source_paths)
 
-    ctrl_header = (sources.controle.header if sources.controle else {}) or {}
-
-    def _hdr(key: str) -> str | None:
-        v = ctrl_header.get(key)
-        return str(v).strip() if v not in (None, "") and str(v).strip() else None
-
     # ── Résolution de l'identité projet (nom / code) ────────────────────
+    # Note : l'entête du classeur MOA n'est plus lue ici, et le helper qui la
+    # lisait a été supprimé plutôt que laissé inutilisé — un lecteur d'entête
+    # encore présent à portée de main est une invitation à le rebrancher.
     # Ordre STRICT : **paramètre explicite → on demande**. Il n'y a pas de
     # troisième source.
     #
@@ -631,12 +627,17 @@ def generate_avp_i3f_pack(
         eff_code = None
     sug_name, sug_code = _model_identity_suggestion()
 
-    # Phase : param explicite > phase d'audit confirmée > entête contrôle I3F.
+    # Phase : paramètre explicite > phase d'audit **confirmée** > on demande.
+    #
+    # L'entête du classeur MOA est écartée ici pour la même raison que le nom et
+    # le code : la phase entre dans le nom du fichier remis au client. Un gabarit
+    # Tarare en AVP nommait « … Dieppe 7427L AVP - … » un pack en APD — le défaut
+    # est le même, simplement plus discret parce qu'une phase reste toujours
+    # plausible. ``_State.phase`` est conservée : elle a été confirmée par
+    # l'auditeur au moment de ``set_active_model``, ce n'est pas un repli.
     eff_phase = (phase or "").strip() or None
     if not eff_phase and _State.phase is not None:
         eff_phase = _State.phase.value
-    if not eff_phase:
-        eff_phase = _map_phase(_hdr("phase"))
 
     # Auteur du contrôle : I3F attend un auteur nommé (CdP BIM / auditeur
     # AMO). On **demande** explicitement plutôt que de retomber sur un
@@ -694,15 +695,11 @@ def generate_avp_i3f_pack(
             q["question"] += f" (le nom de la maquette suggère « {sug_code} »)"
         questions.append(q)
     if not eff_phase:
-        # Phase unique : proposée si détectée (IFC puis entête contrôle),
-        # sinon demandée — jamais défautée silencieusement sur « AVP ».
+        # Phase unique : proposée si détectée **dans la maquette**, sinon
+        # demandée — jamais défautée silencieusement sur « AVP », et jamais
+        # reprise de l'entête d'un gabarit MOA (elle nomme le fichier client).
         missing.append("project_phase")
-        det_raw, det_mapped = _detect_snapshot_phase()
-        if not det_raw:
-            hdr_phase = _hdr("phase")
-            if hdr_phase:
-                det_raw, det_mapped = hdr_phase, _map_phase(hdr_phase)
-        questions.append(_phase_question_dict(det_raw, det_mapped))
+        questions.append(_phase_question_dict(*_detect_snapshot_phase()))
     if not eff_auteur:
         # Clé alignée sur le PARAMÈTRE à employer : une question dont la clé ne
         # correspond à aucun paramètre du tool guide vers un appel invalide.
@@ -717,10 +714,12 @@ def generate_avp_i3f_pack(
                 "accepted_aliases": ["auteur_controle", "auditor"],
             }
         )
-    # L'identité projet (nom + code) n'est **jamais** contournable : elle nomme
-    # des fichiers remis au client. ``confirm_context`` ne couvre que le
-    # contexte documentaire (phase, auteur du contrôle).
-    identity_missing = [m for m in missing if m in ("project_name", "project_code")]
+    # Tout ce qui NOMME un fichier remis au client est incontournable : le nom,
+    # le code **et la phase**. ``confirm_context`` ne couvre que ce qui reste
+    # interne au document — ici l'auteur du contrôle.
+    identity_missing = [
+        m for m in missing if m in ("project_name", "project_code", "project_phase")
+    ]
     if identity_missing or (missing and not confirm_context):
         return {
             "status": "needs_context",
@@ -731,9 +730,9 @@ def generate_avp_i3f_pack(
                 "``project_phase`` (=``phase``) / ``auditor_name`` puis "
                 "re-appeler ``generate_avp_i3f_pack``."
                 + (
-                    " ``project_name`` et ``project_code`` sont OBLIGATOIRES : "
-                    "ils nomment les livrables client et ne peuvent pas être "
-                    "contournés par ``confirm_context``."
+                    " ``project_name``, ``project_code`` et ``project_phase`` "
+                    "sont OBLIGATOIRES : ils nomment les livrables client et ne "
+                    "peuvent pas être contournés par ``confirm_context``."
                     if identity_missing
                     else " Pour générer malgré tout, passer ``confirm_context=True``."
                 )

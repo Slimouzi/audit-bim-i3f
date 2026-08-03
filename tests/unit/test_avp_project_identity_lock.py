@@ -197,9 +197,114 @@ def test_moa_header_never_even_suggests_an_identity(tmp_path, monkeypatch):
 
 
 def test_confirm_context_never_bypasses_identity(session):
-    """``confirm_context`` couvre la phase et l'auteur, jamais l'identité."""
+    """``confirm_context`` couvre l'auteur du contrôle, jamais ce qui nomme."""
     res = _generer(confirm_context=True)
 
     assert res["status"] == "needs_context"
     assert {"project_name", "project_code"} <= set(res["missing"])
     assert "OBLIGATOIRES" in res["next_step"]
+
+
+# ── la phase aussi nomme le fichier ────────────────────────────────────
+
+
+def _session_sans_phase(tmp_path, monkeypatch, modele=MODELE):
+    monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
+    sess = _Session()
+    sess.snapshot = ModelSnapshot(
+        project={"name": "MCP_Audit"},
+        model={"name": modele},
+        zones=[{"uuid": "Z1", "type": "IfcZone", "name": "LOGEMENT 01", "space_uuids": ["SP1"]}],
+        spaces=[_espace("SP1", "SEJOUR", 25.4)],
+    ).index()
+    sess.phase = None
+    return sess
+
+
+def _gabarit_moa_avp(tmp_path):
+    """Classeur de contrôle du chantier de référence, en phase AVP."""
+    import openpyxl
+
+    chemin = tmp_path / "controle.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Grille de contrôle"
+    ws["B2"], ws["C2"] = "Projet", "Tarare"
+    ws["B3"], ws["C3"] = "ESI", "0546L"
+    ws["B4"], ws["C4"] = "Phase", "AVP"
+    wb.save(chemin)
+    return str(chemin)
+
+
+def test_moa_header_phase_never_names_the_deliverables(tmp_path, monkeypatch):
+    """Un gabarit AVP ne doit pas nommer « AVP » un pack dont la phase est inconnue.
+
+    Même famille que le nom et le code, en plus discret : une phase reste
+    toujours plausible, donc rien ne signale l'erreur à la relecture. Le pack
+    sortirait « <Projet> <Code> AVP - … » sur une opération en APD.
+    """
+    from audit_bim.mcp import tools_reporting
+
+    monkeypatch.setattr(tools_reporting, "_auto_controle_xlsx", lambda: None)
+    sess = _session_sans_phase(tmp_path, monkeypatch)
+    token = current_session.set(sess)
+    try:
+        res = mcp_server.generate_avp_i3f_pack(
+            project_name="Dieppe",
+            project_code="7427L",
+            auditor_name="Stanislas Limouzi",
+            controle_xlsx=_gabarit_moa_avp(tmp_path),
+            export_pdf=False,
+        )
+    finally:
+        current_session.reset(token)
+
+    assert res["status"] == "needs_context"
+    assert "project_phase" in res["missing"]
+    assert res.get("phase") is None
+    assert not list(tmp_path.glob("avp_pack_*"))
+
+
+def test_phase_is_not_bypassable_by_confirm_context(tmp_path, monkeypatch):
+    """Elle nomme le fichier : même statut que ``project_name`` / ``project_code``."""
+    from audit_bim.mcp import tools_reporting
+
+    monkeypatch.setattr(tools_reporting, "_auto_controle_xlsx", lambda: None)
+    sess = _session_sans_phase(tmp_path, monkeypatch)
+    token = current_session.set(sess)
+    try:
+        res = mcp_server.generate_avp_i3f_pack(
+            project_name="Dieppe",
+            project_code="7427L",
+            auditor_name="Stanislas Limouzi",
+            controle_xlsx=_gabarit_moa_avp(tmp_path),
+            confirm_context=True,
+            export_pdf=False,
+        )
+    finally:
+        current_session.reset(token)
+
+    assert res["status"] == "needs_context"
+    assert "project_phase" in res["missing"]
+    assert "OBLIGATOIRES" in res["next_step"]
+
+
+def test_confirmed_session_phase_is_still_a_valid_source(tmp_path, monkeypatch):
+    """``_State.phase`` a été confirmée par l'auditeur : ce n'est pas un repli."""
+    from audit_bim.requirements.models import BIMPhase
+
+    sess = _session_sans_phase(tmp_path, monkeypatch)
+    sess.phase = BIMPhase.AVP
+    token = current_session.set(sess)
+    try:
+        res = mcp_server.generate_avp_i3f_pack(
+            project_name="Dieppe",
+            project_code="7427L",
+            auditor_name="Stanislas Limouzi",
+            export_pdf=False,
+        )
+    finally:
+        current_session.reset(token)
+
+    assert res.get("status") != "needs_context", res
+    assert res["phase"] == "AVP"

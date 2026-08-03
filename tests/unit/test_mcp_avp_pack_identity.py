@@ -123,8 +123,11 @@ def test_auto_discovered_control_template_never_suggests_its_identity(_isolated)
 
 
 def test_missing_phase_asks_instead_of_defaulting_avp(_isolated):
-    """P2a : aucune phase (entête sans phase, pas de _State.phase) →
-    needs_context sur project_phase, pas de défaut « AVP »."""
+    """P2a : aucune phase (ni paramètre, ni ``_State.phase``) → needs_context
+    sur project_phase, pas de défaut « AVP ».
+
+    Le classeur est ici sans phase, mais cela ne change plus rien : même avec une
+    entête « AVP », le gabarit ne fournit pas la phase (elle nomme le fichier)."""
     sess, tmp_path = _isolated
     _attach_minimal_snapshot(sess)
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx", phase=None)
@@ -153,7 +156,11 @@ def test_explicit_phase_param_used(_isolated):
     assert res["phase"] == "PRO"
 
 
-def test_audit_phase_used_when_header_silent(_isolated):
+def test_confirmed_audit_phase_is_a_valid_source(_isolated):
+    """``_State.phase`` a été confirmée par l'auditeur : ce n'est pas un repli.
+
+    C'est la seule source admise en dehors du paramètre explicite.
+    """
     sess, tmp_path = _isolated
     _attach_minimal_snapshot(sess)
     sess.phase = BIMPhase.DCE
@@ -200,6 +207,9 @@ def test_auteur_controle_from_auditor(_isolated):
         export_pdf=False,
         project_name="Dieppe",
         project_code="7427L",
+        # La phase vient du paramètre : l'entête AVP du gabarit MOA ne la
+        # fournit plus, elle nomme le fichier client.
+        phase="AVP",
     )
     assert res.get("status") != "needs_context"
 
@@ -215,6 +225,7 @@ def test_auteur_controle_bypass_with_confirm(_isolated):
         export_pdf=False,
         project_name="Dieppe",
         project_code="7427L",
+        phase="AVP",
     )
     assert res.get("status") != "needs_context"
 
