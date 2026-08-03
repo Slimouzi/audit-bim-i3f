@@ -92,6 +92,12 @@ class EnveloppeSource:
     # sur toutes les lignes face à un total non nul, et se lire comme un bug.
     menuiseries_perimetre: str | None = None
     menuiseries_sur_types_rejetes: float | None = None
+    # Filtre réellement appliqué par le backend (``diagnostics.filters``). La
+    # note méthodologique du livrable en découle : elle décrit ce qui a été fait,
+    # pas ce qu'on suppose avoir été fait.
+    filter_mode: str | None = None
+    filter_type_pattern: str | None = None
+    filter_types_retenus: list[str] | None = None
 
 
 @dataclass
@@ -443,12 +449,23 @@ def _menuiseries_perimetre(payload) -> dict[str, Any]:
         return {}
     perimetre = diagnostics.get("menuiseries_perimetre")
     rejetes = diagnostics.get("menuiseries_m2_sur_types_rejetes")
+    filtres = diagnostics.get("filters") or {}
+    if not isinstance(filtres, dict):
+        filtres = {}
+    retenus = filtres.get("types_retenus")
     return {
         "menuiseries_perimetre": perimetre if isinstance(perimetre, str) else None,
         "menuiseries_sur_types_rejetes": (
             float(rejetes) if isinstance(rejetes, (int, float)) else None
         ),
+        "filter_mode": _texte_ou_none(filtres.get("mode")),
+        "filter_type_pattern": _texte_ou_none(filtres.get("type_pattern")),
+        "filter_types_retenus": ([str(t) for t in retenus] if isinstance(retenus, list) else None),
     }
+
+
+def _texte_ou_none(valeur) -> str | None:
+    return valeur.strip() if isinstance(valeur, str) and valeur.strip() else None
 
 
 def read_menuiseries(path: str | Path) -> MenuiseriesSource:

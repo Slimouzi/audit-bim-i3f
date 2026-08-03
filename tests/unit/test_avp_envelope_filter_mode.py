@@ -24,7 +24,7 @@ from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.reporting import avp_autocompute
-from audit_bim.reporting.avp.xlsx_enveloppe import _note_menuiseries
+from audit_bim.reporting.avp.xlsx_enveloppe import _note_menuiseries, _note_methodologie
 from audit_bim.reporting.avp_sources import read_envelope_json
 
 PERIMETRE_AVANT_FILTRE = "murs_exterieurs_avant_filtre_type"
@@ -205,3 +205,109 @@ def test_no_note_when_the_producer_says_nothing(tmp_path):
 
     assert src.menuiseries_perimetre is None
     assert _note_menuiseries(src) is None
+
+
+# ── note de méthode : décrit le filtre RÉELLEMENT appliqué ─────────────
+
+
+def _filtres(**kw):
+    base = {
+        "mode": "geometric_type_filter",
+        "layer_pattern": None,
+        "type_pattern": r"MUR ENDUIT|BARDAGE BOIS|ZINC|VERRE REGLIT",
+        "types_retenus": ["Mur de base:MUR ENDUIT 20 mm"],
+        "types_rejetes": ["Mur de base:BETON 200mm"],
+    }
+    base.update(kw)
+    return base
+
+
+def _source(tmp_path, **diagnostics):
+    chemin = tmp_path / "env.json"
+    chemin.write_text(json.dumps(_contrat(**diagnostics)), encoding="utf-8")
+    return read_envelope_json(chemin)
+
+
+def test_methodology_note_states_the_applied_filter(tmp_path):
+    """Un texte générique affirmerait la même chose après un changement de mode.
+
+    La note sort donc de ``diagnostics.filters`` : elle décrit ce que le calcul
+    a fait, pas ce qu'on suppose qu'il a fait.
+    """
+    note = _note_methodologie(_source(tmp_path, filters=_filtres()))
+
+    assert note is not None
+    assert "IFC OpenShell" in note
+    assert "double comptage" in note
+    assert "MUR ENDUIT" in note
+
+
+def test_methodology_note_follows_the_mode(tmp_path):
+    """Mode ArchiCAD : le texte parle de calque, pas de peaux extérieures."""
+    note = _note_methodologie(
+        _source(
+            tmp_path,
+            filters=_filtres(
+                mode="layer_type_filter", layer_pattern=r"221", type_pattern=r"^ME[ _]"
+            ),
+        )
+    )
+
+    assert "calque" in note
+    assert "double comptage" not in note
+
+
+def test_no_methodology_note_without_a_declared_filter(tmp_path):
+    """Contrat d'un producteur antérieur : rien d'affirmé sur la méthode."""
+    assert _note_methodologie(_source(tmp_path)) is None
+
+
+# ── les notes atterrissent réellement dans les fichiers produits ───────
+
+
+def test_notes_reach_the_generated_xlsx(session, tmp_path, monkeypatch):
+    """Vérifier le helper ne dit rien de ce qui atterrit dans le classeur.
+
+    C'est le même angle mort qui avait laissé passer la fuite « Solibri » : une
+    logique juste et un livrable muet. On ouvre donc le fichier produit.
+    """
+    import openpyxl
+
+    def _fake(ifc_path, **kw):
+        return _contrat(
+            filters=_filtres(),
+            menuiseries_perimetre=PERIMETRE_AVANT_FILTRE,
+            menuiseries_m2_sur_types_rejetes=375.89,
+        )
+
+    monkeypatch.setattr(avp_autocompute, "compute_envelope_payload", _fake)
+    ifc = tmp_path / "DIEPPE-7427L.ifc"
+    ifc.write_text("ISO-10303-21;", encoding="utf-8")
+
+    res = mcp_server.generate_avp_i3f_pack(
+        project_name="Dieppe",
+        project_code="7427L",
+        phase="APD",
+        auditor_name="Stanislas Limouzi",
+        envelope_filter_mode="geometric_type_filter",
+        envelope_type_pattern=r"MUR ENDUIT|BARDAGE BOIS|ZINC|VERRE REGLIT",
+        auto_compute_quantities=False,
+        ifc_path=str(ifc),
+        export_pdf=False,
+    )
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    enveloppe = next(p for p in res["paths"] if "Extraction surface enveloppe" in p)
+    wb = openpyxl.load_workbook(enveloppe)
+    texte = "\n".join(
+        str(c)
+        for ws in wb.worksheets
+        for row in ws.iter_rows(values_only=True)
+        for c in row
+        if isinstance(c, str)
+    )
+    wb.close()
+
+    assert "IFC OpenShell" in texte
+    assert "double comptage" in texte
+    assert "mur porteur" in texte

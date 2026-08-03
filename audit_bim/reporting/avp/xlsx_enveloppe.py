@@ -154,11 +154,48 @@ def _build_enveloppe_xlsx(path, sources, meta) -> Path:
         NOT_AVAILABLE if not src or src.seuil_3f is None else src.seuil_3f,
         fmts["threshold"],
     )
-    note = _note_menuiseries(src)
-    if note:
-        write_safe(ws, summary_row + 9, 2, note, fmts["note"])
+    ligne_note = summary_row + 9
+    for note in (_note_methodologie(src), _note_menuiseries(src)):
+        if note:
+            write_safe(ws, ligne_note, 2, note, fmts["note"])
+            ligne_note += 1
     wb.close()
     return path
+
+
+#: Libellés lisibles des modes de sélection du backend IFC OpenShell.
+_LIBELLE_MODE = {
+    "layer_type_filter": "sélection par calque d'enveloppe puis par type de mur",
+    "geometric_type_filter": (
+        "sélection géométrique des murs extérieurs puis filtrage des peaux "
+        "extérieures par type de mur, pour éviter le double comptage des façades "
+        "multicouches"
+    ),
+    "geometric": "sélection géométrique des murs extérieurs, sans filtre de type",
+}
+
+
+def _note_methodologie(src) -> str | None:
+    """Note de méthode du livrable, **dérivée du filtre réellement appliqué**.
+
+    Elle décrit ce que le calcul a fait, pas ce qu'on suppose qu'il a fait : le
+    mode et le motif sortent de ``diagnostics.filters`` du contrat. Un texte
+    générique aurait continué d'affirmer la même chose même après un changement
+    de mode — donc n'aurait rien garanti au lecteur.
+    """
+    if src is None:
+        return None
+    mode = getattr(src, "filter_mode", None)
+    if not mode:
+        return None
+    texte = f"Surfaces calculées via IFC OpenShell — {_LIBELLE_MODE.get(mode, mode)}."
+    motif = getattr(src, "filter_type_pattern", None)
+    if motif:
+        texte += f" Motif de type appliqué : « {motif} »."
+    retenus = getattr(src, "filter_types_retenus", None)
+    if retenus:
+        texte += f" {len(retenus)} type(s) de mur retenu(s) comme façade."
+    return texte
 
 
 def _note_menuiseries(src) -> str | None:
