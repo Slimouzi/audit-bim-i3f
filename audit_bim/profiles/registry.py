@@ -7,7 +7,14 @@ mêmes briques génériques, mais aucune spécialisation I3F ne lui est appliqu�
 
 from __future__ import annotations
 
-from .models import ClientSpecialization, GenericModule, McpProfile, ReferenceFrameworkSpec
+from .models import (
+    ClassificationNarrativeSpec,
+    ClientSpecialization,
+    GenericModule,
+    McpProfile,
+    ReferenceFrameworkSpec,
+    ReportNarrativeSpec,
+)
 
 DEFAULT_PROFILE_ID = "i3f"
 
@@ -106,6 +113,52 @@ _GENERIC_MODULES: tuple[GenericModule, ...] = (
 
 _ALL_GENERIC_KEYS = tuple(m.key for m in _GENERIC_MODULES)
 
+# ── Narratif I3F ─────────────────────────────────────────────────────────────
+# Textes déplacés VERBATIM depuis ``audit_bim/reporting/word_report.py``.
+# Aucune reformulation : le livrable I3F doit rester octet pour octet le même.
+
+_I3F_THEME_HINTS: dict[str, str] = {
+    "Hiérarchie spatiale": "compléter / corriger la hiérarchie spatiale Site → Bâtiment → Étage → Espace (CCH chap. 6.1)",
+    "Nommage Site / Bâtiment / Étage": "aligner le nommage des sites, bâtiments et étages sur les listes fermées du CCH chap. 6.3",
+    "Nommage Zone": "reprendre le nommage des zones (codification I3F, CCH chap. 6.3)",
+    "Nommage Pièce": "reprendre le nommage des pièces (listes fermées, CCH chap. 6.3)",
+    "Classification IFC": "compléter la classification IFC (UniFormat / Omniclass / table 3F)",
+    "Propriété manquante": "renseigner les propriétés / Psets manquants pour la phase",
+    "Propriété invalide": "corriger les valeurs de propriétés invalides ou hors domaine",
+    "Quantités (surfaces, volumes)": "compléter les quantités (NetFloorArea / BaseQuantities)",
+    "Document attendu": "fournir les documents attendus manquants",
+}
+
+_I3F_REPORT_NARRATIVE = ReportNarrativeSpec(
+    theme_hints=_I3F_THEME_HINTS,
+    classification_intro=(
+        "Présence et cohérence de la classification IFC (UniFormat II par "
+        "défaut ; Omniclass / CCI / table interne 3F selon le référentiel)."
+    ),
+    naming_intro=(
+        "Contrôle du nommage des objets, niveaux, zones et espaces selon "
+        "les listes fermées et la codification I3F (CCH chap. 6.3)."
+    ),
+    reference_documents_line=(
+        "• Référentiel CCH I3F : documents transmis par la maîtrise "
+        "d'ouvrage (Cahier des annexes, annexe Spécifications, annexe Nommage)."
+    ),
+    cover_reference_label="Référence du CCBIM utilisé",
+    applied_reference_label="CCBIM appliqué",
+    low_conformity_recommendation=(
+        "Ré-itérer un audit après reprise : l'écart au CCH est important — "
+        "prévoir une revue conjointe MOA / MOE avant la phase suivante."
+    ),
+)
+
+_I3F_CLASSIFICATION_NARRATIVE = ClassificationNarrativeSpec(
+    default_system="UniFormat II",
+    known_systems=("UniFormat", "Omniclass", "CCI"),
+    proprietary_systems=("table 3F",),
+    proprietary_label="table interne 3F",
+)
+
+
 _I3F_PROFILE = McpProfile(
     id="i3f",
     label="AMO BIM I3F",
@@ -119,6 +172,8 @@ _I3F_PROFILE = McpProfile(
         short_name="CCH",
         long_name="Cahier des Charges BIM I3F",
     ),
+    report_narrative=_I3F_REPORT_NARRATIVE,
+    classification_narrative=_I3F_CLASSIFICATION_NARRATIVE,
     enabled_generic_modules=_ALL_GENERIC_KEYS,
     report_packs=("avp_i3f",),
     specializations=(
@@ -170,6 +225,10 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
     # Un défaut hérité ici imprimerait « CCH BIM I3F » dans le rapport d'un
     # autre AMO — exactement l'accident que ce registre existe pour empêcher.
     reference_framework=None,
+    # Idem : aucun narratif hérité. Un profil tiers doit écrire ses phrases,
+    # pas récupérer celles d'I3F par défaut.
+    report_narrative=None,
+    classification_narrative=None,
     enabled_generic_modules=_ALL_GENERIC_KEYS,
     report_packs=(),
     specializations=(

@@ -162,3 +162,42 @@ du rapport Word (`_write_section_methodology`, `_write_section_conclusion`, …)
 restent I3F par leur enchaînement et leur ton, même sans citer « CCH ». Le
 mesurer demande une lecture, pas un script — c'est le sujet de l'extraction
 elle-même, pas de ce cadrage.
+
+
+---
+
+## Résultat de PR C1 (mis à jour après réalisation)
+
+`python scripts/inventory_client_strings.py` après C1 : **32 occurrences, dont 5
+imprimées** (contre 45 / 20 avant).
+
+| Fichier | Total | Imprimées |
+|---|---:|---:|
+| `word_report.py` | 10 | **0** |
+| `context.py` | 15 | 3 |
+| `xlsx_annex.py` | 7 | 2 |
+
+### Trois « imprimées » restantes en dehors d'Excel, volontairement
+
+L'inventaire initial en comptait 20 ; trois d'entre elles se sont révélées ne
+pas être du vocabulaire client à la relecture ligne à ligne :
+
+- `context.py:436` et `:463` — **`MOA`**. « Maîtrise d'ouvrage » est du
+  vocabulaire métier français standard, employé par n'importe quel AMO. Le
+  paramétrer par profil n'apporterait rien : un profil tiers écrirait le même
+  mot. La catégorie `moa_role` de l'inventaire était une sur-classification de
+  ma part.
+- `context.py:486` — **« Cahier des Charges BIM (PDF) »**. Formulation déjà
+  générique : elle ne contient pas « I3F ». Faux positif du motif
+  `Charges\s+BIM`, qui visait « Cahier des Charges BIM I3F ».
+
+Le périmètre réel de C1 était donc de **17 occurrences**, pas 20. Les deux
+restantes sont celles de C2 (structure Excel), inchangées comme prévu.
+
+### Preuve de non-régression
+
+Le Word produit par `master` et par la branche C1, sur les mêmes entrées, est
+**identique paragraphe pour paragraphe** (87 paragraphes, `diff` vide). Cette
+comparaison a été faite via un `git worktree` sur `master`, puis figée en tests
+permanents : paragraphes I3F attendus, libellé de couverture, recommandation
+transverse, table `theme_hints` complète.
