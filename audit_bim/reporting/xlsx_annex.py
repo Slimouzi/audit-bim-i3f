@@ -23,6 +23,7 @@ import xlsxwriter
 from ..audit.engine import AuditResult
 from ..audit.findings import ErrorType, Severity
 from ..classifier import suggest_for_findings, suggestions_map
+from .context import build_reference_framework
 from .theming import (
     SEVERITY_COLORS,
 )
@@ -133,7 +134,8 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
     # — neutralisation systématique en amont.
     safe_project = _neutralize_formula(project.get("name", "?"))
     safe_model = _neutralize_formula(model.get("name", "?"))
-    safe_cch = _neutralize_formula(result.catalog.cch_version or "?")
+    framework = build_reference_framework(result.catalog)
+    safe_cch = _neutralize_formula(framework.version or "?")
     safe_ref = _neutralize_formula(Path(result.catalog.data_spec_source or "").name or "—")
 
     # En-tête brandé BIMData : supertitle gris + titre principal + filet jaune d.accent sur ligne 2 (charte BIMData).
@@ -146,7 +148,7 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
     ws.write("A4", f"Phase auditée : {result.phase.value}", fmts["h2"])
     ws.write("A5", f"Projet : {safe_project}")
     ws.write("A6", f"Modèle : {safe_model}")
-    ws.write("A7", f"CCH version : {safe_cch}")
+    ws.write("A7", f"{framework.short_name or 'Référentiel'} version : {safe_cch}")
     ws.write("A8", f"Référentiel : {safe_ref}")
 
     # KPIs (décalés de +2 lignes pour le bandeau brandé BIMData en haut).
@@ -201,7 +203,8 @@ def _write_referential(wb, result: AuditResult, fmts: dict):
     ws.write("A2", "", fmts["accent_filet"])
     ws.write("B2", "", fmts["accent_filet"])
     ws.set_row(1, 4)
-    ws.write("A3", "Référentiel CCH BIM I3F", fmts["title"])
+    framework = build_reference_framework(result.catalog)
+    ws.write("A3", f"Référentiel {framework.name or '—'}", fmts["title"])
 
     row = 5
     ws.write(row, 0, "Étages admis", fmts["h2"])

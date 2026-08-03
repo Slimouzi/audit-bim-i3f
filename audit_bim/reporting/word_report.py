@@ -252,13 +252,26 @@ def _findings_table(
 # ── Page de garde ─────────────────────────────────────────────────────────
 
 
+def _framework_long_label(context: ReportProjectContext) -> str:
+    """Forme développée du référentiel pour les phrases narratives.
+
+    Reproduit l'ancienne tournure « Cahier des Charges BIM I3F V3.6 » sans citer
+    de maître d'ouvrage : la forme développée vient du profil actif.
+    """
+    fw = context.reference_framework
+    base = fw.long_name or fw.name
+    if not base:
+        return "référentiel —"
+    return f"{base} V{fw.version}" if fw.version else base
+
+
 def _write_cover_page(
     doc: Document,
     *,
     project_name: str,
     model_name: str,
     version_label: str,
-    cch_version: str | None,
+    framework_label: str | None,
     auditor: str,
 ) -> None:
     """Rend la page de couverture brandée BIMData.
@@ -374,7 +387,7 @@ def _write_cover_page(
     _meta_line("Version", version_label)
     _meta_line("Date", date.today().isoformat())
     _meta_line("Auteur", auditor)
-    _meta_line("Référence du CCBIM utilisé", f"CCH BIM I3F V{cch_version or '—'}")
+    _meta_line("Référence du CCBIM utilisé", framework_label or "—")
 
     closing = meta_cell.add_paragraph()
     closing.paragraph_format.space_after = Pt(14)
@@ -480,7 +493,7 @@ def write_word_report(
         project_name=project_name,
         model_name=model_name,
         version_label=f"Phase BIM {result.phase.value}",
-        cch_version=result.catalog.cch_version,
+        framework_label=context.reference_framework.label,
         auditor=display_auditor,
     )
     _section_break(doc)
@@ -584,8 +597,8 @@ def _write_section_executive_summary(
 
     doc.add_paragraph(
         f"L'audit vise à vérifier la conformité de la maquette « {model_name} » "
-        f"(programme {project_name}, phase {result.phase.value}) au Cahier des "
-        f"Charges BIM I3F V{result.catalog.cch_version or '—'}. "
+        f"(programme {project_name}, phase {result.phase.value}) au "
+        f"{_framework_long_label(context)}. "
         f"Le niveau global de conformité (pondéré) s'établit à {conf:.0f} %. "
         f"Principaux points de vigilance : {vigilance}. "
         f"Décision : {decision} — {justification}",
@@ -638,11 +651,12 @@ def _write_section_scope(doc: Document, context: ReportProjectContext, result: A
 
     # 3.1 Documents de référence
     _add_heading(doc, "Documents de référence", level=2)
-    src_cch = context.cch_source or "non précisé"
+    src_cch = context.reference_framework.source or "non précisé"
     src_data = context.data_spec_source or "non précisé"
     src_naming = context.naming_spec_source or "non précisé"
     doc.add_paragraph(
-        f"• CCBIM appliqué : {context.bim_reference or '—'} (Cahier des annexes — {src_cch}).",
+        f"• CCBIM appliqué : {context.reference_framework.label or '—'} "
+        f"(Cahier des annexes — {src_cch}).",
         style="List Bullet",
     )
     doc.add_paragraph(
@@ -999,8 +1013,8 @@ def _write_section_conclusion(
 
     doc.add_paragraph(
         f"La maquette « {context.model_name or '—'} » présente un niveau de "
-        f"conformité (pondéré) de {conf:.0f} % au regard du CCH BIM I3F "
-        f"V{result.catalog.cch_version or '—'} pour la phase {result.phase.value}. "
+        f"conformité (pondéré) de {conf:.0f} % au regard du "
+        f"{context.reference_framework.label or '—'} pour la phase {result.phase.value}. "
         f"{conform_txt}{blocking_txt}"
     )
     doc.add_paragraph(
@@ -1037,7 +1051,7 @@ def _write_section_annexes(
         )
     doc.add_paragraph(
         f"• Paramètres d'exécution : phase BIM {context.project_phase or '—'}, "
-        f"référentiel {context.bim_reference or '—'}, "
+        f"référentiel {context.reference_framework.label or '—'}, "
         f"{context.n_property_specs} spécification(s) de propriétés et "
         f"{context.n_naming_rules} règle(s) de nommage.",
         style="List Bullet",
