@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import bim_reporting.brand as brand_socle
 import pytest
 from docx import Document
 from openpyxl import load_workbook
@@ -222,22 +223,30 @@ class TestFindBrandKitDir:
 
 
 class TestFindLogo:
+    """Dispatch de ``find_logo`` vu depuis la façade.
+
+    La résolution vit dans ``bim_reporting.brand`` ; la façade se contente
+    d'ancrer la recherche « sibling » sur ce dépôt. On patche donc les noms que
+    le socle résout **au moment de l'appel** — patcher ce que la façade a lié à
+    l'import n'atteindrait pas le dispatch interne de ``find_logo``.
+    """
+
     def test_unknown_variant_raises(self):
         with pytest.raises(ValueError, match="Variante logo"):
             bimdata_brand.find_logo("turquoise")
 
-    def test_returns_none_when_brand_kit_missing(self, monkeypatch):
-        monkeypatch.setattr(bimdata_brand, "find_brand_kit_dir", lambda: None)
-        # Pas de logo « vrac » non plus → repli wordmark côté rapport.
-        monkeypatch.setattr(bimdata_brand, "_find_loose_logo", lambda: None)
+    def test_returns_none_when_nothing_resolves(self, monkeypatch):
+        # Ni brand kit structuré, ni logo « vrac » → repli wordmark côté rapport.
+        monkeypatch.setattr(brand_socle, "find_brand_kit_dir", lambda **kw: None)
+        monkeypatch.setattr(brand_socle, "_find_loose_logo", lambda **kw: None)
         assert bimdata_brand.find_logo("light") is None
 
     def test_loose_logo_used_when_brand_kit_missing(self, tmp_path, monkeypatch):
         """Sans brand kit structuré, un logo « vrac » valide est retenu."""
         valid = tmp_path / "Logo_Bimdata.png"
         valid.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
-        monkeypatch.setattr(bimdata_brand, "find_brand_kit_dir", lambda: None)
-        monkeypatch.setattr(bimdata_brand, "_find_loose_logo", lambda: valid)
+        monkeypatch.setattr(brand_socle, "find_brand_kit_dir", lambda **kw: None)
+        monkeypatch.setattr(brand_socle, "_find_loose_logo", lambda **kw: valid)
         assert bimdata_brand.find_logo("light") == valid
 
     def test_returns_path_when_logo_present(self, tmp_path, monkeypatch):
@@ -245,28 +254,46 @@ class TestFindLogo:
         assets.mkdir()
         fake_logo = assets / "bimdata_logo_white.png"
         fake_logo.write_bytes(b"\x89PNG\r\n\x1a\n")  # signature PNG bidon
-        monkeypatch.setattr(bimdata_brand, "find_brand_kit_dir", lambda: tmp_path)
+        monkeypatch.setattr(brand_socle, "find_brand_kit_dir", lambda **kw: tmp_path)
         # Pas de logo vrac à scanner pour ce test.
-        monkeypatch.setattr(bimdata_brand, "_find_loose_logo", lambda: None)
+        monkeypatch.setattr(brand_socle, "_find_loose_logo", lambda **kw: None)
         assert bimdata_brand.find_logo("light") == fake_logo
+
+    def test_search_is_anchored_on_this_repo(self):
+        """Le point de régression de l'extraction, et il est silencieux.
+
+        Si l'ancrage repassait sur ``bim_reporting.brand.__file__``
+        (``site-packages``), la remontée « sibling » ne trouverait plus rien et
+        le logo disparaîtrait des livrables **sans erreur** — l'absence de logo
+        dégradant proprement vers le wordmark.
+        """
+        assert bimdata_brand._SEARCH_FROM.resolve() == Path(bimdata_brand.__file__).resolve()
+        assert "site-packages" not in str(bimdata_brand._SEARCH_FROM)
 
 
 class TestRasterImageValidation:
+    """Validation par octets magiques — implémentation dans le socle.
+
+    Ces contrôles portent sur ``bim_reporting.brand`` : c'est là que le code
+    vit désormais. Les garder ici documente l'exigence côté livrable I3F (un
+    AppleDouble ferait échouer ``add_picture``), sans dupliquer la logique.
+    """
+
     def test_real_png_accepted(self, tmp_path):
         p = tmp_path / "logo.png"
         p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
-        assert bimdata_brand._is_raster_image(p) is True
+        assert brand_socle._is_raster_image(p) is True
 
     def test_real_jpeg_accepted(self, tmp_path):
         p = tmp_path / "logo.jpg"
         p.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 16)
-        assert bimdata_brand._is_raster_image(p) is True
+        assert brand_socle._is_raster_image(p) is True
 
     def test_appledouble_metadata_file_rejected(self, tmp_path):
         # Fichier AppleDouble macOS : que des métadonnées, pas d'image.
         p = tmp_path / "Logo-bimdata.jpg"
         p.write_bytes(b"\x00\x05\x16\x07\x00\x02\x00\x00Mac OS X")
-        assert bimdata_brand._is_raster_image(p) is False
+        assert brand_socle._is_raster_image(p) is False
 
     def test_first_valid_raster_skips_appledouble_and_picks_valid(self, tmp_path):
         folder = tmp_path / "Logo_BIMData"
@@ -275,16 +302,16 @@ class TestRasterImageValidation:
         (folder / "junk.jpg").write_bytes(b"\x00\x05\x16\x07Mac OS X")
         valid = folder / "real.png"
         valid.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
-        assert bimdata_brand._first_valid_raster(folder) == valid
+        assert brand_socle._first_valid_raster(folder) == valid
 
     def test_first_valid_raster_none_when_only_invalid(self, tmp_path):
         folder = tmp_path / "Logo_BIMData"
         folder.mkdir()
         (folder / "Logo-bimdata.jpg").write_bytes(b"\x00\x05\x16\x07Mac OS X")
-        assert bimdata_brand._first_valid_raster(folder) is None
+        assert brand_socle._first_valid_raster(folder) is None
 
     def test_first_valid_raster_none_when_missing_folder(self, tmp_path):
-        assert bimdata_brand._first_valid_raster(tmp_path / "nope") is None
+        assert brand_socle._first_valid_raster(tmp_path / "nope") is None
 
 
 # ── 3. Smoke render Word + Excel ──────────────────────────────────────

@@ -45,8 +45,8 @@ cd <chemin-vers-le-repo>
 python3 -m venv .venv && source .venv/bin/activate
 # bim-core (contrats + sandbox de chemins), bimdata-read (lecture),
 # bimdata-write (écriture), bim-query (couche requête read-only),
-# bim-publication (builders BCF/Smart Views) et bim-audit-engine (cœur générique
-# du moteur d'audit) ne sont
+# bim-publication (builders BCF/Smart Views), bim-audit-engine (cœur générique
+# du moteur d'audit) et bim-reporting (socle de rendu des livrables) ne sont
 # PAS publiés sur PyPI : on les installe d'abord depuis leurs tags Git, sinon la
 # résolution des dépendances échoue.
 pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.3.0"
@@ -55,12 +55,13 @@ pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.
 pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
 pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
 pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
+pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.1.1"
 pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 ```
 
 > **Installation depuis un wheel de GitHub Release** — même prérequis : le wheel
-> ne déclare que `bim-core`/`bimdata-read`/`bimdata-write`/`bim-query`/`bim-publication`/`bim-audit-engine`
-> (non résolvables sur PyPI). Préinstaller les six depuis leurs tags Git *avant*
+> ne déclare que `bim-core`/`bimdata-read`/`bimdata-write`/`bim-query`/`bim-publication`/`bim-audit-engine`/`bim-reporting`
+> (non résolvables sur PyPI). Préinstaller les sept depuis leurs tags Git *avant*
 > le wheel :
 >
 > ```bash
@@ -70,6 +71,7 @@ pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 > pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
 > pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
 > pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
+> pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.1.1"
 > pip install <url-du-wheel-release>
 > ```
 
