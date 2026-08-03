@@ -625,6 +625,12 @@ mur de la maquette, et n'est codé en dur nulle part.
 > Si aucun paramètre ne produit le résultat attendu, c'est un manque du produit :
 > il se traite par une évolution du backend, pas par une retouche de fichier.
 
+La note de méthode indique aussi la **nature du dénominateur** du ratio FAC/SHAB
+(`summary.methode_shab`) : `pieces_zonees_hors_annexes` — le cas normal — ou
+`toutes_pieces_hors_annexes_sans_zonage` sur une maquette sans aucune `IfcZone`.
+La formule du ratio est unique, mais un ratio ne se compare qu'à un ratio dont la
+SHAB est de même nature.
+
 En mode Revit, les menuiseries sont comptées sur les murs extérieurs **avant**
 filtre de type — la baie est portée par le mur porteur, pas par la peau retenue
 comme façade. La colonne « ouvertures » du livrable peut donc être à zéro sur

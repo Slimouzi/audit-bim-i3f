@@ -311,3 +311,109 @@ def test_notes_reach_the_generated_xlsx(session, tmp_path, monkeypatch):
     assert "IFC OpenShell" in texte
     assert "double comptage" in texte
     assert "mur porteur" in texte
+
+
+# ── nature du dénominateur SHAB dans la note de méthode ────────────────
+
+
+def test_shab_method_is_read_from_the_contract(tmp_path):
+    """``summary.methode_shab`` est un champ ``extra`` du contrat V1."""
+    chemin = tmp_path / "env.json"
+    doc = _contrat(filters=_filtres())
+    doc["summary"]["methode_shab"] = "pieces_zonees_hors_annexes"
+    chemin.write_text(json.dumps(doc), encoding="utf-8")
+
+    assert read_envelope_json(chemin).methode_shab == "pieces_zonees_hors_annexes"
+
+
+def test_older_contract_declares_no_shab_method(tmp_path):
+    """Antérieur à ifc-geometry-mcp v0.5.0 : l'absence reste silencieuse.
+
+    Affirmer une méthode inconnue serait pire que de n'en affirmer aucune.
+    """
+    src = _source(tmp_path, filters=_filtres())
+
+    assert src.methode_shab is None
+    assert "SHAB :" not in (_note_methodologie(src) or "")
+
+
+@pytest.mark.parametrize(
+    ("methode", "attendu"),
+    [
+        ("pieces_zonees_hors_annexes", "pièces zonées hors annexes non habitables"),
+        ("toutes_pieces_hors_annexes_sans_zonage", "repli sans zonage"),
+    ],
+)
+def test_note_states_the_nature_of_the_shab(tmp_path, methode, attendu):
+    """Un ratio ne se compare qu'à un ratio dont la SHAB est de même nature."""
+    chemin = tmp_path / "env.json"
+    doc = _contrat(filters=_filtres())
+    doc["summary"]["methode_shab"] = methode
+    chemin.write_text(json.dumps(doc), encoding="utf-8")
+
+    note = _note_methodologie(read_envelope_json(chemin))
+
+    assert "SHAB :" in note
+    assert attendu in note
+
+
+def _generer_pack_avec_shab(tmp_path, monkeypatch, methode="pieces_zonees_hors_annexes"):
+    def _fake(ifc_path, **kw):
+        doc = _contrat(
+            filters=_filtres(),
+            menuiseries_perimetre=PERIMETRE_AVANT_FILTRE,
+            menuiseries_m2_sur_types_rejetes=375.89,
+        )
+        doc["summary"]["methode_shab"] = methode
+        return doc
+
+    monkeypatch.setattr(avp_autocompute, "compute_envelope_payload", _fake)
+    ifc = tmp_path / "DIEPPE-7427L.ifc"
+    ifc.write_text("ISO-10303-21;", encoding="utf-8")
+    return mcp_server.generate_avp_i3f_pack(
+        project_name="Dieppe",
+        project_code="7427L",
+        phase="APD",
+        auditor_name="Stanislas Limouzi",
+        envelope_filter_mode="geometric_type_filter",
+        envelope_type_pattern=r"MUR ENDUIT|BARDAGE BOIS|ZINC|VERRE REGLIT",
+        auto_compute_quantities=False,
+        ifc_path=str(ifc),
+        export_pdf=False,
+    )
+
+
+def test_shab_method_reaches_the_generated_xlsx(session, tmp_path, monkeypatch):
+    import openpyxl
+
+    res = _generer_pack_avec_shab(tmp_path, monkeypatch)
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    enveloppe = next(p for p in res["paths"] if "Extraction surface enveloppe" in p)
+    wb = openpyxl.load_workbook(enveloppe)
+    texte = "\n".join(
+        str(c)
+        for ws in wb.worksheets
+        for row in ws.iter_rows(values_only=True)
+        for c in row
+        if isinstance(c, str)
+    )
+    wb.close()
+
+    assert "SHAB : pièces zonées hors annexes non habitables." in texte
+
+
+def test_shab_method_reaches_the_generated_docx(session, tmp_path, monkeypatch):
+    """Le Word est le document que le client lit en premier."""
+    from docx import Document
+
+    res = _generer_pack_avec_shab(
+        tmp_path, monkeypatch, methode="toutes_pieces_hors_annexes_sans_zonage"
+    )
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    d = Document(res["analyse_docx"])
+    texte = "\n".join(p.text for p in d.paragraphs)
+    texte += "\n" + "\n".join(c.text for t in d.tables for r in t.rows for c in r.cells)
+
+    assert "SHAB : repli sans zonage, toutes pièces hors annexes." in texte

@@ -174,6 +174,17 @@ _LIBELLE_MODE = {
     "geometric": "sélection géométrique des murs extérieurs, sans filtre de type",
 }
 
+#: Nature du dénominateur du ratio FAC/SHAB. Le numérateur et la formule sont
+#: uniques ; la SHAB, elle, peut être calculée de deux façons. Un ratio ne se
+#: compare qu'à un ratio dont la SHAB est de même nature — le lecteur doit donc
+#: savoir laquelle il a sous les yeux.
+_LIBELLE_METHODE_SHAB = {
+    "pieces_zonees_hors_annexes": ("SHAB : pièces zonées hors annexes non habitables."),
+    "toutes_pieces_hors_annexes_sans_zonage": (
+        "SHAB : repli sans zonage, toutes pièces hors annexes."
+    ),
+}
+
 
 def _note_methodologie(src) -> str | None:
     """Note de méthode du livrable, **dérivée du filtre réellement appliqué**.
@@ -185,17 +196,22 @@ def _note_methodologie(src) -> str | None:
     """
     if src is None:
         return None
+    fragments: list[str] = []
     mode = getattr(src, "filter_mode", None)
-    if not mode:
-        return None
-    texte = f"Surfaces calculées via IFC OpenShell — {_LIBELLE_MODE.get(mode, mode)}."
-    motif = getattr(src, "filter_type_pattern", None)
-    if motif:
-        texte += f" Motif de type appliqué : « {motif} »."
-    retenus = getattr(src, "filter_types_retenus", None)
-    if retenus:
-        texte += f" {len(retenus)} type(s) de mur retenu(s) comme façade."
-    return texte
+    if mode:
+        fragments.append(f"Surfaces calculées via IFC OpenShell — {_LIBELLE_MODE.get(mode, mode)}.")
+        motif = getattr(src, "filter_type_pattern", None)
+        if motif:
+            fragments.append(f"Motif de type appliqué : « {motif} ».")
+        retenus = getattr(src, "filter_types_retenus", None)
+        if retenus:
+            fragments.append(f"{len(retenus)} type(s) de mur retenu(s) comme façade.")
+    # Indépendant du filtre : la nature de la SHAB se déclare même si le
+    # producteur n'a rien dit du mode de sélection des murs.
+    shab = _LIBELLE_METHODE_SHAB.get(getattr(src, "methode_shab", None) or "")
+    if shab:
+        fragments.append(shab)
+    return " ".join(fragments) if fragments else None
 
 
 def _note_menuiseries(src) -> str | None:

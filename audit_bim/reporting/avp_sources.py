@@ -98,6 +98,10 @@ class EnveloppeSource:
     filter_mode: str | None = None
     filter_type_pattern: str | None = None
     filter_types_retenus: list[str] | None = None
+    # Nature du DÉNOMINATEUR du ratio FAC/SHAB (``summary.methode_shab``). La
+    # formule est unique, mais un ratio ne se compare qu'à un ratio dont la SHAB
+    # est de même nature — d'où sa présence dans la note de méthode.
+    methode_shab: str | None = None
 
 
 @dataclass
@@ -431,6 +435,10 @@ def read_envelope_json(path: str | Path) -> EnveloppeSource:
         superficie_fenetres=summary.superficie_menuiseries_fenetres_m2,
         superficie_portes=summary.superficie_menuiseries_portes_m2,
         hors_filtre_type=[r.model_dump() for r in payload.hors_filtre_type],
+        # ``methode_shab`` est un champ ``extra`` du summary V1 : les contrats
+        # antérieurs à ifc-geometry-mcp v0.5.0 ne le portent pas, et l'absence
+        # doit rester silencieuse plutôt que d'affirmer une méthode inconnue.
+        methode_shab=_texte_ou_none(getattr(summary, "methode_shab", None)),
         **_menuiseries_perimetre(payload),
     )
 

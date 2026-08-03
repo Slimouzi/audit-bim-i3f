@@ -304,3 +304,32 @@ def test_this_repository_is_coherent():
     """Le garde-fou tourne aussi sur le vrai dépôt — c'est son objet."""
     racine = Path(__file__).resolve().parents[2]
     assert check(racine) == []
+
+
+def test_geometry_backend_installed_version_mismatch_is_caught(depot, monkeypatch):
+    """Le cas concret du backend d'enveloppe, épinglé par l'extra ``geometry``.
+
+    Un pin bumpé sans ``uv sync`` laisse le venv sur l'ancienne version : la CI
+    et la recette tourneraient alors sur un autre calcul que celui déclaré. Le
+    pin dit ce qu'on veut, pas ce qui est installé.
+    """
+    import check_first_party_pins as guard
+
+    monkeypatch.setattr(
+        guard,
+        "installed_version",
+        lambda nom: "0.4.0" if nom == "ifc-geometry-mcp" else "0.3.0",
+    )
+    chemin = depot(
+        core_tag="bim-core-v0.3.0",
+        geo_spec=">=0.5.0,<0.6",
+        geo_tag="ifc-geometry-mcp-v0.5.0",
+    )
+
+    ecarts = [e for e in guard.check(Path(chemin)) if "ifc-geometry-mcp" in e]
+
+    assert ecarts, "une version installée différente du tag doit être signalée"
+    # Le pin et le tag sont cohérents entre eux : seul l'écart d'INSTALLATION
+    # doit être signalé, sinon le test passerait pour la mauvaise raison.
+    assert all("INSTALLÉE" in e for e in ecarts), ecarts
+    assert "0.4.0" in ecarts[0] and "0.5.0" in ecarts[0]
