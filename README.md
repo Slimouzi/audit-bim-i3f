@@ -609,6 +609,22 @@ generate_avp_i3f_pack(
 Le motif est **propre au chantier** : il se lit sur le nommage réel des types de
 mur de la maquette, et n'est codé en dur nulle part.
 
+> **Le filtrage manuel d'un contrat est interdit pour un livrable client.**
+> Retoucher `envelope.json` après génération — retirer des lignes de `par_type`,
+> recalculer un total — produit un chiffre **juste mais non reproductible** :
+> rien dans le contrat ne dit ce qui a été retiré, et la génération suivante
+> repartira des valeurs d'origine. Un livrable dont le nombre ne peut pas être
+> réobtenu à l'identique n'est pas auditable.
+>
+> Tout ce qui influe sur le résultat doit passer par un **paramètre** —
+> `envelope_filter_mode`, `envelope_type_pattern`, `envelope_layer_pattern` — que
+> le backend inscrit dans `diagnostics.filters` (mode, motifs, types retenus et
+> rejetés). Le pack porte alors une **note de méthode** décrivant le filtre
+> réellement appliqué.
+>
+> Si aucun paramètre ne produit le résultat attendu, c'est un manque du produit :
+> il se traite par une évolution du backend, pas par une retouche de fichier.
+
 En mode Revit, les menuiseries sont comptées sur les murs extérieurs **avant**
 filtre de type — la baie est portée par le mur porteur, pas par la peau retenue
 comme façade. La colonne « ouvertures » du livrable peut donc être à zéro sur

@@ -21,7 +21,7 @@ from ..word_report import NOT_AVAILABLE, _kpi_table, _shade_cell
 from .models import _CONTROLE_STATS_SHEETS, AvpMeta
 from .xlsx_common import _cell, _fmt_meta, _norm, _pct, _stat_lookup
 from .xlsx_controle import _controle_grid, _controle_rows_for_moa, _find_control_header_row
-from .xlsx_enveloppe import _note_menuiseries
+from .xlsx_enveloppe import _note_menuiseries, _note_methodologie
 
 _MOA_FONT = "Calibri"
 _MOA_TABLE_HEADER = "D9EAD3"
@@ -792,9 +792,9 @@ def _write_ecarts(doc, result, sources, snap=None) -> None:
         "externe ne sont pas utilisées comme source de données.",
         style="Intense Quote",
     )
-    note = _note_menuiseries(env)
-    if note:
-        doc.add_paragraph(note, style="Intense Quote")
+    for note in (_note_methodologie(env), _note_menuiseries(env)):
+        if note:
+            doc.add_paragraph(note, style="Intense Quote")
 
 
 def _points_bloquants(ctrl, env, ratio, seuil) -> list[str]:
