@@ -14,7 +14,7 @@ from pathlib import Path
 from ...audit.engine import AuditResult
 from ...extraction.model_data import ModelSnapshot
 from ..avp_snapshot import (
-    count_envelope_walls,
+    count_candidate_envelope_walls,
     count_menuiseries,
     count_menuiseries_with_dimensions,
     count_planchers,
@@ -341,7 +341,10 @@ def _qa_empty_deliverables(
             problems.append("SHAB")
         if _count_business_rows(pack.zones_espaces_xlsx) == 0:
             problems.append("Zones/Espaces")
-    if count_envelope_walls(snap) > 0 and _count_business_rows(pack.enveloppe_xlsx) == 0:
+    # Murs CANDIDATS, pas murs à calque reconnu : ``count_envelope_walls`` est
+    # layer-first (ArchiCAD) et tombe à zéro sur un export Revit, ce qui faisait
+    # taire cette gate précisément sur les maquettes où l'annexe sortait vide.
+    if count_candidate_envelope_walls(snap) > 0 and _count_business_rows(pack.enveloppe_xlsx) == 0:
         problems.append("Enveloppe")
     if count_menuiseries(snap) > 0 and _count_business_rows(pack.menuiseries_xlsx) == 0:
         problems.append("Menuiseries")

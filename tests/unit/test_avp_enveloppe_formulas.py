@@ -106,13 +106,24 @@ def test_tarare_layout_formulas_are_unchanged(tmp_path, meta):
     assert ws["D16"].value == 2164.68
 
 
-def test_empty_envelope_annex_is_refused_with_actionable_message(tmp_path, monkeypatch):
-    """Des murs d'enveloppe dans la maquette + une annexe vide = refus explicite.
+def _mur(uuid, ifc_type="IfcWall", *, layers=None):
+    el = {
+        "uuid": uuid,
+        "type": ifc_type,
+        "name": "Mur de base:MUR ENDUIT 20 mm",
+        "property_sets": [
+            {
+                "name": "Qto_WallBaseQuantities",
+                "properties": [{"definition": {"name": "NetSideArea"}, "value": 900.13}],
+            }
+        ],
+    }
+    if layers is not None:
+        el["layers"] = layers
+    return el
 
-    Le message doit dire quoi faire. Le cas réel qui a motivé ce garde-fou est un
-    export **Revit** : sans calque ArchiCAD, les motifs I3F ne retiennent aucun
-    type et l'annexe sort vide sans que rien ne l'explique.
-    """
+
+def _generer_avec(tmp_path, monkeypatch, elements):
     from audit_bim.extraction.model_data import ModelSnapshot
     from audit_bim.mcp import server as mcp_server
     from audit_bim.mcp.session import _Session, current_session
@@ -125,24 +136,11 @@ def test_empty_envelope_annex_is_refused_with_actionable_message(tmp_path, monke
     sess.snapshot = ModelSnapshot(
         project={"name": "MCP_Audit"},
         model={"name": "DIEPPE-7427L.ifc"},
-        elements=[
-            {
-                "uuid": "W1",
-                "type": "IfcWall",
-                "name": "Mur de base:MUR ENDUIT 20 mm",
-                "layers": [{"name": "221 - MURS - Extérieurs périphériques"}],
-                "property_sets": [
-                    {
-                        "name": "Qto_WallBaseQuantities",
-                        "properties": [{"definition": {"name": "NetSideArea"}, "value": 900.13}],
-                    }
-                ],
-            }
-        ],
+        elements=elements,
     ).index()
     token = current_session.set(sess)
     try:
-        res = mcp_server.generate_avp_i3f_pack(
+        return mcp_server.generate_avp_i3f_pack(
             project_name="Dieppe",
             project_code="7427L",
             phase="APD",
@@ -153,9 +151,48 @@ def test_empty_envelope_annex_is_refused_with_actionable_message(tmp_path, monke
     finally:
         current_session.reset(token)
 
+
+def test_empty_envelope_annex_is_refused_on_revit_without_layer(tmp_path, monkeypatch):
+    """Le cas réel : export **Revit**, aucun calque, annexe Enveloppe vide.
+
+    ``count_envelope_walls`` reconnaît l'enveloppe au calque ArchiCAD ; sur une
+    maquette Revit il rend 0, et la QA gate se taisait — laissant sortir un pack
+    « OK » dont l'annexe Enveloppe était vide. C'est exactement le trou que ce
+    test verrouille : **pas de clé ``layers`` du tout** sur le mur.
+    """
+    res = _generer_avec(tmp_path, monkeypatch, [_mur("W1")])
+
     assert res.get("status") == "error"
     assert res.get("error") == "empty_deliverable"
     assert "Enveloppe" in res["empty_deliverables"]
     assert res.get("needs_envelope_source") is True
     assert "envelope_json" in res["next_step"]
     assert "envelope_type_pattern" in res["next_step"]
+
+
+def test_empty_envelope_annex_is_refused_on_archicad_with_layer(tmp_path, monkeypatch):
+    """Le chemin ArchiCAD historique reste couvert, en plus du cas Revit."""
+    res = _generer_avec(
+        tmp_path,
+        monkeypatch,
+        [_mur("W1", layers=[{"name": "221 - MURS - Extérieurs périphériques.Exndo"}])],
+    )
+
+    assert res.get("status") == "error"
+    assert res.get("error") == "empty_deliverable"
+    assert "Enveloppe" in res["empty_deliverables"]
+
+
+def test_empty_envelope_annex_is_refused_on_curtain_wall(tmp_path, monkeypatch):
+    """Une enveloppe en mur-rideau est de la façade : même refus."""
+    res = _generer_avec(tmp_path, monkeypatch, [_mur("CW1", "IfcCurtainWall")])
+
+    assert res.get("status") == "error"
+    assert "Enveloppe" in res["empty_deliverables"]
+
+
+def test_model_without_any_wall_does_not_demand_an_envelope_annex(tmp_path, monkeypatch):
+    """Sans aucun mur, l'annexe Enveloppe n'a pas lieu d'être — pas de faux refus."""
+    res = _generer_avec(tmp_path, monkeypatch, [{"uuid": "S1", "type": "IfcSlab", "name": "Dalle"}])
+
+    assert "Enveloppe" not in (res.get("empty_deliverables") or [])
