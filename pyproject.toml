@@ -60,21 +60,21 @@ dependencies = [
     "python-dotenv>=1.0,<2",
     "fastmcp>=3.0,<4",
     "rapidfuzz>=3.6,<4",
-    # Contrats communs (Finding, BimObject, filtres, WritePlan, ModelSnapshot).
+    # Contrats communs (Finding, BimObject, filtres, WritePlan, ModelSnapshot)
+    # et sandbox de chemins I/O (``bim_core.paths``, ex-``bim-sandbox``).
     # Bibliothèques first-party versionnées — sources résolues via
     # [tool.uv.sources] ci-dessous (tags Git). Voir dépôts Slimouzi/bim-core et
     # Slimouzi/bimdata-read.
-    "bim-core>=0.2.0,<0.3",
-    "bimdata-read>=0.1.6,<0.2",
-    "bimdata-write>=0.1.4,<0.2",
-    "bim-sandbox>=0.1.0,<0.2",
-    "bim-query>=0.1.3,<0.2",
-    "bim-publication>=0.1.3,<0.2",
+    "bim-core>=0.3.0,<0.4",
+    "bimdata-read>=0.1.7,<0.2",
+    "bimdata-write>=0.1.5,<0.2",
+    "bim-query>=0.1.4,<0.2",
+    "bim-publication>=0.1.4,<0.2",
     # Cœur générique du moteur d'audit (Rule/run_audit/AuditResult). Consommé
     # par la façade audit_bim.audit.engine (PR shims ultérieure ; cette PR est
     # infra-only). v0.1.1 = summary() JSON-safe + py.typed + contrat de
     # déterminisme corrigé.
-    "bim-audit-engine>=0.1.4,<0.2",
+    "bim-audit-engine>=0.1.5,<0.2",
 ]
 
 [project.optional-dependencies]
@@ -84,7 +84,7 @@ dependencies = [
 # car ifcopenshell est lourd et tous les déploiements n'en ont pas besoin ; son
 # absence donne un message explicite, jamais un livrable incomplet.
 geometry = [
-    "ifc-geometry-mcp>=0.5.0,<0.6",
+    "ifc-geometry-mcp>=0.5.1,<0.6",
 ]
 dev = [
     "pytest>=7.4",
@@ -122,14 +122,13 @@ audit-bim-mcp = "audit_bim.mcp.__main__:main"
 # ``bim-core`` n'est pas publié sur PyPI : uv le résout depuis le dépôt Git
 # au tag figé. Bumper ce tag = bumper le contrat (et la borne de version
 # dans [project.dependencies]), puis regénérer uv.lock (``uv lock``).
-bim-core = { git = "https://github.com/Slimouzi/bim-core.git", tag = "bim-core-v0.2.0" }
-bimdata-read = { git = "https://github.com/Slimouzi/bimdata-read.git", tag = "bimdata-read-v0.1.6" }
-bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "bimdata-write-v0.1.4" }
-bim-sandbox = { git = "https://github.com/Slimouzi/bim-sandbox.git", tag = "bim-sandbox-v0.1.0" }
-bim-query = { git = "https://github.com/Slimouzi/bim-query.git", tag = "bim-query-v0.1.3" }
-bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag = "bim-publication-v0.1.3" }
-bim-audit-engine = { git = "https://github.com/Slimouzi/bim-audit-engine.git", tag = "bim-audit-engine-v0.1.4" }
-ifc-geometry-mcp = { git = "https://github.com/Slimouzi/ifc-geometry-mcp.git", tag = "ifc-geometry-mcp-v0.5.0" }
+bim-core = { git = "https://github.com/Slimouzi/bim-core.git", tag = "bim-core-v0.3.0" }
+bimdata-read = { git = "https://github.com/Slimouzi/bimdata-read.git", tag = "bimdata-read-v0.1.7" }
+bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "bimdata-write-v0.1.5" }
+bim-query = { git = "https://github.com/Slimouzi/bim-query.git", tag = "bim-query-v0.1.4" }
+bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag = "bim-publication-v0.1.4" }
+bim-audit-engine = { git = "https://github.com/Slimouzi/bim-audit-engine.git", tag = "bim-audit-engine-v0.1.5" }
+ifc-geometry-mcp = { git = "https://github.com/Slimouzi/ifc-geometry-mcp.git", tag = "ifc-geometry-mcp-v0.5.1" }
 
 [tool.setuptools.packages.find]
 include = ["audit_bim*"]

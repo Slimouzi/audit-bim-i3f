@@ -42,14 +42,13 @@ jobs:
       - name: Install first-party (tags) + extras geometry/test
         run: |
           python -m pip install --upgrade pip
-          pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.2.0"
-          pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.6"
-          pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.4"
-          pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
-          pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.3"
-          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.3"
-          pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.4"
-          pip install "git+https://github.com/Slimouzi/ifc-geometry-mcp.git@ifc-geometry-mcp-v0.5.0"
+          pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.3.0"
+          pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.7"
+          pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.5"
+          pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
+          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
+          pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
+          pip install "git+https://github.com/Slimouzi/ifc-geometry-mcp.git@ifc-geometry-mcp-v0.5.1"
           pip install -e ".[test]"
       # ``--strict-installed`` : un paquet first-party ABSENT devient une erreur.
       # Sans ce mode, une brique manquante est ignorée — et « ignoré » ressemble
@@ -100,21 +99,19 @@ jobs:
           cache: pip
       - name: Install bim-core (tagged contract lib)
         # bim-core n'est pas sur PyPI : on l'installe explicitement depuis le
-        # tag Git AVANT audit-bim-i3f. La dépendance `bim-core>=0.2.0,<0.3` est
+        # tag Git AVANT audit-bim-i3f. La dépendance `bim-core>=0.3.0,<0.4` est
         # alors déjà satisfaite lors de l'install du package.
-        run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.2.0"
+        run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.3.0"
       - name: Install bimdata-read (tagged read core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.6"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.7"
       - name: Install bimdata-write (tagged write core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.4"
-      - name: Install bim-sandbox (tagged shared sandbox)
-        run: pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.5"
       - name: Install bim-query (tagged read-only query layer)
-        run: pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.3"
+        run: pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
       - name: Install bim-publication (tagged BCF/SmartViews builders)
-        run: pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.3"
+        run: pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
       - name: Install bim-audit-engine (tagged generic audit engine core)
-        run: pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.4"
+        run: pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
       - name: Install package + test deps
         run: |
           python -m pip install --upgrade pip
@@ -156,13 +153,12 @@ jobs:
           tesseract --version
       - name: Install first-party tagged libs
         run: |
-          pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.2.0"
-          pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.6"
-          pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.4"
-          pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
-          pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.3"
-          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.3"
-          pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.4"
+          pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.3.0"
+          pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.7"
+          pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.5"
+          pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
+          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
+          pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
       - name: Install package + OCR + test deps
         run: |
           python -m pip install --upgrade pip
@@ -203,7 +199,7 @@ jobs:
         # pas les hashes — seuls les ``name==version`` comptent ici.
         # ``--no-emit-package bim-core`` : contrat first-party résolu via Git
         # (pas de version PyPI à scanner ; ses propres deps sont déjà couvertes).
-        run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --no-emit-package bimdata-write --no-emit-package bim-sandbox --no-emit-package bim-query --no-emit-package bim-publication --no-emit-package bim-audit-engine --output-file requirements-from-lock.txt
+        run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --no-emit-package bimdata-write --no-emit-package bim-query --no-emit-package bim-publication --no-emit-package bim-audit-engine --output-file requirements-from-lock.txt
       - name: Scan locked dependencies for CVEs
         # Audit **reproductible** : exactement les versions du lockfile,
         # pas ce que pip aurait résolu fraîchement. Permet aux résultats
@@ -230,7 +226,7 @@ jobs:
         # ``--extra ocr`` ajoute pytesseract / pdf2image / Pillow au
         # lockfile résolu — ces deps ne sont pas dans le ``test`` extra
         # mais sont exécutées en runtime sur DOE PDF scanné.
-        run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --no-emit-package bimdata-write --no-emit-package bim-sandbox --no-emit-package bim-query --no-emit-package bim-publication --no-emit-package bim-audit-engine --extra ocr --output-file requirements-from-lock-ocr.txt
+        run: uv export --format requirements-txt --no-hashes --no-emit-project --no-emit-package bim-core --no-emit-package bimdata-read --no-emit-package bimdata-write --no-emit-package bim-query --no-emit-package bim-publication --no-emit-package bim-audit-engine --extra ocr --output-file requirements-from-lock-ocr.txt
       - name: Scan OCR extras for CVEs
         run: pip-audit -r requirements-from-lock-ocr.txt --format columns
 
@@ -245,19 +241,17 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install bim-core (tagged contract lib)
-        run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.2.0"
+        run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.3.0"
       - name: Install bimdata-read (tagged read core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.6"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.7"
       - name: Install bimdata-write (tagged write core)
-        run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.4"
-      - name: Install bim-sandbox (tagged shared sandbox)
-        run: pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
+        run: pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.5"
       - name: Install bim-query (tagged read-only query layer)
-        run: pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.3"
+        run: pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
       - name: Install bim-publication (tagged BCF/SmartViews builders)
-        run: pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.3"
+        run: pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
       - name: Install bim-audit-engine (tagged generic audit engine core)
-        run: pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.4"
+        run: pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
       - name: Install package + test deps
         run: |
           python -m pip install --upgrade pip

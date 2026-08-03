@@ -43,35 +43,33 @@ dépendances (cf. bornes hautes dans `pyproject.toml`).
 ```bash
 cd <chemin-vers-le-repo>
 python3 -m venv .venv && source .venv/bin/activate
-# bim-core (contrats), bimdata-read (lecture), bimdata-write (écriture),
-# bim-sandbox (sandbox chemins), bim-query (couche requête read-only),
+# bim-core (contrats + sandbox de chemins), bimdata-read (lecture),
+# bimdata-write (écriture), bim-query (couche requête read-only),
 # bim-publication (builders BCF/Smart Views) et bim-audit-engine (cœur générique
 # du moteur d'audit) ne sont
 # PAS publiés sur PyPI : on les installe d'abord depuis leurs tags Git, sinon la
 # résolution des dépendances échoue.
-pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.2.0"
-pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.6"
-pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.4"
-pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
-pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.3"
-pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.3"
-pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.4"
+pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.3.0"
+pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.7"
+pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.5"
+pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
+pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
+pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
 pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 ```
 
 > **Installation depuis un wheel de GitHub Release** — même prérequis : le wheel
-> ne déclare que `bim-core`/`bimdata-read`/`bimdata-write`/`bim-sandbox`/`bim-query`/`bim-publication`/`bim-audit-engine`
-> (non résolvables sur PyPI). Préinstaller les sept depuis leurs tags Git *avant*
+> ne déclare que `bim-core`/`bimdata-read`/`bimdata-write`/`bim-query`/`bim-publication`/`bim-audit-engine`
+> (non résolvables sur PyPI). Préinstaller les six depuis leurs tags Git *avant*
 > le wheel :
 >
 > ```bash
-> pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.2.0"
-> pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.6"
-> pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.4"
-> pip install "git+https://github.com/Slimouzi/bim-sandbox.git@bim-sandbox-v0.1.0"
-> pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.3"
-> pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.3"
-> pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.4"
+> pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.3.0"
+> pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.7"
+> pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.5"
+> pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
+> pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
+> pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
 > pip install <url-du-wheel-release>
 > ```
 
