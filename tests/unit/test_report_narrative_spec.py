@@ -9,7 +9,6 @@ AMO de l'autre. Ces tests couvrent les deux sens.
 from __future__ import annotations
 
 import ast
-import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -335,9 +334,13 @@ def _narrative_fields_read_by(module) -> set[str]:
     On ne retient donc que deux formes de lecture réelle :
     `_narrative_text(profile_id, "<champ>")` et `<qqch>.<champ>`.
     """
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    return _fields_read_in_source(Path(module.__file__).read_text(encoding="utf-8"))
+
+
+def _fields_read_in_source(source: str) -> set[str]:
+    """Champs lus dans un source : ``_narrative_text(_, "<champ>")`` ou ``.<champ>``."""
     read: set[str] = set()
-    for node in ast.walk(tree):
+    for node in ast.walk(ast.parse(source)):
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -365,34 +368,37 @@ def test_narrative_spec_fields_are_all_consumed():
     assert not unused, f"champs de ReportNarrativeSpec déclarés mais jamais lus : {unused}"
 
 
-def test_the_consumption_guard_would_have_caught_the_dead_field():
-    """Preuve de non-vacuité, contre la version d'avant l'amend.
+#: Reproduction MINIMALE du bug corrigé : une fonction dont le NOM contient le
+#: champ, mais qui ne le lit jamais. C'est ce que contenait `word_report.py`
+#: avant l'amend, et ce sur quoi une recherche de sous-chaîne se laissait
+#: tromper.
+_DEAD_FIELD_SNIPPET = """
+def _classification_intro(profile_id=None):
+    spec = _classification_narrative(profile_id)
+    return f"Classification ({spec.default_system} par defaut)."
 
-    On rejoue la détection sur le `word_report.py` du commit précédent : le
-    garde-fou doit y voir `classification_intro` non lu.
+
+def _write_section(doc, profile_id=None):
+    doc.add_paragraph(_classification_intro(profile_id))
+"""
+
+_LIVE_FIELD_SNIPPET = """
+def _write_section(doc, profile_id=None):
+    doc.add_paragraph(_narrative_text(profile_id, "classification_intro", ""))
+"""
+
+
+def test_the_consumption_guard_detects_a_dead_field():
+    """Preuve de non-vacuite — autonome, sans dependre de l'historique Git.
+
+    Une premiere version de ce test lisait ``git show HEAD:…``. Elle passait en
+    local et echouait en CI : ``HEAD`` n'y designe pas le meme commit. Un test
+    qui depend de sa position dans l'historique ne prouve rien de stable.
     """
-    previous = subprocess.run(
-        ["git", "show", "HEAD:audit_bim/reporting/word_report.py"],
-        capture_output=True,
-        text=True,
-        cwd=Path(__file__).resolve().parents[2],
-    ).stdout
-    if not previous.strip():
-        pytest.skip("historique Git indisponible")
-
-    tree = ast.parse(previous)
-    read: set[str] = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "_narrative_text"
-            and len(node.args) >= 2
-            and isinstance(node.args[1], ast.Constant)
-        ):
-            read.add(node.args[1].value)
-        elif isinstance(node, ast.Attribute):
-            read.add(node.attr)
-    assert "classification_intro" not in read, (
-        "le garde-fou ne détecte pas le champ mort d'avant l'amend : il est vacueux"
+    dead = _fields_read_in_source(_DEAD_FIELD_SNIPPET)
+    assert "classification_intro" not in dead, (
+        "le garde-fou ne voit pas un champ dont seul le NOM DE FONCTION "
+        "correspond : il serait vacueux"
     )
+    # Controle miroir : une vraie lecture doit, elle, etre detectee.
+    assert "classification_intro" in _fields_read_in_source(_LIVE_FIELD_SNIPPET)
