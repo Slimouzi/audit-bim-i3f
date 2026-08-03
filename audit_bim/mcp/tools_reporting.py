@@ -458,6 +458,7 @@ def generate_avp_i3f_pack(
     envelope_layer_pattern: str | None = None,
     envelope_type_pattern: str | None = None,
     envelope_filter_mode: str | None = None,
+    force_recompute_envelope: bool = False,
     menuiseries_xlsx: str | None = None,
     plancher_xlsx: str | None = None,
     project_name: str | None = None,
@@ -538,6 +539,11 @@ def generate_avp_i3f_pack(
             Un mode dont le motif manque, ou à qui l'on passe un motif qu'il
             n'emploie pas, est **refusé** : se rabattre en silence changerait la
             nature du total sans que rien ne le signale.
+        force_recompute_envelope: recalcule le contrat d'enveloppe même si un
+            fichier réutilisable existe. Le cache est déjà invalidé
+            automatiquement quand les motifs, le mode ou la version du backend
+            diffèrent ; ce paramètre sert au rejeu explicite (maquette modifiée
+            en place, recette à refaire de zéro).
         computed_quantities_json: JSON ``computed_base_quantities/v1`` produit
             par ``export_computed_base_quantities`` (MCP ifc-geometry). Fusionné
             **gap-only** dans le snapshot avant génération : comble les
@@ -796,6 +802,7 @@ def generate_avp_i3f_pack(
                 layer_pattern=envelope_layer_pattern,
                 type_pattern=envelope_type_pattern,
                 filter_mode=envelope_filter_mode,
+                force=force_recompute_envelope,
                 session_ifc_path=getattr(_State, "ifc_path", None),
                 model_ids=(_State.cloud_id, _State.project_id, _State.model_id),
             )
