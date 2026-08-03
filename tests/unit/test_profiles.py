@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from audit_bim.profiles import (
@@ -9,6 +11,8 @@ from audit_bim.profiles import (
     list_profiles,
     profiles_payload,
 )
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_i3f_is_default_profile_and_keeps_avp_pack():
@@ -49,3 +53,22 @@ def test_payload_is_json_friendly_and_filterable():
     assert len(out["profiles"]) == 1
     assert isinstance(out["generic_modules"], list)
     assert isinstance(out["profiles"][0]["enabled_generic_modules"], list)
+
+
+def test_ready_specializations_point_to_existing_paths():
+    """Une spécialisation `ready` doit désigner du code qui existe encore.
+
+    Le registre est purement déclaratif : rien ne le relie au disque. Le jour où
+    `audit_bim/reporting/avp` partira vers un pack enfant — étape 1 de l'ordre
+    d'extraction — ce test échoue au lieu de laisser la carte mentir en silence.
+    """
+    stale: list[str] = []
+    for profile in list_profiles():
+        for spec in profile.specializations:
+            if spec.status != "ready" or spec.current_location is None:
+                continue
+            if not spec.current_location.startswith("audit_bim"):
+                continue
+            if not (_REPO_ROOT / spec.current_location).exists():
+                stale.append(f"{profile.id}/{spec.key} -> {spec.current_location}")
+    assert not stale, f"current_location introuvable(s) sur disque : {stale}"
