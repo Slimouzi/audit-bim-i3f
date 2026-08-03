@@ -154,8 +154,35 @@ def _build_enveloppe_xlsx(path, sources, meta) -> Path:
         NOT_AVAILABLE if not src or src.seuil_3f is None else src.seuil_3f,
         fmts["threshold"],
     )
+    note = _note_menuiseries(src)
+    if note:
+        write_safe(ws, summary_row + 9, 2, note, fmts["note"])
     wb.close()
     return path
+
+
+def _note_menuiseries(src) -> str | None:
+    """Explique une colonne « ouvertures » nulle face à un total non nul.
+
+    Sur une façade Revit multicouche, les baies sont portées par le mur porteur
+    et non par la peau extérieure retenue comme façade. La ventilation par type
+    est alors vide alors que le total ne l'est pas. Sans cette note, le lecteur
+    du livrable conclut à un défaut de calcul.
+    """
+    if src is None:
+        return None
+    if getattr(src, "menuiseries_perimetre", None) != "murs_exterieurs_avant_filtre_type":
+        return None
+    rejetes = getattr(src, "menuiseries_sur_types_rejetes", None) or 0.0
+    if rejetes <= 0:
+        return None
+    return (
+        f"Menuiseries : comptées sur les murs extérieurs avant filtre de type. "
+        f"{rejetes:,.2f} m² sont portées par des types de mur non retenus comme "
+        "façade (en façade multicouche, la baie est portée par le mur porteur, "
+        "pas par la peau extérieure) — d'où une colonne « ouvertures » à zéro "
+        "sur les lignes ci-dessus."
+    ).replace(",", " ")
 
 
 def _enveloppe_moa_formats(wb) -> dict[str, xlsxwriter.format.Format]:

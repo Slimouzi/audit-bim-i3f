@@ -80,8 +80,16 @@ def compute_envelope_payload(
     seuil_3f: float | None = None,
     layer_pattern: str | None = None,
     type_pattern: str | None = None,
+    filter_mode: str | None = None,
 ) -> dict[str, Any]:
-    """Calcule le contrat ``envelope_quantities/v1`` depuis un .ifc."""
+    """Calcule le contrat ``envelope_quantities/v1`` depuis un .ifc.
+
+    ``filter_mode`` impose le mode de sélection au lieu de le laisser déduire
+    des motifs : ``layer_type_filter`` (ArchiCAD), ``geometric_type_filter``
+    (Revit sans calque) ou ``geometric``. Le backend refuse un mode dont le
+    motif manque plutôt que de se rabattre en silence sur une sélection d'une
+    autre nature.
+    """
     ifc_utils, envelope, _bq = _load()
     model = ifc_utils.open_model(str(ifc_path))
     return envelope.run(
@@ -90,6 +98,7 @@ def compute_envelope_payload(
         seuil_3f=seuil_3f,
         layer_pattern=layer_pattern,
         type_pattern=type_pattern,
+        filter_mode=filter_mode,
     )
 
 

@@ -457,6 +457,7 @@ def generate_avp_i3f_pack(
     ifc_path: str | None = None,
     envelope_layer_pattern: str | None = None,
     envelope_type_pattern: str | None = None,
+    envelope_filter_mode: str | None = None,
     menuiseries_xlsx: str | None = None,
     plancher_xlsx: str | None = None,
     project_name: str | None = None,
@@ -526,6 +527,17 @@ def generate_avp_i3f_pack(
         envelope_layer_pattern, envelope_type_pattern: motifs de sélection des
             murs d'enveloppe (calque ArchiCAD, nom de type). Nécessaires sur les
             maquettes où la détection géométrique ne suffit pas.
+            ``envelope_type_pattern`` fonctionne **aussi sans calque** : c'est le
+            chemin des exports **Revit**, qui n'en exposent aucun et modélisent
+            chaque façade en murs superposés (structure, isolant, peau). Sans
+            motif de type, ces couches s'additionnent et la même façade est
+            comptée trois ou quatre fois.
+        envelope_filter_mode: impose le mode de sélection au lieu de le déduire —
+            ``layer_type_filter`` (ArchiCAD), ``geometric_type_filter`` (Revit
+            sans calque) ou ``geometric``. ``None`` (défaut) → déduit des motifs.
+            Un mode dont le motif manque, ou à qui l'on passe un motif qu'il
+            n'emploie pas, est **refusé** : se rabattre en silence changerait la
+            nature du total sans que rien ne le signale.
         computed_quantities_json: JSON ``computed_base_quantities/v1`` produit
             par ``export_computed_base_quantities`` (MCP ifc-geometry). Fusionné
             **gap-only** dans le snapshot avant génération : comble les
@@ -767,7 +779,9 @@ def generate_avp_i3f_pack(
     # cas réel est précisément celui où BIMData ne remonte pas le calque alors
     # qu'IfcOpenShell sait le lire dans l'IFC — s'en tenir au snapshot ferait
     # rater l'enveloppe sur les maquettes qui en ont le plus besoin.
-    motifs_explicites = bool(envelope_layer_pattern or envelope_type_pattern)
+    motifs_explicites = bool(
+        envelope_layer_pattern or envelope_type_pattern or envelope_filter_mode
+    )
     envelope_attendue = _State.snapshot is not None and (
         motifs_explicites or count_envelope_walls(_State.snapshot) > 0
     )
@@ -781,6 +795,7 @@ def generate_avp_i3f_pack(
                 ifc_path=ifc_path,
                 layer_pattern=envelope_layer_pattern,
                 type_pattern=envelope_type_pattern,
+                filter_mode=envelope_filter_mode,
                 session_ifc_path=getattr(_State, "ifc_path", None),
                 model_ids=(_State.cloud_id, _State.project_id, _State.model_id),
             )
@@ -794,6 +809,17 @@ def generate_avp_i3f_pack(
                 "questions": [
                     {"key": getattr(exc, "missing", "geometry_backend"), "question": str(exc)}
                 ],
+            }
+        except ValueError as exc:
+            # Mode de filtrage incohérent avec les motifs (le backend refuse
+            # plutôt que de se rabattre en silence). C'est une erreur d'appel,
+            # pas un contexte manquant : la question à poser porte sur les
+            # paramètres, et le message du backend la formule déjà.
+            return {
+                "status": "error",
+                "error": "invalid_envelope_filter_mode",
+                "envelope_filter_mode": envelope_filter_mode,
+                "message": str(exc),
             }
     if envelope_json_used:
         # Même règle de sandbox que pour les quantités : fichier produit ici →

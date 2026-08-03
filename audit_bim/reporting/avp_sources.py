@@ -86,6 +86,12 @@ class EnveloppeSource:
     superficie_fenetres: float | None = None
     superficie_portes: float | None = None
     hors_filtre_type: list[dict] | None = None  # diagnostic, hors total métier
+    # Périmètre de comptage des menuiseries (mode Revit : « murs extérieurs
+    # avant filtre de type ») et part de ces menuiseries portée par un type
+    # écarté. Sans ces deux valeurs, la colonne F du livrable peut être à zéro
+    # sur toutes les lignes face à un total non nul, et se lire comme un bug.
+    menuiseries_perimetre: str | None = None
+    menuiseries_sur_types_rejetes: float | None = None
 
 
 @dataclass
@@ -419,7 +425,30 @@ def read_envelope_json(path: str | Path) -> EnveloppeSource:
         superficie_fenetres=summary.superficie_menuiseries_fenetres_m2,
         superficie_portes=summary.superficie_menuiseries_portes_m2,
         hors_filtre_type=[r.model_dump() for r in payload.hors_filtre_type],
+        **_menuiseries_perimetre(payload),
     )
+
+
+def _menuiseries_perimetre(payload) -> dict[str, Any]:
+    """Périmètre de comptage des menuiseries, si le producteur le déclare.
+
+    Émis par le mode ``geometric_type_filter`` : les baies y sont comptées sur
+    les murs extérieurs **avant** filtre de type, parce qu'en façade Revit
+    multicouche elles sont portées par le mur porteur et non par la peau. Sans
+    cette information, le livrable afficherait une colonne « ouvertures » nulle
+    sur toutes les lignes face à un total non nul.
+    """
+    diagnostics = getattr(payload, "diagnostics", None) or {}
+    if not isinstance(diagnostics, dict):
+        return {}
+    perimetre = diagnostics.get("menuiseries_perimetre")
+    rejetes = diagnostics.get("menuiseries_m2_sur_types_rejetes")
+    return {
+        "menuiseries_perimetre": perimetre if isinstance(perimetre, str) else None,
+        "menuiseries_sur_types_rejetes": (
+            float(rejetes) if isinstance(rejetes, (int, float)) else None
+        ),
+    }
 
 
 def read_menuiseries(path: str | Path) -> MenuiseriesSource:

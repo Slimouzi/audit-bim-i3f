@@ -139,7 +139,7 @@ requires-dist = [
     { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.4" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
     { name = "fastmcp", specifier = ">=3.0,<4" },
-    { name = "ifc-geometry-mcp", marker = "extra == 'geometry'", git = "https://github.com/Slimouzi/ifc-geometry-mcp.git?tag=ifc-geometry-mcp-v0.3.0" },
+    { name = "ifc-geometry-mcp", marker = "extra == 'geometry'", git = "https://github.com/Slimouzi/ifc-geometry-mcp.git?tag=ifc-geometry-mcp-v0.4.0" },
     { name = "matplotlib", specifier = ">=3.8,<4" },
     { name = "openpyxl", specifier = ">=3.1,<4" },
     { name = "pdf2image", marker = "extra == 'ocr'", specifier = ">=1.16" },
@@ -1140,8 +1140,8 @@ wheels = [
 
 [[package]]
 name = "ifc-geometry-mcp"
-version = "0.3.0"
-source = { git = "https://github.com/Slimouzi/ifc-geometry-mcp.git?tag=ifc-geometry-mcp-v0.3.0#b36f1f8406df2f6ae22391ec979194d11a569565" }
+version = "0.4.0"
+source = { git = "https://github.com/Slimouzi/ifc-geometry-mcp.git?tag=ifc-geometry-mcp-v0.4.0#7a626feb0e17d2030bd2da22adf52cc940086838" }
 dependencies = [
     { name = "bim-core" },
     { name = "bim-sandbox" },
