@@ -42,8 +42,10 @@ from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
+import bim_reporting.charts as _bc
+import bim_reporting.word as _bw
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -66,6 +68,17 @@ from .theming import (
     SEVERITY_COLORS,
     THEME_COLORS,
 )
+
+# ── Primitives déléguées au socle générique ``bim-reporting`` ───────────
+# Ré-exports directs : mêmes objets, aucun changement de comportement.
+_hex_to_rgb = _bw.hex_to_rgb
+_shade_cell = _bw.shade_cell
+_add_heading = _bw.add_heading
+_section_break = _bw.section_break
+_kpi_table = _bw.kpi_table
+_para_intro = _bw.para_intro
+_model_meta = _bw.model_meta
+_plt = _bc.plt
 
 # Phrase de fallback : utilisée chaque fois qu'une donnée contextuelle
 # manque, pour éviter toute hallucination et garder un ton AMO BIM.
@@ -91,20 +104,17 @@ SOURCE_SUFFIX_DEDUCED = "(déduit par heuristique — à confirmer)"
 
 
 def _render_with_source(value: str, source: str) -> str:
-    """Ajoute un suffixe de traçabilité selon la source du champ.
+    """Suffixe de traçabilité selon la source du champ (socle générique).
 
-    - ``"user"`` → valeur brute (fiable, fournie par l'utilisateur).
-    - ``"extracted"`` → valeur + ``(déduit de la maquette — à confirmer)``.
-    - ``"deduced"`` → valeur + ``(déduit par heuristique — à confirmer)``.
-    - autre / ``"missing"`` → valeur brute (le caller a déjà géré le None).
+    Les suffixes restent définis ici : ce sont des formulations qui s'impriment
+    dans le livrable I3F.
     """
-    if not value:
-        return value
-    if source == "extracted":
-        return f"{value} {SOURCE_SUFFIX_EXTRACTED}"
-    if source == "deduced":
-        return f"{value} {SOURCE_SUFFIX_DEDUCED}"
-    return value
+    return _bw.render_with_source(
+        value,
+        source,
+        suffix_extracted=SOURCE_SUFFIX_EXTRACTED,
+        suffix_deduced=SOURCE_SUFFIX_DEDUCED,
+    )
 
 
 MAX_FINDINGS_PER_THEME = 25  # cap par thème pour garder un rendu équilibré
@@ -162,186 +172,21 @@ _MODEL_DATE_KEYS = ("created_at", "creation_date", "modified_date", "date")
 _MODEL_DISCIPLINE_KEYS = ("type", "discipline", "domain")
 
 
-def _hex_to_rgb(h: str) -> RGBColor:
-    return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-
-
-def _shade_cell(cell, hex_color: str):
-    tc_pr = cell._tc.get_or_add_tcPr()
-    shd = OxmlElement("w:shd")
-    shd.set(qn("w:val"), "clear")
-    shd.set(qn("w:color"), "auto")
-    shd.set(qn("w:fill"), hex_color)
-    tc_pr.append(shd)
-
-
-def _add_heading(doc: Document, text: str, level: int = 1):
-    """H1/H2/... colorés en BIMData Primary, font Roboto/Arial.
-
-    Pour les H1, on ajoute un filet d'accent jaune (BIMData Secondary)
-    sous le titre — la charte BIMData utilise le jaune ``#F9C72C`` comme
-    couleur d'accent, pas comme couleur dominante.
-    """
-    h = doc.add_heading(text, level=level)
-    for run in h.runs:
-        run.font.color.rgb = _hex_to_rgb(BIMDATA_PRIMARY)
-        run.font.name = BIMDATA_FONT_PRIMARY
-        # rFonts est nécessaire pour que Word applique vraiment la
-        # police (le nom dans run.font.name ne suffit pas seul).
-        rpr = run._element.get_or_add_rPr()
-        rfonts = rpr.find(qn("w:rFonts"))
-        if rfonts is None:
-            rfonts = OxmlElement("w:rFonts")
-            rpr.append(rfonts)
-        rfonts.set(qn("w:ascii"), BIMDATA_FONT_PRIMARY)
-        rfonts.set(qn("w:hAnsi"), BIMDATA_FONT_PRIMARY)
-        rfonts.set(qn("w:cs"), BIMDATA_FONT_FALLBACK)
-    if level == 1:
-        # Filet d.accent jaune : paragraphe minuscule entièrement shadé.
-        accent = doc.add_paragraph()
-        accent.paragraph_format.space_before = Pt(0)
-        accent.paragraph_format.space_after = Pt(6)
-        pPr = accent._p.get_or_add_pPr()
-        shd = OxmlElement("w:shd")
-        shd.set(qn("w:val"), "clear")
-        shd.set(qn("w:color"), "auto")
-        shd.set(qn("w:fill"), BIMDATA_SECONDARY)
-        pPr.append(shd)
-        # On force une hauteur de ligne ultra-courte pour obtenir un filet.
-        run = accent.add_run(" ")
-        run.font.size = Pt(2)
-    return h
-
-
-def _plt():
-    """Import paresseux de matplotlib (~330 ms) — payé uniquement à la
-    génération d'un rapport Word, pas au démarrage du serveur MCP/CLI."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    return plt
-
-
 def _pie_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -> io.BytesIO:
-    """Camembert avec regroupement des tranches < 2 % en « Autres » et légende externe.
-
-    Les labels en bordure se chevauchent dès qu'on a plusieurs tranches < 1 % ;
-    on bascule donc sur une légende latérale pour rester lisible.
-    """
-    plt = _plt()
-    fig, ax = plt.subplots(figsize=(7.0, 4.5), dpi=140)
-    total = sum(values.values())
-    if total == 0:
-        ax.text(0.5, 0.5, "Aucune anomalie", ha="center", va="center")
-        ax.axis("off")
-        ax.set_title(title, fontsize=11)
-        buf = io.BytesIO()
-        fig.tight_layout()
-        fig.savefig(buf, format="png", bbox_inches="tight")
-        plt.close(fig)
-        buf.seek(0)
-        return buf
-
-    # Trier décroissant + grouper les tranches négligeables
-    items = sorted(values.items(), key=lambda kv: -kv[1])
-    big: list[tuple[str, int]] = []
-    small_sum = 0
-    for k, v in items:
-        if v / total < PIE_OTHER_THRESHOLD:
-            small_sum += v
-        else:
-            big.append((k, v))
-    if small_sum > 0:
-        big.append(("Autres", small_sum))
-
-    labels = [k for k, _ in big]
-    sizes = [v for _, v in big]
-    colors = [f"#{colors_map.get(lbl, 'BFBFBF')}" for lbl in labels]
-
-    # Affiche % directement sur les tranches mais pas les labels (légende externe)
-    wedges, _texts, autotexts = ax.pie(
-        sizes,
-        colors=colors,
-        autopct=lambda pct: f"{pct:.0f}%" if pct >= 3 else "",
-        startangle=90,
-        textprops={"fontsize": 9, "color": "white", "weight": "bold"},
-        pctdistance=0.72,
+    """Camembert (socle générique) — seuil et libellés du livrable figés ici."""
+    return _bc.pie_chart(
+        values,
+        colors_map,
+        title,
+        other_label="Autres",
+        empty_label="Aucune anomalie",
+        other_threshold=PIE_OTHER_THRESHOLD,
     )
-    ax.axis("equal")
-    ax.set_title(title, fontsize=11)
-
-    # Légende externe avec libellé + valeur absolue
-    legend_labels = [
-        f"{lbl}  ({s:,})".replace(",", " ") for lbl, s in zip(labels, sizes, strict=True)
-    ]
-    ax.legend(
-        wedges,
-        legend_labels,
-        loc="center left",
-        bbox_to_anchor=(1.0, 0.5),
-        fontsize=9,
-        frameon=False,
-    )
-
-    buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="png", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
 
 
 def _bar_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -> io.BytesIO:
-    plt = _plt()
-    fig, ax = plt.subplots(figsize=(6.5, 3.5), dpi=140)
-    labels = list(values.keys())
-    sizes = list(values.values())
-    colors = [f"#{colors_map.get(lbl, '888888')}" for lbl in labels]
-    ax.bar(labels, sizes, color=colors)
-    for i, v in enumerate(sizes):
-        ax.text(i, v, str(v), ha="center", va="bottom", fontsize=9)
-    ax.set_title(title, fontsize=11)
-    ax.set_ylabel("Nb anomalies")
-    plt.xticks(rotation=20, ha="right", fontsize=9)
-    buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="png", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-
-def _section_break(doc: Document):
-    """Attache un saut de page au dernier paragraphe existant.
-
-    Évite la création d'un paragraphe vide additionnel — qui se rend en marge
-    gauche dans certains visionneurs (Quick Look macOS, par ex.) comme un
-    petit marqueur indésirable.
-    """
-    if doc.paragraphs:
-        last = doc.paragraphs[-1]
-        run = last.add_run()
-        run.add_break(WD_BREAK.PAGE)
-    else:
-        doc.add_page_break()
-
-
-def _kpi_table(doc: Document, kpis: list[tuple[str, str]]):
-    tbl = doc.add_table(rows=len(kpis), cols=2)
-    tbl.autofit = True
-    for i, (k, v) in enumerate(kpis):
-        row = tbl.rows[i]
-        c0, c1 = row.cells
-        c0.text = k
-        c1.text = str(v)
-        c0.width = Cm(8)
-        c1.width = Cm(6)
-        # Colonne libellé sur fond Blue Neutral Light (charte BIMData).
-        _shade_cell(c0, BIMDATA_BLUE_NEUTRAL_LIGHT)
-        for run in c0.paragraphs[0].runs:
-            run.bold = True
+    """Barres (socle générique) — libellé d'axe du livrable figé ici."""
+    return _bc.bar_chart(values, colors_map, title, y_label="Nb anomalies")
 
 
 def _header_row(tbl, headers: list[str]) -> None:
@@ -569,17 +414,6 @@ def _domain_status(findings: list[Finding]) -> str:
     return "conforme"
 
 
-def _model_meta(model: dict, keys: tuple[str, ...]) -> str | None:
-    """Premier champ non vide du dict modèle parmi ``keys``."""
-    for k in keys:
-        v = (model or {}).get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-        if isinstance(v, (int, float)):
-            return str(v)
-    return None
-
-
 # ── Assemblage du rapport ──────────────────────────────────────────────────
 
 
@@ -693,11 +527,6 @@ def write_word_report(
 # ── Sections ───────────────────────────────────────────────────────────────
 
 
-def _para_intro(doc: Document, text: str) -> None:
-    """Paragraphe d'introduction (Intense Quote) pour situer une section."""
-    doc.add_paragraph(text, style="Intense Quote")
-
-
 def _kv_or_na(
     doc: Document,
     label: str,
@@ -705,12 +534,20 @@ def _kv_or_na(
     *,
     source: str = "user",
 ) -> None:
-    """Bullet « Label : valeur » avec fallback NOT_AVAILABLE."""
-    if value and value.strip():
-        rendered = _render_with_source(value.strip(), source)
-    else:
-        rendered = NOT_AVAILABLE
-    doc.add_paragraph(f"• {label} : {rendered}", style="List Bullet")
+    """Bullet « Label : valeur » avec fallback NOT_AVAILABLE (socle générique).
+
+    ``NOT_AVAILABLE`` est passé explicitement : le socle refuse un défaut, cette
+    phrase s'imprimant telle quelle dans le livrable.
+    """
+    _bw.kv_or_na(
+        doc,
+        label,
+        value,
+        source=source,
+        not_available=NOT_AVAILABLE,
+        suffix_extracted=SOURCE_SUFFIX_EXTRACTED,
+        suffix_deduced=SOURCE_SUFFIX_DEDUCED,
+    )
 
 
 def _write_section_executive_summary(

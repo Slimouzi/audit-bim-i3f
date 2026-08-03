@@ -16,19 +16,14 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
+import bim_reporting.excel as _bx
 import xlsxwriter
 
 from ..audit.engine import AuditResult
 from ..audit.findings import ErrorType, Severity
 from ..classifier import suggest_for_findings, suggestions_map
 from .theming import (
-    BIMDATA_BLUE_NEUTRAL_LIGHT,
-    BIMDATA_FONT_PRIMARY,
-    BIMDATA_GRANITE,
-    BIMDATA_PRIMARY,
-    BIMDATA_SECONDARY,
     SEVERITY_COLORS,
 )
 
@@ -48,151 +43,26 @@ COLUMNS = [
 ]
 
 
-def _fmt_cell(v: Any) -> str:
-    """Convertit une valeur arbitraire en chaîne *sûre* pour Excel.
+# Préfixes interprétés par Excel comme formules — cf. OWASP « Formula Injection
+# (CSV Injection) ». Le jeu de référence vit dans le socle : une seule liste,
+# testée à un seul endroit. La dupliquer ici est exactement ce qui a permis à
+# une copie de diverger (bim-reporting v0.1.0, corrigé en v0.1.1).
+_FORMULA_TRIGGERS = _bx.FORMULA_TRIGGERS
 
-    Toute chaîne issue de données externes (DOE, IFC, findings) est
-    passée par :func:`_neutralize_formula` pour interdire l'injection
-    de formule via une valeur commençant par ``=`` / ``+`` / ``-``
-    / ``@``.
-    """
-    if v is None:
-        return ""
-    if isinstance(v, (list, tuple)):
-        sample = list(v)[:8]
-        more = " …" if len(v) > 8 else ""
-        return _neutralize_formula(", ".join(map(str, sample)) + more)
-    if isinstance(v, dict):
-        return _neutralize_formula("; ".join(f"{k}={vv}" for k, vv in v.items()))
-    return _neutralize_formula(str(v))
-
-
-# Préfixes interprétés par Excel comme formules. CSV injection / XLSX
-# formula injection — cf. OWASP "Formula Injection (CSV Injection)".
-# On préfixe l'apostrophe pour neutraliser la cellule : Excel l'affiche
-# comme texte sans déclencher d'évaluation.
-_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _neutralize_formula(v: Any) -> Any:
-    """Neutralise une cellule texte qui commencerait par un caractère
-    interprété comme formule par Excel (``=`` ``+`` ``-`` ``@``).
-
-    Les valeurs non-textuelles (int, float, bool, date) sont rendues
-    inchangées : Excel les écrit comme types natifs, sans risque.
-
-    Combiné avec ``Workbook(.., {"strings_to_formulas": False})``, cette
-    fonction protège contre l'injection de formules via les libellés
-    DOE / IFC / findings issus de données externes potentiellement
-    hostiles.
-    """
-    if isinstance(v, str) and v and v[0] in _FORMULA_TRIGGERS:
-        return "'" + v
-    return v
-
-
-def write_safe(ws, row, col, value, fmt=None):
-    """Wrapper unique sur ``ws.write`` qui *neutralise* toujours la valeur.
-
-    Tous les onglets de l'annexe XLSX doivent passer par cette fonction
-    pour les valeurs issues de données externes (snapshot, DOE, findings,
-    suggestions, catalogue). Pour les libellés statiques (titres,
-    en-têtes), l'usage est aussi safe par construction — la
-    neutralisation ne s'applique que si la chaîne commence par un
-    caractère piège.
-
-    Args:
-        ws: worksheet xlsxwriter.
-        row: index de ligne (0-indexed) ou notation A1 si str.
-        col: index de colonne (0-indexed).
-        value: valeur arbitraire (str / number / bool / None).
-        fmt: format xlsxwriter optionnel.
-    """
-    safe = _neutralize_formula(value) if value is not None else ""
-    if isinstance(row, str):
-        # Notation A1 — ws.write accepte (cell_str, value, fmt)
-        if fmt is not None:
-            ws.write(row, safe, fmt)
-        else:
-            ws.write(row, safe)
-    else:
-        if fmt is not None:
-            ws.write(row, col, safe, fmt)
-        else:
-            ws.write(row, col, safe)
+# ── Primitives déléguées au socle générique ``bim-reporting`` ───────────
+# Ré-exports directs : mêmes objets, aucun changement de comportement.
+_neutralize_formula = _bx.neutralize_formula
+_fmt_cell = _bx.fmt_cell
+write_safe = _bx.write_safe
 
 
 def _build_formats(wb: xlsxwriter.Workbook) -> dict:
-    """Construit le jeu de formats brandé BIMData.
+    """Formats brandés BIMData (socle générique) + un format par sévérité.
 
-    Tous les formats partagent la police Roboto (charte BIMData) avec
-    fallback Arial. XlsxWriter ne supporte pas la déclaration de
-    fallback, donc on configure ``font_name=Roboto`` ; si Roboto n'est
-    pas installée sur le poste qui ouvre le fichier, Excel substitue
-    automatiquement la police par défaut (Calibri / Arial) — le rendu
-    reste propre.
+    ``SEVERITY_COLORS`` est passé explicitement : le socle ne connaît pas l'enum
+    ``Severity``, il ne fige donc aucune convention de gravité.
     """
-
-    def _font(**kwargs) -> dict:
-        return {"font_name": BIMDATA_FONT_PRIMARY, **kwargs}
-
-    fmts = {
-        "title": wb.add_format(
-            _font(
-                bold=True,
-                font_size=18,
-                font_color=BIMDATA_PRIMARY,
-                align="left",
-            )
-        ),
-        "supertitle": wb.add_format(
-            _font(
-                bold=True,
-                font_size=9,
-                font_color=BIMDATA_GRANITE,
-                align="left",
-            )
-        ),
-        "h2": wb.add_format(_font(bold=True, font_size=12, font_color=BIMDATA_PRIMARY)),
-        "header": wb.add_format(
-            _font(
-                bold=True,
-                bg_color=BIMDATA_PRIMARY,
-                font_color="FFFFFF",
-                align="center",
-                valign="vcenter",
-                border=1,
-                text_wrap=True,
-            )
-        ),
-        # Filet jaune d.accent (BIMData Secondary) : utilisable comme bordure haute / surligneur.
-        "accent_filet": wb.add_format(_font(bg_color=BIMDATA_SECONDARY, font_size=2)),
-        # Alternance de lignes en Blue Neutral Light (#F0F5FF, charte BIMData).
-        "row_alt": wb.add_format(
-            _font(bg_color=BIMDATA_BLUE_NEUTRAL_LIGHT, border=1, text_wrap=True, valign="top")
-        ),
-        # Lignes neutres : blanc Excel par défaut pour conserver le
-        # contraste zébré avec ``row_alt`` (BIMData White / respiration).
-        "row": wb.add_format(_font(border=1, text_wrap=True, valign="top")),
-        "kpi_key": wb.add_format(
-            _font(
-                bold=True, bg_color=BIMDATA_BLUE_NEUTRAL_LIGHT, border=1, font_color=BIMDATA_PRIMARY
-            )
-        ),
-        "kpi_val": wb.add_format(_font(border=1, align="right")),
-        "label": wb.add_format(_font(bold=True)),
-    }
-    for sev, color in SEVERITY_COLORS.items():
-        fmts[f"sev_{sev}"] = wb.add_format(
-            _font(
-                bg_color=color,
-                font_color="FFFFFF",
-                border=1,
-                bold=True,
-                align="center",
-            )
-        )
-    return fmts
+    return _bx.build_formats(wb, severity_colors=SEVERITY_COLORS)
 
 
 def _write_findings_sheet(

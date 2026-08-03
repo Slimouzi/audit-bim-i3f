@@ -75,6 +75,10 @@ dependencies = [
     # infra-only). v0.1.1 = summary() JSON-safe + py.typed + contrat de
     # déterminisme corrigé.
     "bim-audit-engine>=0.1.5,<0.2",
+    # Socle générique de rendu des livrables (primitives Word/Excel, graphiques,
+    # export PDF, charte BIMData). Ne contient AUCUN vocabulaire client : les
+    # sections de rapport, le narratif CCH et les packs AVP restent ici.
+    "bim-reporting>=0.1.1,<0.2",
 ]
 
 [project.optional-dependencies]
@@ -128,6 +132,7 @@ bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "
 bim-query = { git = "https://github.com/Slimouzi/bim-query.git", tag = "bim-query-v0.1.4" }
 bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag = "bim-publication-v0.1.4" }
 bim-audit-engine = { git = "https://github.com/Slimouzi/bim-audit-engine.git", tag = "bim-audit-engine-v0.1.5" }
+bim-reporting = { git = "https://github.com/Slimouzi/bim-reporting.git", tag = "bim-reporting-v0.1.1" }
 ifc-geometry-mcp = { git = "https://github.com/Slimouzi/ifc-geometry-mcp.git", tag = "ifc-geometry-mcp-v0.5.1" }
 
 [tool.setuptools.packages.find]

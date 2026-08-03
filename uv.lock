@@ -87,6 +87,7 @@ dependencies = [
     { name = "bim-core" },
     { name = "bim-publication" },
     { name = "bim-query" },
+    { name = "bim-reporting" },
     { name = "bimdata-read" },
     { name = "bimdata-write" },
     { name = "fastmcp" },
@@ -133,6 +134,7 @@ requires-dist = [
     { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.3.0" },
     { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.4" },
     { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.4" },
+    { name = "bim-reporting", git = "https://github.com/Slimouzi/bim-reporting.git?tag=bim-reporting-v0.1.1" },
     { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.7" },
     { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.5" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
@@ -226,6 +228,15 @@ source = { git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.4
 dependencies = [
     { name = "bim-core" },
     { name = "pydantic" },
+]
+
+[[package]]
+name = "bim-reporting"
+version = "0.1.1"
+source = { git = "https://github.com/Slimouzi/bim-reporting.git?tag=bim-reporting-v0.1.1#f383276e04a3412b1b1e0e2a010169845763e6f4" }
+dependencies = [
+    { name = "python-docx" },
+    { name = "xlsxwriter" },
 ]
 
 [[package]]
