@@ -60,6 +60,78 @@ class GeometryInputMissing(RuntimeError):
         super().__init__(message)
 
 
+class ContractModelMismatch(ValueError):
+    """Le contrat **fourni explicitement** ne porte pas sur le modèle actif.
+
+    Le cas réel : l'auditeur rejoue une recette et passe le chemin d'un contrat
+    calculé pour une autre maquette. Les surfaces d'un autre bâtiment entreraient
+    alors dans un livrable nommé d'après le projet courant — exactement la classe
+    d'erreur que ``verify_active_model`` ferme côté cible. Un chemin explicite ne
+    doit pas rouvrir cette fenêtre : la provenance déclarée dans ``source.ifc_file``
+    prime sur l'intention de l'appelant.
+    """
+
+    def __init__(self, message: str, *, parametre: str, provenance: str | None):
+        self.parametre = parametre
+        self.provenance = provenance
+        super().__init__(message)
+
+
+def contract_source_ifc(doc: dict[str, Any] | None) -> str | None:
+    """``source.ifc_file`` déclaré par un contrat, ou ``None``.
+
+    Exposé pour la **traçabilité** du pack : le retour de la génération doit dire
+    de quel ``.ifc`` chaque contrat provient, sans que l'appelant ait à rouvrir
+    les JSON.
+    """
+    if not isinstance(doc, dict):
+        return None
+    source = (doc.get("source") or {}).get("ifc_file")
+    return str(source) if source else None
+
+
+def assert_contract_matches_model(
+    doc: dict[str, Any],
+    snapshot,
+    *,
+    parametre: str,
+    ifc_path: str | Path | None = None,
+    session_ifc_path: str | Path | None = None,
+    model_ids: tuple[str | None, ...] | None = None,
+) -> None:
+    """Vérifie qu'un contrat **fourni** porte sur le modèle actif, sinon lève.
+
+    Même règle que la réutilisation automatique (:func:`_contract_matches_model`) :
+    les deux formes de nom légitimes — nom métier BIMData **et** préfixe du cache
+    ``<cloud>_<projet>_<modele>_`` — sont acceptées, sans quoi tout contrat calculé
+    depuis un ``.ifc`` téléchargé serait rejeté à tort.
+    """
+    if snapshot is None:
+        return
+    if _contract_matches_model(
+        doc,
+        snapshot,
+        ifc_path,
+        session_ifc_path=session_ifc_path,
+        model_ids=model_ids,
+    ):
+        return
+    provenance = contract_source_ifc(doc)
+    attendu = _stem(None, snapshot) or "modèle actif"
+    prefixe = _cache_bimdata_prefix(model_ids)
+    raise ContractModelMismatch(
+        f"Le contrat passé en ``{parametre}`` ne porte pas sur le modèle actif : "
+        f"provenance déclarée « {provenance or 'inconnue'} », attendu « {attendu} »"
+        + (f" ou un fichier préfixé « {prefixe} »" if prefixe else "")
+        + ". Générer le pack avec ce contrat produirait les surfaces d'une autre "
+        "maquette sous le nom du projet courant. Recalculer le contrat sur le "
+        "modèle actif (``download_model_ifc`` puis le MCP ifc-geometry), ou "
+        "laisser l'auto-calcul le faire.",
+        parametre=parametre,
+        provenance=provenance,
+    )
+
+
 def contracts_dir() -> Path:
     """Dossier des contrats calculés, sous la sandbox d'export."""
     return safe_export_dir(CONTRACTS_SUBDIR)

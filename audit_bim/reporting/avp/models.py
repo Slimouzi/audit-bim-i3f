@@ -133,7 +133,11 @@ class AvpQaError(RuntimeError):
       snapshot expose des espaces / murs / zones exploitables ;
     - ``kind="missing_quantities"`` — l'export a des lignes mais **toutes ses
       colonnes de quantités sont vides**. C'est le cas le plus trompeur : le
-      fichier paraît complet et se lit comme un résultat.
+      fichier paraît complet et se lit comme un résultat ;
+    - ``kind="external_tool_mention"`` — un livrable cite un outil tiers hérité
+      du classeur MOA de référence (``Solibri``, ``BimCollab*``). Le pack
+      attribuerait alors le contrôle à un logiciel étranger à la chaîne BIMData,
+      et trahirait le chantier dont le template a été recyclé.
     """
 
     def __init__(self, empty: list[str], *, kind: str = "empty"):
@@ -150,6 +154,14 @@ class AvpQaError(RuntimeError):
                 "``computed_quantities_json`` à ``generate_avp_i3f_pack`` — le "
                 "JSON `computed_base_quantities/v1` est produit par "
                 "``export_computed_base_quantities`` (MCP ifc-geometry)."
+            )
+        elif kind == "external_tool_mention":
+            message = (
+                "Livrable(s) citant un outil tiers hérité du classeur MOA de "
+                "référence : "
+                + ", ".join(empty)
+                + ". Livraison refusée : le pack attribuerait le contrôle à un "
+                "logiciel que la chaîne BIMData n'emploie pas."
             )
         else:
             message = (

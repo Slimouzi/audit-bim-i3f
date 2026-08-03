@@ -210,6 +210,36 @@ def count_envelope_walls(snap: ModelSnapshot | None) -> int:
     return len(_envelope_walls(snap)) if snap is not None else 0
 
 
+#: Classes de murs pouvant **porter** une enveloppe, indépendamment de toute
+#: convention de calque. ``IfcCurtainWall`` est inclus ici sans l'être dans
+#: ``_ENVELOPE_WALL_CLASSES`` : un mur-rideau est de la façade, et une maquette
+#: dont l'enveloppe est en mur-rideau doit elle aussi déclencher le refus si
+#: l'annexe sort vide.
+_CANDIDATE_ENVELOPE_WALL_CLASSES = (
+    "IfcWall",
+    "IfcWallStandardCase",
+    "IfcCurtainWall",
+)
+
+
+def count_candidate_envelope_walls(snap: ModelSnapshot | None) -> int:
+    """Murs **susceptibles** de constituer l'enveloppe, sans exigence de calque.
+
+    :func:`count_envelope_walls` reconnaît l'enveloppe par le calque ArchiCAD
+    « extérieurs périphériques ». C'est le bon critère pour *construire* l'annexe,
+    mais le mauvais pour décider s'il **fallait** en produire une : un export
+    Revit n'expose aucun calque, son compte tombe donc à zéro et la QA gate se
+    tait — laissant sortir un pack « OK » avec une annexe Enveloppe vide, sur une
+    maquette qui a pourtant 1 574 murs.
+
+    Ce compteur répond à la question « cette maquette a-t-elle de quoi avoir une
+    enveloppe ? », sans présumer de l'outil de modélisation.
+    """
+    if snap is None:
+        return 0
+    return sum(len(snap.of_class(cls)) for cls in _CANDIDATE_ENVELOPE_WALL_CLASSES)
+
+
 def count_menuiseries(snap: ModelSnapshot | None) -> int:
     """Nombre de menuiseries exploitables (IfcWindow + IfcDoor)."""
     if snap is None:

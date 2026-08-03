@@ -6,13 +6,15 @@ gate anti-livrable vide. Dépend de tous les builders (jamais l'inverse).
 
 from __future__ import annotations
 
+import re
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
 from ...audit.engine import AuditResult
 from ...extraction.model_data import ModelSnapshot
 from ..avp_snapshot import (
-    count_envelope_walls,
+    count_candidate_envelope_walls,
     count_menuiseries,
     count_menuiseries_with_dimensions,
     count_planchers,
@@ -291,6 +293,15 @@ def write_avp_i3f_report_pack(
     if empty:
         raise AvpQaError(empty)
 
+    # ── QA gate : anti-marque d'outil tiers ─────────────────────────────
+    # Filet de sécurité indépendant des purges ciblées : on inspecte le XML
+    # réel des fichiers produits. Une purge peut rater un emplacement (nouvel
+    # onglet MOA, note de bas de page, en-tête) ; ce contrôle, lui, ne dépend
+    # d'aucune hypothèse sur l'endroit où la marque se cache.
+    contamines = _qa_external_tool_mentions(pack)
+    if contamines:
+        raise AvpQaError(contamines, kind="external_tool_mention")
+
     return pack
 
 
@@ -330,13 +341,45 @@ def _qa_empty_deliverables(
             problems.append("SHAB")
         if _count_business_rows(pack.zones_espaces_xlsx) == 0:
             problems.append("Zones/Espaces")
-    if count_envelope_walls(snap) > 0 and _count_business_rows(pack.enveloppe_xlsx) == 0:
+    # Murs CANDIDATS, pas murs à calque reconnu : ``count_envelope_walls`` est
+    # layer-first (ArchiCAD) et tombe à zéro sur un export Revit, ce qui faisait
+    # taire cette gate précisément sur les maquettes où l'annexe sortait vide.
+    if count_candidate_envelope_walls(snap) > 0 and _count_business_rows(pack.enveloppe_xlsx) == 0:
         problems.append("Enveloppe")
     if count_menuiseries(snap) > 0 and _count_business_rows(pack.menuiseries_xlsx) == 0:
         problems.append("Menuiseries")
     if count_planchers(snap) > 0 and _count_business_rows(pack.plancher_xlsx) == 0:
         problems.append("Plancher")
     return problems
+
+
+#: Marques d'outils tiers interdites dans un livrable client. Elles proviennent
+#: des classeurs MOA de référence, recyclés comme gabarit de mise en forme.
+_QA_EXTERNAL_TOOL_RE = re.compile(r"BimCollab\s*Zoom|BimCollab|Solibri", re.IGNORECASE)
+
+
+def _qa_external_tool_mentions(pack: AvpReportPack) -> list[str]:
+    """Livrables citant encore un outil tiers, inspectés **dans leur XML**.
+
+    ``.xlsx`` et ``.docx`` sont des archives ZIP : on lit les parties XML plutôt
+    que de rouvrir les documents par leur API. Une marque peut vivre hors des
+    cellules et des paragraphes — chaîne partagée, en-tête, note, propriété de
+    document — et n'importe laquelle atteindrait le client.
+    """
+    contamines: list[str] = []
+    for chemin in pack.paths():
+        try:
+            with zipfile.ZipFile(chemin) as archive:
+                trouve = any(
+                    _QA_EXTERNAL_TOOL_RE.search(archive.read(nom).decode("utf-8", errors="ignore"))
+                    for nom in archive.namelist()
+                    if nom.endswith((".xml", ".rels"))
+                )
+        except (OSError, zipfile.BadZipFile):
+            continue  # le PDF best-effort et un fichier illisible ne sont pas des marques
+        if trouve:
+            contamines.append(Path(chemin).name)
+    return contamines
 
 
 def _qa_missing_quantities(snap) -> list[str]:

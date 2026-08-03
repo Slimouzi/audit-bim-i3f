@@ -32,6 +32,58 @@ from .session import _State
 _server_logger = logging.getLogger("audit_bim.mcp.tools_reporting")
 
 
+def _contract_doc(path: str | Path) -> dict | None:
+    """Relit un contrat JSON déjà validé par la sandbox, ou ``None``."""
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _contract_source_ifc_file(path: str | Path) -> str | None:
+    """``source.ifc_file`` d'un contrat, pour la traçabilité du pack."""
+    from ..reporting.avp_autocompute import contract_source_ifc
+
+    return contract_source_ifc(_contract_doc(path))
+
+
+def _guard_contract_provenance(path: str | Path, *, parametre: str) -> str | None:
+    """Refuse un contrat **fourni** qui ne porte pas sur le modèle actif.
+
+    Les contrats auto-résolus sont déjà corrélés à la cible (cf.
+    ``avp_autocompute._contract_matches_model``) ; un chemin passé à la main ne
+    l'était pas, et c'est par là qu'un contrat étranger entrait dans un livrable
+    nommé d'après le projet courant. Renvoie la provenance déclarée pour la
+    traçabilité du pack.
+    """
+    from ..reporting.avp_autocompute import assert_contract_matches_model, contract_source_ifc
+
+    doc = _contract_doc(path)
+    if doc is None:
+        return None
+    assert_contract_matches_model(
+        doc,
+        _State.snapshot,
+        parametre=parametre,
+        session_ifc_path=getattr(_State, "ifc_path", None),
+        model_ids=(_State.cloud_id, _State.project_id, _State.model_id),
+    )
+    return contract_source_ifc(doc)
+
+
+def _contract_mismatch_payload(exc) -> dict:
+    """Refus explicite et actionnable — jamais un pack silencieusement faux."""
+    return {
+        "status": "error",
+        "error": "contract_model_mismatch",
+        "parametre": exc.parametre,
+        "contract_source_ifc_file": exc.provenance,
+        "active_model_id": _State.model_id,
+        "message": str(exc),
+    }
+
+
 def _auto_envelope_roots() -> list[Path]:
     roots: list[Path] = []
     # Déploiement local Codex/Claude : audit-bim-i3f est lancé depuis le repo,
@@ -437,8 +489,14 @@ def generate_avp_i3f_pack(
     # Enveloppe « logique MOA » : source structurée envelope.json (MCP ifc-geometry)
     # → onglet par_type (8 lignes métier), prioritaire sur le repli snapshot (484
     # murs) et sur le .xlsx source.
+    # Origine du contrat, à distinguer : un chemin **passé en paramètre** n'a subi
+    # aucun contrôle de cible, alors qu'un fichier **détecté** a déjà été corrélé
+    # au modèle actif par ``_envelope_json_matches_model``. Seul le premier doit
+    # repasser la garde de provenance.
+    envelope_json_explicite = bool(envelope_json)
     envelope_json_used = envelope_json or _auto_envelope_json()
     auto_envelope = None
+    envelope_source_ifc_file = None
     # On ne calcule que ce qui est attendu : sans mur d'enveloppe dans la
     # maquette, l'annexe n'a pas lieu d'être et lancer un calcul serait du bruit
     # (voire un refus sur une maquette qui n'en a pas besoin).
@@ -483,7 +541,20 @@ def generate_avp_i3f_pack(
             if auto_envelope is not None
             else safe_input_path(envelope_json_used, allowed_extensions={".json"})
         )
+        # Schéma d'abord (diagnostic le plus précis), provenance ensuite : un
+        # fichier illisible doit se dire illisible, pas « d'un autre modèle ».
         sources.enveloppe = read_envelope_json(safe_env)
+        if envelope_json_explicite:
+            from ..reporting.avp_autocompute import ContractModelMismatch
+
+            try:
+                envelope_source_ifc_file = _guard_contract_provenance(
+                    safe_env, parametre="envelope_json"
+                )
+            except ContractModelMismatch as exc:
+                return _contract_mismatch_payload(exc)
+        else:
+            envelope_source_ifc_file = _contract_source_ifc_file(safe_env)
         envelope_json_used = str(safe_env)
 
     # Quantités calculées : fusion **gap-only** dans le snapshot AVANT
@@ -491,6 +562,7 @@ def generate_avp_i3f_pack(
     # produit des annexes aux colonnes vides (la QA gate les refuse plus bas).
     computed_coverage = None
     computed_json_used = None
+    computed_source_ifc_file = None
     working_snapshot = _State.snapshot
     # Auto-résolution : si le snapshot ne porte pas les quantités et qu'aucun
     # JSON n'est fourni, on le retrouve ou on le calcule — plutôt que d'exiger
@@ -555,6 +627,18 @@ def generate_avp_i3f_pack(
             else safe_input_path(computed_quantities_json, allowed_extensions={".json"})
         )
         doc = load_computed_quantities(safe_cq)  # valide le contrat (sinon ValueError)
+        # Provenance après le schéma, même raison que pour l'enveloppe.
+        if auto_quantities is None:
+            from ..reporting.avp_autocompute import ContractModelMismatch
+
+            try:
+                computed_source_ifc_file = _guard_contract_provenance(
+                    safe_cq, parametre="computed_quantities_json"
+                )
+            except ContractModelMismatch as exc:
+                return _contract_mismatch_payload(exc)
+        else:
+            computed_source_ifc_file = _contract_source_ifc_file(safe_cq)
         # Copie de travail : la fusion est gap-only, donc muter le snapshot de
         # SESSION la rendrait non rejouable — un second appel avec un JSON
         # recalculé verrait les anciennes valeurs comme « déjà présentes » et
@@ -725,12 +809,40 @@ def generate_avp_i3f_pack(
                 out_dir.rmdir()
         except OSError:  # nettoyage best-effort, jamais bloquant
             pass
+        _codes = {
+            "missing_quantities": "missing_quantities",
+            "external_tool_mention": "external_tool_mention",
+        }
         payload = {
             "status": "error",
-            "error": ("missing_quantities" if manque_quantites else "empty_deliverable"),
+            "error": _codes.get(exc.kind, "empty_deliverable"),
             "empty_deliverables": exc.empty,
             "message": str(exc),
         }
+        if exc.kind == "external_tool_mention":
+            payload["contaminated_deliverables"] = exc.empty
+            payload["next_step"] = (
+                "Un livrable cite encore un outil tiers (Solibri / BimCollab*) "
+                "hérité du classeur MOA de référence. Retirer la mention du "
+                "template source, ou générer sans ``controle_xlsx``."
+            )
+        if exc.kind == "empty" and "Enveloppe" in exc.empty:
+            # La maquette porte des murs d'enveloppe mais aucune source
+            # exploitable n'a produit de ligne. Dire quoi faire : sur une
+            # maquette sans calque ArchiCAD (export Revit), la sélection par
+            # défaut ne retient rien et il faut des motifs adaptés au nommage
+            # réel des types.
+            payload["needs_envelope_source"] = True
+            payload["next_step"] = (
+                "L'annexe Enveloppe est vide alors que la maquette porte des "
+                "murs d'enveloppe. Fournir ``envelope_json`` (contrat "
+                "``envelope_quantities/v1`` du MCP ifc-geometry), ou relancer "
+                "avec ``auto_compute_envelope=True`` et des motifs adaptés au "
+                "nommage de CETTE maquette (``envelope_layer_pattern`` / "
+                "``envelope_type_pattern``) — les motifs ArchiCAD I3F "
+                "(« 221|extérieurs périphériques », « ^ME[ _] ») ne retiennent "
+                "rien sur un export Revit, qui n'expose pas de calque."
+            )
         if manque_quantites:
             payload["needs_computed_quantities_json"] = True
             payload["next_step"] = (
@@ -754,6 +866,18 @@ def generate_avp_i3f_pack(
         "envelope_json_used": envelope_json_used,
         "computed_quantities_json_used": computed_json_used,
         "computed_quantities_coverage": computed_coverage,
+        # Traçabilité de cible : de quel modèle et de quel .ifc sortent réellement
+        # les chiffres du pack. Sans ces champs, seul le nom de fichier des
+        # contrats trahissait la cible — un contrôle de recette impossible à
+        # faire de tête.
+        "active_cloud_id": _State.cloud_id,
+        "active_project_id": _State.project_id,
+        "active_model_id": _State.model_id,
+        "downloaded_ifc_path": (
+            str(getattr(_State, "ifc_path", None)) if getattr(_State, "ifc_path", None) else None
+        ),
+        "computed_source_ifc_file": computed_source_ifc_file,
+        "envelope_source_ifc_file": envelope_source_ifc_file,
         "auto_computed": {
             "quantities": auto_quantities,
             "envelope": auto_envelope,
