@@ -155,6 +155,47 @@ def test_moa_template_header_can_never_name_the_deliverables(session, tmp_path, 
     assert _question(res, "project_name")["suggestion"] == "DIEPPE"
 
 
+def test_moa_header_never_even_suggests_an_identity(tmp_path, monkeypatch):
+    """Refuser une mauvaise valeur ne suffit pas : il faut cesser de la proposer.
+
+    Le gabarit porte ici l'identité d'un chantier **réel mais étranger**, absente
+    de toute liste de libellés génériques — c'est le cas que le filtrage par
+    denylist ne pourrait pas attraper. Aucune suggestion ne doit en sortir : une
+    proposition affichée finit recopiée.
+    """
+    import openpyxl
+
+    from audit_bim.mcp import tools_reporting
+
+    monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(tools_reporting, "_auto_controle_xlsx", lambda: None)
+
+    modele = tmp_path / "controle.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Grille de contrôle"
+    ws["B2"], ws["C2"] = "Projet", "Liffré"
+    ws["B3"], ws["C3"] = "ESI", "0912K"
+    wb.save(modele)
+
+    sess = _Session()
+    # Maquette sans identité lisible : aucune suggestion ne peut en venir, donc
+    # ce qui resterait affiché viendrait forcément de l'entête.
+    sess.snapshot = ModelSnapshot(project={"name": "MCP_Audit"}, model={"name": "M.ifc"}).index()
+    token = current_session.set(sess)
+    try:
+        res = _generer(controle_xlsx=str(modele))
+    finally:
+        current_session.reset(token)
+
+    assert res["status"] == "needs_context"
+    for cle in ("project_name", "project_code"):
+        q = _question(res, cle)
+        assert "suggestion" not in q, q
+        assert "Liffré" not in q["question"]
+        assert "0912K" not in q["question"]
+
+
 def test_confirm_context_never_bypasses_identity(session):
     """``confirm_context`` couvre la phase et l'auteur, jamais l'identité."""
     res = _generer(confirm_context=True)

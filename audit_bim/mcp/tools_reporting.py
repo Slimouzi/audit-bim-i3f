@@ -70,7 +70,28 @@ _GENERIC_PROJECT_NAMES = frozenset(
 #: Jetons du nom de maquette qui ne sont pas un nom de chantier : phases I3F et
 #: indicatifs de discipline. Écartés des suggestions.
 _MODEL_NAME_NOISE = frozenset(
-    {"aps", "avp", "apd", "pro", "dce", "exe", "doe", "gestion", "archi", "stru", "flu", "bata"}
+    {
+        # phases I3F
+        "aps",
+        "avp",
+        "apd",
+        "pro",
+        "dce",
+        "exe",
+        "doe",
+        "gestion",
+        # indicatifs de discipline / lot
+        "archi",
+        "stru",
+        "flu",
+        "bata",
+        # vocabulaire d'export, fréquent en tête de nom de fichier
+        "export",
+        "extract",
+        "final",
+        "copie",
+        "copy",
+    }
 )
 
 #: Code ESI I3F : 3 à 5 chiffres suivis d'une lettre (« 7427L », « 0546L »).
@@ -582,21 +603,24 @@ def generate_avp_i3f_pack(
         v = ctrl_header.get(key)
         return str(v).strip() if v not in (None, "") and str(v).strip() else None
 
-    # ── Résolution de l'identité projet (nom / code / phase) ────────────
-    # Ordre STRICT : paramètre explicite > contexte du modèle actif > on
-    # demande. L'entête du classeur de contrôle n'est **jamais** autoritaire :
-    # ce classeur est le plus souvent un **template MOA de référence** (Tarare
-    # 0546L) auto-découvert dans les documents maître d'ouvrage. Son entête
-    # nommait alors les livrables d'après un AUTRE chantier que celui audité —
-    # un pack « Tarare 0546L » livré sur Dieppe. Le template reste utilisé pour
-    # la MISE EN FORME ; son identité projet ne l'est plus.
+    # ── Résolution de l'identité projet (nom / code) ────────────────────
+    # Ordre STRICT : **paramètre explicite → on demande**. Il n'y a pas de
+    # troisième source.
     #
-    # Le repli sur le nom du projet BIMData est SUPPRIMÉ. Il a livré un pack
+    # Le repli sur le nom du projet BIMData a été SUPPRIMÉ. Il a livré un pack
     # « 260803 MCP_Audit 7427L AVP - … » : ``MCP_Audit`` est un espace de
     # travail, pas un chantier. Un nom de projet BIMData n'est pas une identité
     # client — il est choisi par celui qui crée l'espace, souvent pour lui-même.
     # Même traitement pour les libellés génériques (« Projet », « I3F ») et pour
     # ``Tarare``, le chantier dont les classeurs MOA servent de gabarit.
+    #
+    # L'entête du classeur de contrôle ne fournit rien non plus — ni valeur, ni
+    # **suggestion**. Refuser une mauvaise valeur ne suffit pas s'il on continue
+    # de la proposer : une suggestion « Tarare / 0546L » finit recopiée. Et la
+    # filtrer par liste de libellés génériques ne fermerait pas le trou, puisque
+    # le gabarit du jour peut venir de n'importe quel autre chantier réel, dont
+    # le nom ne figurera dans aucune liste. La seule source de suggestion est le
+    # **nom de la maquette**, posé par l'équipe projet.
     eff_name = (project_name or "").strip() or None
     eff_code = (project_code or "").strip() or None
     nom_rejete = eff_name if _is_generic_identity(eff_name) and eff_name else None
@@ -607,10 +631,6 @@ def generate_avp_i3f_pack(
         eff_code = None
     sug_name, sug_code = _model_identity_suggestion()
 
-    # L'entête n'est proposée en SUGGESTION que si l'appelant a désigné le
-    # classeur lui-même : un fichier auto-découvert ne suggère rien.
-    hdr_name = _hdr("projet") if controle_xlsx else None
-    hdr_code = _hdr("esi") if controle_xlsx else None
     # Phase : param explicite > phase d'audit confirmée > entête contrôle I3F.
     eff_phase = (phase or "").strip() or None
     if not eff_phase and _State.phase is not None:
@@ -652,14 +672,11 @@ def generate_avp_i3f_pack(
                 "peut pas nommer un livrable client. Quel nom de projet doit "
                 "apparaître dans les livrables ?"
             )
-        # La maquette est la source la plus fiable : son nom est posé par
-        # l'équipe projet, contrairement au nom de l'espace BIMData.
+        # Seule source de suggestion : le nom de la maquette, posé par l'équipe
+        # projet. Surtout pas l'entête du classeur MOA — voir plus haut.
         if sug_name:
             q["suggestion"] = sug_name
             q["question"] += f" (le nom de la maquette suggère « {sug_name} »)"
-        elif hdr_name:
-            q["suggestion"] = hdr_name
-            q["question"] += f" (le classeur fourni indique « {hdr_name} »)"
         questions.append(q)
     if not eff_code:
         missing.append("project_code")
@@ -675,9 +692,6 @@ def generate_avp_i3f_pack(
         if sug_code:
             q["suggestion"] = sug_code
             q["question"] += f" (le nom de la maquette suggère « {sug_code} »)"
-        elif hdr_code:
-            q["suggestion"] = hdr_code
-            q["question"] += f" (le classeur fourni indique « {hdr_code} »)"
         questions.append(q)
     if not eff_phase:
         # Phase unique : proposée si détectée (IFC puis entête contrôle),
