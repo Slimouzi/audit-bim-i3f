@@ -443,12 +443,47 @@ def ensure_computed_quantities_json(
     }
 
 
+def expected_filter_mode(
+    filter_mode: str | None,
+    layer_pattern: str | None,
+    type_pattern: str | None,
+) -> str:
+    """Mode de sélection attendu pour ces paramètres.
+
+    Réplique la règle de déduction du backend. On ne l'appelle pas directement :
+    ce contrôle sert à décider si un contrat **déjà calculé** est réutilisable,
+    et il doit fonctionner sans que le backend soit installé — sinon un
+    environnement sans l'extra ``geometry`` ne pourrait ni réutiliser un contrat
+    ni le recalculer.
+
+    La divergence avec le backend est verrouillée par un test dédié plutôt que
+    par un appel : c'est le prix à payer pour que ce contrôle reste autonome.
+    """
+    if filter_mode:
+        return filter_mode
+    if layer_pattern:
+        return "layer_type_filter"
+    if type_pattern:
+        return "geometric_type_filter"
+    return "geometric"
+
+
+def _meme_seuil(declare: Any, demande: float | None) -> bool:
+    """Le seuil du contrat est-il celui demandé ? ``None`` ≠ valeur numérique."""
+    if declare is None or demande is None:
+        return declare is None and demande is None
+    if not isinstance(declare, (int, float)):
+        return False
+    return abs(float(declare) - float(demande)) < 1e-9
+
+
 def _envelope_contract_matches_request(
     doc: dict[str, Any],
     *,
     layer_pattern: str | None,
     type_pattern: str | None,
     filter_mode: str | None,
+    seuil_3f: float | None,
 ) -> bool:
     """Le contrat en cache a-t-il été produit **avec ces paramètres-là** ?
 
@@ -467,16 +502,27 @@ def _envelope_contract_matches_request(
     2. ``diagnostics.filters`` (mode et motifs) identique à la demande ;
     3. ``source.version`` égale à la version **installée** du backend — deux
        versions peuvent rendre le même schéma sous des définitions différentes.
+
+    S'y ajoute ``summary.seuil_i3f`` : le seuil entre dans le contrat, s'affiche
+    dans l'annexe et détermine ``conforme_seuil``. Un contrat calculé avec un
+    seuil ne répond pas à une demande sans seuil, et réciproquement.
+
+    Le mode attendu est **toujours** comparé, y compris quand ``filter_mode``
+    vaut ``None`` : ``None`` signifie « déduit des motifs », pas « n'importe
+    lequel ». Un contrat portant les mêmes motifs sous un autre mode ne décrit
+    pas la même sélection.
     """
     summary = doc.get("summary") or {}
     if not isinstance(summary, dict) or not summary.get("methode_shab"):
+        return False
+    if not _meme_seuil(summary.get("seuil_i3f"), seuil_3f):
         return False
 
     diagnostics = doc.get("diagnostics") or {}
     filtres = diagnostics.get("filters") if isinstance(diagnostics, dict) else None
     if not isinstance(filtres, dict):
         return False
-    if filter_mode and filtres.get("mode") != filter_mode:
+    if filtres.get("mode") != expected_filter_mode(filter_mode, layer_pattern, type_pattern):
         return False
     if filtres.get("layer_pattern") != layer_pattern:
         return False
@@ -485,6 +531,9 @@ def _envelope_contract_matches_request(
 
     from ..extraction.geometry_backend import backend_version
 
+    # Backend absent → version inconnue, donc invérifiable. On refuse : sans lui
+    # le recalcul échouera de toute façon avec un message actionnable, ce qui
+    # vaut mieux qu'un livrable dont on ne peut pas nommer la définition.
     installee = backend_version()
     produite = (doc.get("source") or {}).get("version")
     return bool(installee) and produite == installee
@@ -526,6 +575,7 @@ def ensure_envelope_json(
             layer_pattern=layer_pattern,
             type_pattern=type_pattern,
             filter_mode=filter_mode,
+            seuil_3f=seuil_3f,
         ):
             return {"json_path": str(cible), "reused": True, "computed": False}
 

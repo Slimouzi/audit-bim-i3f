@@ -53,6 +53,26 @@ def backend_available() -> bool:
     return True
 
 
+def resolve_filter_mode(
+    filter_mode: str | None,
+    layer_pattern: str | None,
+    type_pattern: str | None,
+) -> str:
+    """Mode de sélection **effectif** pour ces paramètres.
+
+    Délègue au backend plutôt que de réimplémenter la règle : la déduction
+    (``layer_pattern`` → ``layer_type_filter``, ``type_pattern`` seul →
+    ``geometric_type_filter``, sinon ``geometric``) lui appartient. La
+    dupliquer ici la ferait diverger au premier changement, et c'est justement
+    sur cette valeur qu'on décide si un contrat en cache est réutilisable.
+
+    Lève ``ValueError`` (``EnvelopeFilterModeError``) si le mode demandé est
+    incohérent avec les motifs — au même titre que le calcul lui-même.
+    """
+    _ifc_utils, envelope, _bq = _load()
+    return envelope.resolve_filter_mode(filter_mode, layer_pattern, type_pattern)
+
+
 def backend_version() -> str | None:
     """Version installée du backend, ou ``None`` s'il est absent.
 
