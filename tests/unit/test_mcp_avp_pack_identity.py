@@ -1,11 +1,12 @@
 """Résolution de l'identité projet du pack AVP I3F (tool MCP) + phase unique.
 
 Couvre les correctifs de revue :
-- P1 : l'entête « Projet » du classeur de contrôle n'est **jamais** autoritaire
-  pour nommer les livrables — ce classeur est le plus souvent un template MOA
-  de référence (Tarare 0546L), et son identité nommait les packs d'après un
-  autre chantier que celui audité. Ordre strict : paramètre explicite >
-  contexte du modèle actif > on demande.
+- P1 : l'entête « Projet » du classeur de contrôle ne nomme **jamais** les
+  livrables — ce classeur est le plus souvent un template MOA de référence
+  (Tarare 0546L), et son identité nommait les packs d'après un autre chantier
+  que celui audité. Elle n'en est même plus une **suggestion** : le produit ne
+  doit pas seulement refuser les mauvaises valeurs, il doit cesser de les
+  proposer. Ordre strict : paramètre explicite > on demande.
 - P2a : phase absente → ``needs_context`` (project_phase), jamais de défaut
   silencieux « AVP ».
 - P2b : ``project_context_questions`` pose une **unique** question de phase
@@ -85,14 +86,19 @@ def test_control_header_never_names_the_deliverables(_isolated):
 
     res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, auditor="AMO BIM", export_pdf=False)
 
-    # Le nom vient du contexte modèle (« I3F »), le code manque → on demande.
+    # « I3F » est un libellé générique et le contexte modèle n'est plus une
+    # source d'identité : nom ET code sont demandés.
     assert res.get("status") == "needs_context"
-    assert "project_code" in res["missing"]
-    assert res["project_name"] != "Tarare" if "project_name" in res else True
+    assert {"project_name", "project_code"} <= set(res["missing"])
+    assert res.get("project_name") != "Tarare"
 
-    # L'entête reste une SUGGESTION, jamais une valeur appliquée.
-    q = next(q for q in res["questions"] if q["key"] == "project_code")
-    assert q.get("suggestion") == "0546L"
+    # L'entête n'est même plus une SUGGESTION : une valeur proposée finit
+    # recopiée, et « Tarare / 0546L » nommerait un pack d'après un autre chantier.
+    for cle in ("project_name", "project_code"):
+        q = next(q for q in res["questions"] if q["key"] == cle)
+        assert "suggestion" not in q, q
+        assert "Tarare" not in q["question"]
+        assert "0546L" not in q["question"]
 
 
 def test_auto_discovered_control_template_never_suggests_its_identity(_isolated):
@@ -117,8 +123,11 @@ def test_auto_discovered_control_template_never_suggests_its_identity(_isolated)
 
 
 def test_missing_phase_asks_instead_of_defaulting_avp(_isolated):
-    """P2a : aucune phase (entête sans phase, pas de _State.phase) →
-    needs_context sur project_phase, pas de défaut « AVP »."""
+    """P2a : aucune phase (ni paramètre, ni ``_State.phase``) → needs_context
+    sur project_phase, pas de défaut « AVP ».
+
+    Le classeur est ici sans phase, mais cela ne change plus rien : même avec une
+    entête « AVP », le gabarit ne fournit pas la phase (elle nomme le fichier)."""
     sess, tmp_path = _isolated
     _attach_minimal_snapshot(sess)
     ctrl = _controle_xlsx(tmp_path / "ctrl.xlsx", phase=None)
@@ -147,7 +156,11 @@ def test_explicit_phase_param_used(_isolated):
     assert res["phase"] == "PRO"
 
 
-def test_audit_phase_used_when_header_silent(_isolated):
+def test_confirmed_audit_phase_is_a_valid_source(_isolated):
+    """``_State.phase`` a été confirmée par l'auditeur : ce n'est pas un repli.
+
+    C'est la seule source admise en dehors du paramètre explicite.
+    """
     sess, tmp_path = _isolated
     _attach_minimal_snapshot(sess)
     sess.phase = BIMPhase.DCE
@@ -194,6 +207,9 @@ def test_auteur_controle_from_auditor(_isolated):
         export_pdf=False,
         project_name="Dieppe",
         project_code="7427L",
+        # La phase vient du paramètre : l'entête AVP du gabarit MOA ne la
+        # fournit plus, elle nomme le fichier client.
+        phase="AVP",
     )
     assert res.get("status") != "needs_context"
 
@@ -209,6 +225,7 @@ def test_auteur_controle_bypass_with_confirm(_isolated):
         export_pdf=False,
         project_name="Dieppe",
         project_code="7427L",
+        phase="AVP",
     )
     assert res.get("status") != "needs_context"
 

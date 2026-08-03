@@ -530,7 +530,7 @@ appliquées dans tous les cas (pas de dépendance au brand kit).
 ## Pack de livrables AVP I3F (`generate_avp_i3f_pack`)
 
 Livrable dédié reproduisant, sous **charte BIMData**, le jeu de fichiers
-I3F pour une opération en phase AVP (ex. Tarare 0546L) :
+I3F pour une opération en phase AVP :
 
 1. `… Contrôle Maquettes AVP.xlsx` — grille de contrôle (CODE 3F / points
    de contrôle / exigence CCH / évaluation 0-1-2 / commentaires) + onglets
@@ -554,15 +554,18 @@ confirmées** :
 YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>
 ```
 
-où `YYMMDD` est la **date de génération**. Le **nom du projet** est cherché
-dans la maquette (`project.name` / `IfcSite.Name`), le **code (ESI)** dans
-le contrôle maquettes I3F, la **phase** est la phase d'audit confirmée. Si
-le nom ou le code restent introuvables, `generate_avp_i3f_pack` renvoie
-`{status: needs_context}` avec la question à poser (ex. « Quel code projet /
-ESI doit apparaître dans les livrables ? »). Exemple : `260702 Tarare 0546L
-AVP - export SHAB maquette.xlsx`. Le consolidé restitue la **synthèse
-d'audit BIMData réelle** (répartition CRITICAL→INFO, top thèmes, quantités
-manquantes).
+où `YYMMDD` est la **date de génération**. `project_name` et `project_code`
+viennent **exclusivement des paramètres** : il n'existe aucun repli. Ni le nom
+du projet BIMData (c'est un espace de travail — `MCP_Audit` a déjà nommé un
+pack), ni l'entête d'un classeur MOA (c'est le gabarit d'un autre chantier) ne
+peuvent nommer un livrable, et un libellé générique (`Projet`, `I3F`,
+`Tarare`…) est refusé au même titre qu'un paramètre absent. Le tool renvoie
+alors `{status: needs_context}` avec la question à poser et une **suggestion
+extraite du nom de la maquette** — une proposition à valider, jamais un défaut
+appliqué. La **phase** vient du paramètre, sinon de la phase d'audit confirmée.
+Exemple de nom produit : `260702 <Nom chantier réel> <CodeESI> AVP - export
+SHAB maquette.xlsx`. Le consolidé restitue la **synthèse d'audit BIMData
+réelle** (répartition CRITICAL→INFO, top thèmes, quantités manquantes).
 
 Les **métadonnées opérationnelles du contrôle** (issues du rapport I3F de
 référence) alimentent « Données d'entrée » et « Usages BIM 3F » — passées à
@@ -593,13 +596,17 @@ pas un fichier client vide.
 
 ```python
 generate_avp_i3f_pack(
-    output_dir="avp_tarare",
+    output_dir="avp_pack",
+    # Classeurs MOA : gabarit de MISE EN FORME uniquement. Leur entête ne
+    # nomme jamais les livrables, et ne suggère même pas d'identité.
     controle_xlsx="…/260211 … Contrôle Maquettes AVP.xlsx",
     shab_xlsx="…/260201 … export SHAB maquette.xlsx",
     zones_espaces_xlsx="…/260130 … Export Zones et Espaces.xlsx",
     enveloppe_xlsx="…/260130 … Extraction surface enveloppe.xlsx",
     menuiseries_xlsx="…/260130 … export Menuiseries.xlsx",
-    project_name="Tarare", project_code="0546L", phase="AVP",
+    # Identité OBLIGATOIRE et explicite — celle du chantier réellement audité.
+    project_name="<Nom chantier réel>", project_code="<Code ESI>", phase="AVP",
+    auditor_name="<Auteur du contrôle>",
 )
 ```
 
