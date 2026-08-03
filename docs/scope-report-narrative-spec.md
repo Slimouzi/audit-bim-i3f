@@ -201,3 +201,45 @@ Le Word produit par `master` et par la branche C1, sur les mêmes entrées, est
 comparaison a été faite via un `git worktree` sur `master`, puis figée en tests
 permanents : paragraphes I3F attendus, libellé de couverture, recommandation
 transverse, table `theme_hints` complète.
+
+
+---
+
+## Résultat de PR C2 (mis à jour après réalisation)
+
+`ReportStructureSpec` porte les **deux** éléments prévus, et rien d'autre :
+`finding_reference_column_label` et `referential_sheet_name`.
+
+`python scripts/inventory_client_strings.py` après C2 : **33 occurrences, dont 3
+imprimées** — les trois de `context.py` documentées plus haut comme n'étant pas
+du vocabulaire client (`MOA` ×2, « Cahier des Charges BIM »).
+
+| Fichier | Imprimées |
+|---|---:|
+| `word_report.py` | 0 |
+| `xlsx_annex.py` | **0** |
+| `context.py` | 3 (volontaires) |
+
+### Le nom d'onglet est déclaré, jamais composé
+
+Le profil I3F porte `"Référentiel I3F"` **littéralement**. Composer
+`f"Référentiel {framework.name}"` aurait donné « Référentiel CCH BIM I3F » :
+un autre gabarit, pour un gain nul. Un test l'interdit explicitement.
+
+La composition reste ouverte à un futur profil, qui n'a pas d'historique à
+préserver.
+
+### Deux détails de mise en œuvre
+
+- Le gabarit `COLUMNS` porte désormais le **libellé de repli neutre** à
+  l'emplacement de la colonne de référence ; le profil le substitue. Sans ça,
+  « Référence CCH » serait resté écrit en dur dans le module.
+- La substitution repère la colonne **par son libellé de repli**, pas par un
+  index figé : insérer une colonne ailleurs dans le gabarit ne doit pas
+  renommer silencieusement la mauvaise.
+
+### Recette
+
+Le classeur I3F produit par `master` et par la branche est **identique** —
+mêmes onglets, mêmes en-têtes — vérifié en relisant les deux fichiers avec
+`openpyxl` (pas xlsxwriter) depuis un `git worktree` sur `master`.

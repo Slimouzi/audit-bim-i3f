@@ -44,11 +44,16 @@ def test_word_report_has_no_printed_client_string_left():
     assert not printed, f"chaînes client encore imprimées : {printed}"
 
 
-def test_excel_structure_is_still_flagged_for_pr_c2():
-    """Les 2 occurrences de structure Excel restent, et restent identifiées."""
+def test_xlsx_annex_has_no_printed_client_string_left():
+    """Après PR C2, le module Excel ne doit plus rien imprimer de client.
+
+    Les deux occurrences visées — en-tête « Référence CCH » et onglet
+    « Référentiel I3F » — viennent désormais du profil. Ce test remplace celui
+    qui les épinglait pendant C1.
+    """
     rows = inv.scan(inv.REPORTING / "xlsx_annex.py")
-    structure = [r for r in rows if r["destination"] == "ReportStructureSpec"]
-    assert len(structure) == 2, f"attendu 2 occurrences de structure, vu {len(structure)}"
+    printed = [r for r in rows if r["context"] == "printed"]
+    assert not printed, f"chaînes client encore imprimées depuis xlsx_annex.py : {printed}"
 
 
 @pytest.mark.parametrize("name", inv.TARGETS)
