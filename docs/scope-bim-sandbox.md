@@ -1,5 +1,20 @@
 # Scope — package `bim-sandbox`
 
+> ## ⚠️ Package décommissionné (2026-08-03)
+>
+> `bim-sandbox` **n'existe plus comme dépendance**. La sandbox de chemins a été
+> migrée *verbatim* dans `bim-core` v0.3.0 (module `bim_core.paths`) : un seul
+> socle first-party au lieu de deux pour ~280 lignes. Les deux MCP consomment
+> désormais `bim_core.paths` directement (`audit-bim-i3f` #149,
+> `ifc-geometry-mcp` #10) ; le dépôt `bim-sandbox` ne conserve qu'un shim de
+> ré-exports en v0.2.0, sans consommateur.
+>
+> **Le document ci-dessous reste la référence des décisions de parité** — les
+> deux profils `audit` / `ifc`, les cinq axes de divergence, les pièges P2.1
+> (résolution des relatifs) et P2.2 (aplatissement de `safe_output_path`) sont
+> inchangés et implémentés tels quels dans `bim_core.paths`. Il est conservé
+> comme record : le nom du package a changé, pas le comportement.
+
 Document d'architecture **figé avant tout code**. Il cartographie la sandbox de
 chemins (validation inputs/outputs) **dupliquée** entre `audit-bim-i3f` et
 `ifc-geometry`, fixe la frontière du package commun `bim-sandbox`, l'ordre des

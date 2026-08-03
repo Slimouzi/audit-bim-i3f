@@ -42,7 +42,6 @@ FIRST_PARTY = (
     "bim-core",
     "bimdata-read",
     "bimdata-write",
-    "bim-sandbox",
     "bim-query",
     "bim-publication",
     "bim-audit-engine",
