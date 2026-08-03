@@ -496,9 +496,11 @@ def generate_avp_i3f_pack(
     au même titre qu'un paramètre absent. Le tool renvoie alors
     ``{status: needs_context}`` avec une **suggestion extraite du nom de la
     maquette** — une proposition à valider, jamais un défaut appliqué.
-    ``project_name`` et ``project_code`` sont **obligatoires** et
-    ``confirm_context`` ne les contourne **jamais**. La **phase** vient du
-    paramètre, sinon de la phase confirmée de l'audit (``_State.phase``).
+    La **phase** obéit à la même règle — elle nomme le fichier : paramètre, sinon
+    phase confirmée de l'audit (``_State.phase``), sinon ``needs_context`` ;
+    jamais l'entête d'un gabarit MOA. ``project_name``, ``project_code`` et
+    ``phase`` sont **obligatoires** et ``confirm_context`` ne les contourne
+    **jamais** — il ne couvre que l'auteur du contrôle.
 
     Args:
         output_dir: sous-dossier d'export (sandbox ``AUDIT_OUTPUT_DIR``).
@@ -533,10 +535,18 @@ def generate_avp_i3f_pack(
             ``extract_model_snapshot(compute_missing_quantities=True, …)``
             préalable — les colonnes de quantités des annexes sortiraient
             vides et la QA gate refuse la génération.
-        project_name, project_code: identité projet, **obligatoire**. ``None``
-            → résolue depuis le contexte du modèle actif, sinon
-            ``needs_context``. Non contournable par ``confirm_context``.
-        phase: ``None`` → phase d'audit confirmée, sinon ``needs_context``.
+        project_name, project_code: identité projet, **obligatoire et
+            explicite**. Il n'existe aucun repli : ni le nom du projet BIMData
+            (c'est un espace de travail), ni l'entête d'un classeur MOA (c'est
+            le gabarit d'un autre chantier) ne peuvent nommer un livrable. Un
+            libellé générique (``Projet``, ``I3F``, ``Tarare``…) est refusé au
+            même titre qu'une valeur absente. ``None`` ou générique →
+            ``needs_context``, avec une suggestion lue sur le **nom de la
+            maquette**. Non contournable par ``confirm_context``.
+        phase: ``None`` → phase d'audit **confirmée** (``set_active_model``),
+            sinon ``needs_context``. Jamais reprise de l'entête d'un classeur
+            MOA : elle nomme le fichier. Non contournable par
+            ``confirm_context``.
         auditor_name: nom de l'auteur du contrôle affiché sur le pack —
             **paramètre à employer**. ``auteur_controle`` (vocabulaire I3F) et
             ``auditor`` (historique) restent acceptés, dans cet ordre de
@@ -547,9 +557,9 @@ def generate_avp_i3f_pack(
             référence) pour « Données d'entrée » / « Usages BIM 3F ». Absentes
             → « Information non disponible… ».
         export_pdf: tente la conversion .docx → .pdf (LibreOffice si présent).
-        confirm_context: ``True`` pour générer malgré une **phase** ou un
-            **auteur** manquant. Ne contourne jamais ``project_name`` /
-            ``project_code``.
+        confirm_context: ``True`` pour générer malgré un **auteur du contrôle**
+            manquant. Ne contourne **jamais** ce qui nomme les livrables —
+            ``project_name``, ``project_code`` et ``phase``.
 
     Returns:
         ``{output_dir, paths, analyse_docx, analyse_pdf, pdf_available}`` ou
