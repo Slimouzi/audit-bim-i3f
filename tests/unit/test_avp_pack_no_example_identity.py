@@ -6,8 +6,10 @@ le nom d'un fichier remis au client. Le classeur de contrôle MOA étant
 auto-découvert dans les documents maître d'ouvrage, son entête nommait les
 livrables d'après ce projet-là, quelle que soit la maquette auditée.
 
-Ces tests verrouillent la règle : l'identité vient des paramètres explicites,
-sinon du contexte du modèle actif, sinon **on demande sans générer**.
+Ces tests verrouillent la règle : l'identité vient **exclusivement des paramètres
+explicites**, sinon **on demande sans générer**. Le repli sur le contexte du
+modèle actif a été retiré — il a livré un pack « MCP_Audit » — et la maquette ne
+fournit plus qu'une *suggestion* dans la question posée.
 """
 
 from __future__ import annotations
@@ -168,8 +170,15 @@ def test_no_example_identity_anywhere_in_the_generated_pack(session):
                 assert exemple not in texte, f"{exemple} dans le contenu de {p.name}"
 
 
-def test_model_context_supplies_the_name_when_not_passed(session):
-    """Le contexte du modèle actif est la 2e source — avant toute question."""
+def test_bimdata_project_name_never_supplies_the_identity(session):
+    """Le nom du projet BIMData n'est PLUS une source d'identité — même crédible.
+
+    Il l'a été, et un pack est sorti sous « MCP_Audit ». La règle ne peut pas être
+    « on accepte le nom BIMData s'il a l'air d'un chantier » : ce qui a l'air d'un
+    nom de chantier reste le nom d'un espace de travail, choisi par celui qui l'a
+    créé, et personne ne le relit avant qu'il n'atterrisse sur un livrable client.
+    On demande, y compris quand le repli aurait donné la bonne réponse.
+    """
     sess, tmp_path = session
     _snapshot(sess, project_name="Dieppe")
 
@@ -177,8 +186,9 @@ def test_model_context_supplies_the_name_when_not_passed(session):
         project_code="7427L", phase="AVP", auditor="CdP BIM 3F", export_pdf=False
     )
 
-    assert res.get("status") != "needs_context", res
-    assert res["project_name"] == "Dieppe"
+    assert res["status"] == "needs_context"
+    assert res["missing"] == ["project_name"]
+    assert not list(tmp_path.glob("avp_pack_*"))
 
 
 # ── auteur du contrôle : demandé, jamais inventé ───────────────────────
@@ -221,6 +231,7 @@ def test_auditor_name_is_accepted_and_appears_in_the_pack(session):
     _snapshot(sess, project_name="Dieppe")
 
     res = mcp_server.generate_avp_i3f_pack(
+        project_name="Dieppe",
         project_code="7427L",
         phase="AVP",
         auditor_name="Stanislas Limouzi",
@@ -245,7 +256,11 @@ def test_every_documented_auditor_param_is_accepted(session, param):
     _snapshot(sess, project_name="Dieppe")
 
     res = mcp_server.generate_avp_i3f_pack(
-        project_code="7427L", phase="AVP", export_pdf=False, **{param: "CdP BIM 3F"}
+        project_name="Dieppe",
+        project_code="7427L",
+        phase="AVP",
+        export_pdf=False,
+        **{param: "CdP BIM 3F"},
     )
 
     assert res.get("status") != "needs_context", res
@@ -256,6 +271,7 @@ def test_auditor_name_wins_over_the_compat_aliases(session):
     _snapshot(sess, project_name="Dieppe")
 
     res = mcp_server.generate_avp_i3f_pack(
+        project_name="Dieppe",
         project_code="7427L",
         phase="AVP",
         auditor_name="Nom retenu",

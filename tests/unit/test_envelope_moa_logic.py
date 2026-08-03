@@ -184,7 +184,7 @@ def test_envelope_json_keeps_priority_when_snapshot_exists(tmp_path):
         tmp_path / "pack",
         sources=AvpSources(enveloppe=src),
         snapshot=snap,
-        project_name="MCP_Audit",
+        project_name="Dieppe",
         project_code="0546L",
         phase="AVP",
         auditor="Stanislas Limouzi",
@@ -236,7 +236,7 @@ def test_mcp_auto_uses_unique_envelope_json_from_input_dir(tmp_path, monkeypatch
     token = current_session.set(sess)
     try:
         res = mcp_server.generate_avp_i3f_pack(
-            project_name="MCP_Audit",
+            project_name="Dieppe",
             project_code="0546L",
             phase="PRO",
             auditor="Stanislas Limouzi",
@@ -289,7 +289,7 @@ def test_mcp_auto_uses_local_envelope_json_when_input_dir_unset(tmp_path, monkey
     token = current_session.set(sess)
     try:
         res = mcp_server.generate_avp_i3f_pack(
-            project_name="MCP_Audit",
+            project_name="Dieppe",
             project_code="0546L",
             phase="PRO",
             auditor="Stanislas Limouzi",

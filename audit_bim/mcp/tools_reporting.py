@@ -6,6 +6,7 @@ import copy
 import json
 import logging
 import os
+import re
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -24,12 +25,96 @@ from .phase import (
     _phase_question_dict,
     _snapshot_address_suggestion,
     _snapshot_description,
-    _snapshot_project_name,
     _validate_audit_context,
 )
 from .session import _State
 
 _server_logger = logging.getLogger("audit_bim.mcp.tools_reporting")
+
+
+#: Libellés qui ne désignent **aucun chantier**. Trois familles, toutes vues en
+#: production : l'espace de travail BIMData (``MCP_Audit``), le vocabulaire
+#: générique du domaine (``Projet``, ``I3F``, ``Maquette``), et le projet de
+#: référence dont les classeurs MOA servent de gabarit (``Tarare``). Aucun ne
+#: doit pouvoir nommer un fichier remis au client.
+_GENERIC_PROJECT_NAMES = frozenset(
+    {
+        # espaces de travail / bacs à sable
+        "mcp_audit",
+        "mcp audit",
+        "audit",
+        "sandbox",
+        "test",
+        "tests",
+        "demo",
+        "exemple",
+        "example",
+        "default",
+        "untitled",
+        "sans nom",
+        "nouveau projet",
+        # vocabulaire générique du domaine
+        "projet",
+        "project",
+        "i3f",
+        "3f",
+        "maquette",
+        "modele",
+        "bim",
+        "ifc",
+        # projet de référence des gabarits MOA
+        "tarare",
+    }
+)
+
+#: Jetons du nom de maquette qui ne sont pas un nom de chantier : phases I3F et
+#: indicatifs de discipline. Écartés des suggestions.
+_MODEL_NAME_NOISE = frozenset(
+    {"aps", "avp", "apd", "pro", "dce", "exe", "doe", "gestion", "archi", "stru", "flu", "bata"}
+)
+
+#: Code ESI I3F : 3 à 5 chiffres suivis d'une lettre (« 7427L », « 0546L »).
+_ESI_CODE_RE = re.compile(r"^\d{3,5}[A-Za-z]$")
+
+
+def _is_generic_identity(value: str | None) -> bool:
+    """Ce libellé nomme-t-il un chantier, ou rien du tout ?"""
+    if not value:
+        return True
+    return _norm_identity(value) in _GENERIC_PROJECT_NAMES
+
+
+def _norm_identity(value: str) -> str:
+    """Casse, accents et espaces multiples neutralisés — ``MCP_Audit``,
+    ``mcp audit`` et ``MCP-AUDIT`` désignent le même non-projet."""
+    sans_accent = "".join(
+        c for c in unicodedata.normalize("NFD", value) if unicodedata.category(c) != "Mn"
+    )
+    return re.sub(r"[\s_\-]+", " ", sans_accent).strip().lower()
+
+
+def _model_identity_suggestion() -> tuple[str | None, str | None]:
+    """Nom et code projet **suggérés** depuis le nom de la maquette.
+
+    Une suggestion, jamais un défaut : elle alimente la question posée à
+    l'auditeur, qui reste seul à trancher le nom porté par les livrables.
+    ``DIEPPE-7427L-BATA-ARCHI-APD (3).ifc`` → ``("DIEPPE", "7427L")``.
+    """
+    snap = _State.snapshot
+    brut = ((snap.model or {}).get("name") if snap else None) or ""
+    stem = Path(str(brut)).stem
+    if not stem:
+        return None, None
+    nom = code = None
+    for jeton in (j for j in re.split(r"[-_\s.()]+", stem) if j):
+        if code is None and _ESI_CODE_RE.match(jeton):
+            code = jeton.upper()
+            continue
+        if nom is None and len(jeton) >= 3 and jeton[0].isalpha():
+            norme = _norm_identity(jeton)
+            if norme not in _MODEL_NAME_NOISE and norme not in _GENERIC_PROJECT_NAMES:
+                nom = jeton
+    return nom, code
 
 
 def _contract_doc(path: str | Path) -> dict | None:
@@ -383,11 +468,15 @@ def generate_avp_i3f_pack(
     Nommage des livrables — convention documentaire I3F **générée à partir
     de données projet confirmées** :
     ``YYMMDD <NomProjet> <CodeProjet> <Phase> - <TypeLivrable>.<ext>``
-    (``YYMMDD`` = date de génération). Identité résolue dans cet ordre
-    **strict** : paramètre explicite → contexte du modèle actif
-    (``project.name`` / ``IfcSite.Name``) → sinon ``{status: needs_context}``
-    avec les questions à poser. ``project_name`` et ``project_code`` sont
-    **obligatoires** : ils nomment des fichiers remis au client et
+    (``YYMMDD`` = date de génération). L'identité vient **exclusivement des
+    paramètres** : il n'existe aucun repli. Ni le nom du projet BIMData (c'est un
+    espace de travail — ``MCP_Audit`` a déjà nommé un pack), ni l'entête d'un
+    classeur MOA (c'est le gabarit d'un autre chantier) ne peuvent nommer un
+    livrable. Un libellé générique (``Projet``, ``I3F``, ``Tarare``…) est refusé
+    au même titre qu'un paramètre absent. Le tool renvoie alors
+    ``{status: needs_context}`` avec une **suggestion extraite du nom de la
+    maquette** — une proposition à valider, jamais un défaut appliqué.
+    ``project_name`` et ``project_code`` sont **obligatoires** et
     ``confirm_context`` ne les contourne **jamais**. La **phase** vient du
     paramètre, sinon de la phase confirmée de l'audit (``_State.phase``).
 
@@ -486,6 +575,156 @@ def generate_avp_i3f_pack(
     )
     # Chargement unique des sources (lues aussi pour résoudre le code ESI).
     sources = load_sources(source_paths)
+
+    ctrl_header = (sources.controle.header if sources.controle else {}) or {}
+
+    def _hdr(key: str) -> str | None:
+        v = ctrl_header.get(key)
+        return str(v).strip() if v not in (None, "") and str(v).strip() else None
+
+    # ── Résolution de l'identité projet (nom / code / phase) ────────────
+    # Ordre STRICT : paramètre explicite > contexte du modèle actif > on
+    # demande. L'entête du classeur de contrôle n'est **jamais** autoritaire :
+    # ce classeur est le plus souvent un **template MOA de référence** (Tarare
+    # 0546L) auto-découvert dans les documents maître d'ouvrage. Son entête
+    # nommait alors les livrables d'après un AUTRE chantier que celui audité —
+    # un pack « Tarare 0546L » livré sur Dieppe. Le template reste utilisé pour
+    # la MISE EN FORME ; son identité projet ne l'est plus.
+    #
+    # Le repli sur le nom du projet BIMData est SUPPRIMÉ. Il a livré un pack
+    # « 260803 MCP_Audit 7427L AVP - … » : ``MCP_Audit`` est un espace de
+    # travail, pas un chantier. Un nom de projet BIMData n'est pas une identité
+    # client — il est choisi par celui qui crée l'espace, souvent pour lui-même.
+    # Même traitement pour les libellés génériques (« Projet », « I3F ») et pour
+    # ``Tarare``, le chantier dont les classeurs MOA servent de gabarit.
+    eff_name = (project_name or "").strip() or None
+    eff_code = (project_code or "").strip() or None
+    nom_rejete = eff_name if _is_generic_identity(eff_name) and eff_name else None
+    code_rejete = eff_code if _is_generic_identity(eff_code) and eff_code else None
+    if nom_rejete:
+        eff_name = None
+    if code_rejete:
+        eff_code = None
+    sug_name, sug_code = _model_identity_suggestion()
+
+    # L'entête n'est proposée en SUGGESTION que si l'appelant a désigné le
+    # classeur lui-même : un fichier auto-découvert ne suggère rien.
+    hdr_name = _hdr("projet") if controle_xlsx else None
+    hdr_code = _hdr("esi") if controle_xlsx else None
+    # Phase : param explicite > phase d'audit confirmée > entête contrôle I3F.
+    eff_phase = (phase or "").strip() or None
+    if not eff_phase and _State.phase is not None:
+        eff_phase = _State.phase.value
+    if not eff_phase:
+        eff_phase = _map_phase(_hdr("phase"))
+
+    # Auteur du contrôle : I3F attend un auteur nommé (CdP BIM / auditeur
+    # AMO). On **demande** explicitement plutôt que de retomber sur un
+    # « AMO BIM » générique.
+    #
+    # Trois noms coexistent, par ordre de priorité :
+    #   ``auditor_name``     — nom proposé/validé depuis la session (à employer) ;
+    #   ``auteur_controle``  — vocabulaire métier I3F, conservé en compat ;
+    #   ``auditor``          — paramètre historique, conservé en compat.
+    eff_auteur = (
+        (auditor_name or "").strip()
+        or (auteur_controle or "").strip()
+        or (auditor or "").strip()
+        or None
+    )
+    eff_auditor = eff_auteur
+
+    # Nom / code / phase obligatoires pour un livrable I3F fiable → sinon on
+    # demande (jamais de valeur inventée ni de défaut silencieux).
+    missing: list[str] = []
+    questions: list[dict] = []
+    if not eff_name:
+        missing.append("project_name")
+        q = {
+            "key": "project_name",
+            "question": "Quel nom de projet doit apparaître dans les livrables ?",
+        }
+        if nom_rejete:
+            q["rejected"] = nom_rejete
+            q["question"] = (
+                f"« {nom_rejete} » ne nomme pas un chantier (espace de travail, "
+                "libellé générique ou projet de référence des gabarits MOA) et ne "
+                "peut pas nommer un livrable client. Quel nom de projet doit "
+                "apparaître dans les livrables ?"
+            )
+        # La maquette est la source la plus fiable : son nom est posé par
+        # l'équipe projet, contrairement au nom de l'espace BIMData.
+        if sug_name:
+            q["suggestion"] = sug_name
+            q["question"] += f" (le nom de la maquette suggère « {sug_name} »)"
+        elif hdr_name:
+            q["suggestion"] = hdr_name
+            q["question"] += f" (le classeur fourni indique « {hdr_name} »)"
+        questions.append(q)
+    if not eff_code:
+        missing.append("project_code")
+        q = {
+            "key": "project_code",
+            "question": (
+                "Quel code projet / ESI doit apparaître dans les livrables ? "
+                "(ex. « 7427L », visible sur le contrôle maquettes I3F)"
+            ),
+        }
+        if code_rejete:
+            q["rejected"] = code_rejete
+        if sug_code:
+            q["suggestion"] = sug_code
+            q["question"] += f" (le nom de la maquette suggère « {sug_code} »)"
+        elif hdr_code:
+            q["suggestion"] = hdr_code
+            q["question"] += f" (le classeur fourni indique « {hdr_code} »)"
+        questions.append(q)
+    if not eff_phase:
+        # Phase unique : proposée si détectée (IFC puis entête contrôle),
+        # sinon demandée — jamais défautée silencieusement sur « AVP ».
+        missing.append("project_phase")
+        det_raw, det_mapped = _detect_snapshot_phase()
+        if not det_raw:
+            hdr_phase = _hdr("phase")
+            if hdr_phase:
+                det_raw, det_mapped = hdr_phase, _map_phase(hdr_phase)
+        questions.append(_phase_question_dict(det_raw, det_mapped))
+    if not eff_auteur:
+        # Clé alignée sur le PARAMÈTRE à employer : une question dont la clé ne
+        # correspond à aucun paramètre du tool guide vers un appel invalide.
+        missing.append("auditor_name")
+        questions.append(
+            {
+                "key": "auditor_name",
+                "question": (
+                    "Quel nom afficher comme « Auteur du contrôle » sur le pack "
+                    "AVP I3F ? (ex. le CdP BIM 3F, ou l'auditeur AMO)"
+                ),
+                "accepted_aliases": ["auteur_controle", "auditor"],
+            }
+        )
+    # L'identité projet (nom + code) n'est **jamais** contournable : elle nomme
+    # des fichiers remis au client. ``confirm_context`` ne couvre que le
+    # contexte documentaire (phase, auteur du contrôle).
+    identity_missing = [m for m in missing if m in ("project_name", "project_code")]
+    if identity_missing or (missing and not confirm_context):
+        return {
+            "status": "needs_context",
+            "missing": missing,
+            "questions": questions,
+            "next_step": (
+                "Renseigner ``project_name`` / ``project_code`` / "
+                "``project_phase`` (=``phase``) / ``auditor_name`` puis "
+                "re-appeler ``generate_avp_i3f_pack``."
+                + (
+                    " ``project_name`` et ``project_code`` sont OBLIGATOIRES : "
+                    "ils nomment les livrables client et ne peuvent pas être "
+                    "contournés par ``confirm_context``."
+                    if identity_missing
+                    else " Pour générer malgré tout, passer ``confirm_context=True``."
+                )
+            ),
+        }
     # Enveloppe « logique MOA » : source structurée envelope.json (MCP ifc-geometry)
     # → onglet par_type (8 lignes métier), prioritaire sur le repli snapshot (484
     # murs) et sur le .xlsx source.
@@ -650,123 +889,6 @@ def generate_avp_i3f_pack(
         computed_coverage = merge_into_snapshot(working_snapshot, doc)
         working_snapshot.computed_coverage = dict(computed_coverage)
         computed_json_used = str(safe_cq)
-    ctrl_header = (sources.controle.header if sources.controle else {}) or {}
-
-    def _hdr(key: str) -> str | None:
-        v = ctrl_header.get(key)
-        return str(v).strip() if v not in (None, "") and str(v).strip() else None
-
-    # ── Résolution de l'identité projet (nom / code / phase) ────────────
-    # Ordre STRICT : paramètre explicite > contexte du modèle actif > on
-    # demande. L'entête du classeur de contrôle n'est **jamais** autoritaire :
-    # ce classeur est le plus souvent un **template MOA de référence** (Tarare
-    # 0546L) auto-découvert dans les documents maître d'ouvrage. Son entête
-    # nommait alors les livrables d'après un AUTRE chantier que celui audité —
-    # un pack « Tarare 0546L » livré sur Dieppe. Le template reste utilisé pour
-    # la MISE EN FORME ; son identité projet ne l'est plus.
-    eff_name = (project_name or "").strip() or _snapshot_project_name()
-    eff_code = (project_code or "").strip() or None
-
-    # L'entête n'est proposée en SUGGESTION que si l'appelant a désigné le
-    # classeur lui-même : un fichier auto-découvert ne suggère rien.
-    hdr_name = _hdr("projet") if controle_xlsx else None
-    hdr_code = _hdr("esi") if controle_xlsx else None
-    # Phase : param explicite > phase d'audit confirmée > entête contrôle I3F.
-    eff_phase = (phase or "").strip() or None
-    if not eff_phase and _State.phase is not None:
-        eff_phase = _State.phase.value
-    if not eff_phase:
-        eff_phase = _map_phase(_hdr("phase"))
-
-    # Auteur du contrôle : I3F attend un auteur nommé (CdP BIM / auditeur
-    # AMO). On **demande** explicitement plutôt que de retomber sur un
-    # « AMO BIM » générique.
-    #
-    # Trois noms coexistent, par ordre de priorité :
-    #   ``auditor_name``     — nom proposé/validé depuis la session (à employer) ;
-    #   ``auteur_controle``  — vocabulaire métier I3F, conservé en compat ;
-    #   ``auditor``          — paramètre historique, conservé en compat.
-    eff_auteur = (
-        (auditor_name or "").strip()
-        or (auteur_controle or "").strip()
-        or (auditor or "").strip()
-        or None
-    )
-    eff_auditor = eff_auteur
-
-    # Nom / code / phase obligatoires pour un livrable I3F fiable → sinon on
-    # demande (jamais de valeur inventée ni de défaut silencieux).
-    missing: list[str] = []
-    questions: list[dict] = []
-    if not eff_name:
-        missing.append("project_name")
-        q = {
-            "key": "project_name",
-            "question": "Quel nom de projet doit apparaître dans les livrables ?",
-        }
-        if hdr_name:
-            q["suggestion"] = hdr_name
-            q["question"] += f" (le classeur fourni indique « {hdr_name} »)"
-        questions.append(q)
-    if not eff_code:
-        missing.append("project_code")
-        q = {
-            "key": "project_code",
-            "question": (
-                "Quel code projet / ESI doit apparaître dans les livrables ? "
-                "(ex. « 7427L », visible sur le contrôle maquettes I3F)"
-            ),
-        }
-        if hdr_code:
-            q["suggestion"] = hdr_code
-            q["question"] += f" (le classeur fourni indique « {hdr_code} »)"
-        questions.append(q)
-    if not eff_phase:
-        # Phase unique : proposée si détectée (IFC puis entête contrôle),
-        # sinon demandée — jamais défautée silencieusement sur « AVP ».
-        missing.append("project_phase")
-        det_raw, det_mapped = _detect_snapshot_phase()
-        if not det_raw:
-            hdr_phase = _hdr("phase")
-            if hdr_phase:
-                det_raw, det_mapped = hdr_phase, _map_phase(hdr_phase)
-        questions.append(_phase_question_dict(det_raw, det_mapped))
-    if not eff_auteur:
-        # Clé alignée sur le PARAMÈTRE à employer : une question dont la clé ne
-        # correspond à aucun paramètre du tool guide vers un appel invalide.
-        missing.append("auditor_name")
-        questions.append(
-            {
-                "key": "auditor_name",
-                "question": (
-                    "Quel nom afficher comme « Auteur du contrôle » sur le pack "
-                    "AVP I3F ? (ex. le CdP BIM 3F, ou l'auditeur AMO)"
-                ),
-                "accepted_aliases": ["auteur_controle", "auditor"],
-            }
-        )
-    # L'identité projet (nom + code) n'est **jamais** contournable : elle nomme
-    # des fichiers remis au client. ``confirm_context`` ne couvre que le
-    # contexte documentaire (phase, auteur du contrôle).
-    identity_missing = [m for m in missing if m in ("project_name", "project_code")]
-    if identity_missing or (missing and not confirm_context):
-        return {
-            "status": "needs_context",
-            "missing": missing,
-            "questions": questions,
-            "next_step": (
-                "Renseigner ``project_name`` / ``project_code`` / "
-                "``project_phase`` (=``phase``) / ``auditor_name`` puis "
-                "re-appeler ``generate_avp_i3f_pack``."
-                + (
-                    " ``project_name`` et ``project_code`` sont OBLIGATOIRES : "
-                    "ils nomment les livrables client et ne peuvent pas être "
-                    "contournés par ``confirm_context``."
-                    if identity_missing
-                    else " Pour générer malgré tout, passer ``confirm_context=True``."
-                )
-            ),
-        }
 
     from ..reporting.avp_i3f import AvpQaError
 
