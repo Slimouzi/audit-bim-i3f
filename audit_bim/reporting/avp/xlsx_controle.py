@@ -6,6 +6,7 @@ dérivées de l'``AuditResult`` et comptage QA de la grille.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from copy import copy
 from pathlib import Path
@@ -91,11 +92,50 @@ def _build_controle_maquettes_template_xlsx(
             _refresh_template_stats_tabs(wb, effective_snap)
         if result is not None:
             _append_audit_summary_to_template_grid(wb, result)
+        # Dernier geste avant sauvegarde : ce qui a survécu aux purges ciblées ne
+        # doit pas atteindre le client.
+        _scrub_external_tool_mentions(wb)
         _force_workbook_recalc(wb)
         wb.save(path)
     finally:
         wb.close()
     return path
+
+
+#: Outils tiers cités par les classeurs MOA de référence. Ils décrivent
+#: l'outillage d'un **autre** chantier ; recopiés tels quels, ils attribuent le
+#: contrôle à un logiciel que la chaîne BIMData n'emploie pas. La purge de la
+#: grille en retire l'essentiel, mais les onglets de statistiques portent aussi
+#: des libellés d'instruction (« zone de copie de la liste BimCollabZoom ») qui
+#: vivent hors de toute colonne d'évaluation : ce balayage est le filet final.
+_EXTERNAL_TOOL_RE = re.compile(r"BimCollab\s*Zoom|BimCollab|Solibri", re.IGNORECASE)
+
+#: Ce que la chaîne emploie réellement — nommer l'outil réel vaut mieux que
+#: laisser un trou dans une phrase d'instruction.
+_TOOLCHAIN_LABEL = "BIMData / IFC OpenShell"
+
+
+def _scrub_external_tool_mentions(wb) -> int:
+    """Remplace toute marque d'outil tiers résiduelle par la chaîne réellement
+    employée. Renvoie le nombre de cellules réécrites.
+
+    Balaye **tous** les onglets : une mention peut vivre dans un libellé de
+    template, pas seulement dans une colonne d'évaluation. Les formules sont
+    laissées intactes — elles ne portent pas de marque et les réécrire casserait
+    le classeur.
+    """
+    n = 0
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                value = cell.value
+                if not isinstance(value, str) or value.startswith("="):
+                    continue
+                if not _EXTERNAL_TOOL_RE.search(value):
+                    continue
+                cell.value = _EXTERNAL_TOOL_RE.sub(_TOOLCHAIN_LABEL, value)
+                n += 1
+    return n
 
 
 def _ensure_control_template_sheets(wb) -> None:
@@ -177,13 +217,24 @@ def _find_control_header_row(ws) -> int | None:
 
 
 def _clear_template_grid_assessments(ws) -> None:
+    """Purge l'évaluation du projet **précédent** dans la grille recyclée.
+
+    Colonnes purgées : 4 (« Outil utilisé »), 5 (« EVALUATION ») et 6
+    (« Commentaires CdP Bim ») — cf. les en-têtes réécrits par
+    :func:`_append_audit_summary_to_template_grid`. La colonne 4 compte autant que
+    les deux autres : elle nomme le logiciel avec lequel le point a été contrôlé
+    (``Solibri``, ``BimCollabZoom``…). La laisser passer attribue au livrable un
+    outillage qui n'est pas celui de la chaîne BIMData, et fait référence à un
+    chantier étranger. Les 1-3 (code, point de contrôle, exigence CCH) restent :
+    c'est le référentiel, pas l'évaluation.
+    """
     header_row = _find_control_header_row(ws)
     if header_row is None:
         return
     for row in range(header_row + 1, ws.max_row + 1):
         if ws.cell(row, 2).value in (None, ""):
             continue
-        for col in (5, 6):
+        for col in (4, 5, 6):
             value = ws.cell(row, col).value
             if isinstance(value, str) and value.startswith("="):
                 continue

@@ -702,3 +702,86 @@ def test_path_traversal_is_refused_even_for_large_ifc(session, tmp_path, backend
 
     assert res["status"] == "needs_context"
     assert backend["quantites"] == 0
+
+
+# ── Provenance des contrats fournis explicitement ────────────────────────
+# Le trou fermé ici : les contrats auto-résolus étaient corrélés au modèle
+# actif, mais un chemin passé à la main entrait sans aucun contrôle de cible.
+# Un contrat calculé sur une autre maquette produisait alors des surfaces
+# étrangères sous le nom du projet courant — la classe d'erreur que
+# ``verify_active_model`` ferme du côté de la cible.
+
+
+def test_explicit_envelope_json_from_another_model_is_refused(session, tmp_path, backend):
+    _sess, _ = session
+    etranger = tmp_path / "etranger_envelope.json"
+    etranger.write_text(
+        json.dumps(
+            {
+                "schema": "envelope_quantities/v1",
+                "source": {"producer": "ifc-geometry", "ifc_file": "250613_MN_BAT.ifc"},
+                "created_at": "2026-08-02T08:00:00+00:00",
+                "summary": {"superficie_facades_m2": 2071.18, "shab_m2": 2164.68},
+                "par_type": [
+                    {"type": "ME_36", "etages": ["RDC"], "net_side_area_m2": 2071.18, "n": 24}
+                ],
+                "hors_filtre_type": [],
+                "diagnostics": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    res = _generer(envelope_json=str(etranger))
+
+    assert res["status"] == "error"
+    assert res["error"] == "contract_model_mismatch"
+    assert res["parametre"] == "envelope_json"
+    assert res["contract_source_ifc_file"] == "250613_MN_BAT.ifc"
+    assert "250613_MN_BAT.ifc" in res["message"]
+
+
+def test_explicit_computed_quantities_from_another_model_is_refused(session, tmp_path, backend):
+    etranger = tmp_path / "etranger_quantities.json"
+    etranger.write_text(json.dumps(_payload(ifc_file="250613_MN_BAT.ifc")), encoding="utf-8")
+
+    res = _generer(computed_quantities_json=str(etranger))
+
+    assert res["status"] == "error"
+    assert res["error"] == "contract_model_mismatch"
+    assert res["parametre"] == "computed_quantities_json"
+    assert res["contract_source_ifc_file"] == "250613_MN_BAT.ifc"
+
+
+def test_explicit_contract_named_after_bimdata_cache_is_accepted(session, tmp_path, backend):
+    """Le nom de cache ``<cloud>_<projet>_<modele>_`` reste une provenance valide.
+
+    ``download_model_ifc`` ne nomme pas le fichier d'après le modèle BIMData :
+    exiger le nom métier rejetterait tout contrat calculé depuis la maquette
+    téléchargée — c'est-à-dire le cas nominal.
+    """
+    sess, _ = session
+    sess.cloud_id, sess.project_id, sess.model_id = "34140", "3281472", "1744246"
+    cache = tmp_path / "34140_3281472_1744246_nodate_computed_quantities.json"
+    cache.write_text(
+        json.dumps(_payload(ifc_file="34140_3281472_1744246_nodate.ifc")), encoding="utf-8"
+    )
+
+    res = _generer(computed_quantities_json=str(cache))
+
+    assert res.get("error") != "contract_model_mismatch", res
+    assert res["computed_source_ifc_file"] == "34140_3281472_1744246_nodate.ifc"
+
+
+def test_pack_reports_active_target_for_traceability(session, ifc_disponible, backend):
+    """Le retour dit sur quelle cible et quel .ifc le pack a réellement été bâti."""
+    sess, _ = session
+    sess.cloud_id, sess.project_id, sess.model_id = "34140", "3281472", "1744246"
+
+    res = _generer()
+
+    assert res.get("status") not in ("error", "needs_context"), res
+    assert res["active_cloud_id"] == "34140"
+    assert res["active_project_id"] == "3281472"
+    assert res["active_model_id"] == "1744246"
+    assert res["computed_source_ifc_file"].endswith("DIEPPE-7427L.ifc")

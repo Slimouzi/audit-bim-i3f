@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from pathlib import Path
 
@@ -379,6 +380,20 @@ def _write_moa_control_annex_pages(
         )
 
 
+#: Lignes de **pilotage** du classeur MOA : consignes de saisie (« zone de copie
+#: de la liste… », « coller ici ») et marques d'outils tiers. Elles ont un sens
+#: dans un Excel qu'on remplit à la main ; reprises dans le rapport remis au
+#: client, elles produisent un document qui explique comment se remplir et cite
+#: l'outillage d'un autre chantier. Le .xlsx généré est déjà nettoyé de ses
+#: marques — ce filtre traite le cas distinct de la ligne d'instruction, et
+#: couvre aussi la relecture d'un classeur non régénéré.
+_PLACEHOLDER_ROW_RE = re.compile(r"zone de copie|coller ici|bimcollab|solibri", re.IGNORECASE)
+
+
+def _is_placeholder_row(values: list) -> bool:
+    return any(isinstance(v, str) and _PLACEHOLDER_ROW_RE.search(v) for v in values)
+
+
 def _control_grid_rows_from_xlsx(controle_xlsx: Path | None) -> list[list]:
     if not controle_xlsx or not Path(controle_xlsx).exists():
         return []
@@ -393,7 +408,7 @@ def _control_grid_rows_from_xlsx(controle_xlsx: Path | None) -> list[list]:
         rows: list[list] = []
         for row in ws.iter_rows(min_row=header_row, max_col=6, values_only=True):
             values = [_docx_excel_value(v) for v in row]
-            if not any(values):
+            if not any(values) or _is_placeholder_row(values):
                 continue
             rows.append(values)
         return rows
@@ -414,7 +429,7 @@ def _control_annex_rows_from_xlsx(controle_xlsx: Path | None, sheet_name: str) -
         rows: list[list] = []
         for row in ws.iter_rows(min_row=1, max_row=max_rows, max_col=max_cols, values_only=True):
             values = [_docx_excel_value(v) for v in row]
-            if any(values):
+            if any(values) and not _is_placeholder_row(values):
                 rows.append(values)
         return rows
     finally:
