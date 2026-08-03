@@ -53,6 +53,23 @@ def backend_available() -> bool:
     return True
 
 
+def backend_version() -> str | None:
+    """Version installée du backend, ou ``None`` s'il est absent.
+
+    Sert à décider si un contrat déjà calculé est **réutilisable** : un contrat
+    produit par une version antérieure peut porter les mêmes chiffres sous une
+    autre définition. Le ratio FAC/SHAB en est l'exemple — sa formule a changé
+    en 0.4.0, son dénominateur en 0.5.0 — sans que rien, dans le fichier, ne
+    distingue les deux résultats au premier regard.
+    """
+    import importlib.metadata
+
+    try:
+        return importlib.metadata.version(BACKEND_DISTRIBUTION)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 def _load():
     """Importe les fonctions de calcul (import paresseux, jamais au module)."""
     try:
@@ -108,6 +125,7 @@ __all__ = [
     "BACKEND_INSTALL",
     "GeometryBackendUnavailable",
     "backend_available",
+    "backend_version",
     "compute_envelope_payload",
     "compute_quantities_payload",
 ]

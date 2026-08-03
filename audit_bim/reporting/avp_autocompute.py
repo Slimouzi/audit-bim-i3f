@@ -443,6 +443,53 @@ def ensure_computed_quantities_json(
     }
 
 
+def _envelope_contract_matches_request(
+    doc: dict[str, Any],
+    *,
+    layer_pattern: str | None,
+    type_pattern: str | None,
+    filter_mode: str | None,
+) -> bool:
+    """Le contrat en cache a-t-il été produit **avec ces paramètres-là** ?
+
+    La corrélation au modèle ne suffit pas. Un ``envelope.json`` déjà présent
+    porte le résultat d'un calcul **passé**, dont les motifs, le mode et la
+    version du backend peuvent différer de la demande courante — et rien, dans
+    les chiffres, ne le signale : ce sont des surfaces plausibles dans les deux
+    cas. Réutiliser aveuglément, c'est livrer le filtre d'hier sous les
+    paramètres d'aujourd'hui.
+
+    Trois vérifications, chacune fermant un cas observé :
+
+    1. ``summary.methode_shab`` présent — un contrat produit avant
+       ifc-geometry-mcp v0.5.0 ne déclare pas la nature de son dénominateur, et
+       son ratio n'est donc pas celui que le livrable annonce ;
+    2. ``diagnostics.filters`` (mode et motifs) identique à la demande ;
+    3. ``source.version`` égale à la version **installée** du backend — deux
+       versions peuvent rendre le même schéma sous des définitions différentes.
+    """
+    summary = doc.get("summary") or {}
+    if not isinstance(summary, dict) or not summary.get("methode_shab"):
+        return False
+
+    diagnostics = doc.get("diagnostics") or {}
+    filtres = diagnostics.get("filters") if isinstance(diagnostics, dict) else None
+    if not isinstance(filtres, dict):
+        return False
+    if filter_mode and filtres.get("mode") != filter_mode:
+        return False
+    if filtres.get("layer_pattern") != layer_pattern:
+        return False
+    if filtres.get("type_pattern") != type_pattern:
+        return False
+
+    from ..extraction.geometry_backend import backend_version
+
+    installee = backend_version()
+    produite = (doc.get("source") or {}).get("version")
+    return bool(installee) and produite == installee
+
+
 def ensure_envelope_json(
     snapshot,
     *,
@@ -474,7 +521,12 @@ def ensure_envelope_json(
             session_ifc_path=session_ifc_path,
             model_ids=model_ids,
         )
-        if existant is not None:
+        if existant is not None and _envelope_contract_matches_request(
+            existant,
+            layer_pattern=layer_pattern,
+            type_pattern=type_pattern,
+            filter_mode=filter_mode,
+        ):
             return {"json_path": str(cible), "reused": True, "computed": False}
 
     source = resolve_active_ifc(

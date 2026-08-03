@@ -625,6 +625,14 @@ mur de la maquette, et n'est codé en dur nulle part.
 > Si aucun paramètre ne produit le résultat attendu, c'est un manque du produit :
 > il se traite par une évolution du backend, pas par une retouche de fichier.
 
+**Réutilisation du contrat calculé.** Un `envelope.json` déjà présent n'est
+réutilisé que s'il a été produit **avec les mêmes paramètres** : mêmes motifs,
+même mode, et même version installée du backend. Sinon il est recalculé. La
+corrélation au modèle ne suffit pas — un contrat antérieur porte des surfaces
+tout aussi plausibles, calculées sous une autre définition (la formule du ratio a
+changé en v0.4.0, son dénominateur en v0.5.0). `force_recompute_envelope=True`
+force le recalcul même quand le cache est valide, pour un rejeu explicite.
+
 La note de méthode indique aussi la **nature du dénominateur** du ratio FAC/SHAB
 (`summary.methode_shab`) : `pieces_zonees_hors_annexes` — le cas normal — ou
 `toutes_pieces_hors_annexes_sans_zonage` sur une maquette sans aucune `IfcZone`.
