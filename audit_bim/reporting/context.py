@@ -378,6 +378,8 @@ def _build_controls_performed(
     # ``owner_name`` et non ``short_name`` : la phrase cite le maître d'ouvrage
     # (« codification I3F »), pas le document contractuel (« CCH »).
     owner = profile.owner_name
+    classification = profile.classification_narrative
+    default_system = classification.default_system if classification else "la classification IFC"
     cch_ref = framework.label or (framework.name or "")
 
     return [
@@ -405,7 +407,7 @@ def _build_controls_performed(
         ControlDescription(
             theme="Classification IFC",
             objective=(
-                "Présence d'une classification (UniFormat II par défaut) "
+                f"Présence d'une classification ({default_system} par défaut) "
                 "sur chaque élément requis et cohérence niveau 3."
             ),
             checked_items="Classifications associées via /classification-element",
@@ -445,10 +447,15 @@ def _build_controls_performed(
     ]
 
 
-def _build_missing_information(ctx_data: dict, catalog, findings_count: int) -> list[str]:
+def _build_missing_information(
+    ctx_data: dict, catalog, findings_count: int, *, profile_id: str | None = None
+) -> list[str]:
     """Liste les informations *contextuelles* absentes (pas les
     findings — ceux-là sont déjà détaillés dans le corps du rapport).
     """
+    framework = build_reference_framework(catalog, profile_id=profile_id)
+    short_name = framework.short_name or "référentiel"
+
     missing: list[str] = []
     if not ctx_data.get("project_description"):
         missing.append(
@@ -471,9 +478,11 @@ def _build_missing_information(ctx_data: dict, catalog, findings_count: int) -> 
     if not ctx_data.get("expected_deliverables"):
         missing.append(
             "Livrables BIM attendus : non détaillés dans les documents "
-            "analysés (au-delà des exigences du CCH)."
+            f"analysés (au-delà des exigences du {short_name})."
         )
     if catalog is None or not catalog.cch_source_pdf:
+        # « Cahier des Charges BIM » sans nom de client : formulation déjà
+        # générique, elle n'a pas à passer par le profil.
         missing.append("Cahier des Charges BIM (PDF) : non fourni ou non chargé.")
     if catalog is None or not catalog.data_spec_source:
         missing.append("Annexe « Spécifications des données » : non fournie ou non chargée.")
@@ -630,7 +639,7 @@ def build_report_context(
         n_naming_rules=n_naming_rules,
     )
     ctx_data["missing_information"] = _build_missing_information(
-        ctx_data, catalog, len(result.findings)
+        ctx_data, catalog, len(result.findings), profile_id=profile_id
     )
 
     # ── Renseigner field_sources ────────────────────────────────────────

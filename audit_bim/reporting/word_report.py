@@ -53,6 +53,8 @@ from docx.shared import Cm, Pt, RGBColor
 from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity, Theme
 from ..classifier import suggestions_map
+from ..profiles import DEFAULT_PROFILE_ID, get_profile
+from ..profiles.models import ReportNarrativeSpec
 from .bimdata_brand import WORDMARK, find_logo
 from .context import ReportProjectContext, build_report_context
 from .theming import (
@@ -252,6 +254,44 @@ def _findings_table(
 # ── Page de garde ─────────────────────────────────────────────────────────
 
 
+def _classification_intro(profile_id: str | None = None) -> str:
+    """Phrase d'introduction de la section Classification.
+
+    Composée depuis ``ClassificationNarrativeSpec`` : le système par défaut, les
+    systèmes normalisés reconnus et l'éventuel système propriétaire du client
+    sont trois choses distinctes, qu'un profil tiers déclare séparément.
+    """
+    spec = _classification_narrative(profile_id)
+    if spec is None:
+        return "Présence et cohérence de la classification IFC."
+    others = list(spec.known_systems[1:]) + (
+        [spec.proprietary_label] if spec.proprietary_label else []
+    )
+    suffix = f" ; {' / '.join(others)} selon le référentiel" if others else ""
+    return f"Présence et cohérence de la classification IFC ({spec.default_system} par défaut{suffix})."
+
+
+def _narrative(profile_id: str | None = None) -> ReportNarrativeSpec | None:
+    """Narratif du profil actif, ou ``None`` s'il n'en déclare pas.
+
+    ``None`` n'est pas un cas dégradé à corriger : un profil préparatoire n'a
+    pas encore écrit ses phrases, et lui prêter celles d'I3F imprimerait le
+    référentiel d'un autre AMO dans son rapport.
+    """
+    return get_profile(profile_id or DEFAULT_PROFILE_ID).report_narrative
+
+
+def _classification_narrative(profile_id: str | None = None):
+    """Systèmes de classification cités par le profil actif."""
+    return get_profile(profile_id or DEFAULT_PROFILE_ID).classification_narrative
+
+
+def _narrative_text(profile_id: str | None, field: str, fallback: str = "") -> str:
+    """Un texte de narratif, avec repli neutre si le profil n'en déclare pas."""
+    spec = _narrative(profile_id)
+    return getattr(spec, field) if spec else fallback
+
+
 def _framework_long_label(context: ReportProjectContext) -> str:
     """Forme développée du référentiel pour les phrases narratives.
 
@@ -272,6 +312,7 @@ def _write_cover_page(
     model_name: str,
     version_label: str,
     framework_label: str | None,
+    cover_label: str,
     auditor: str,
 ) -> None:
     """Rend la page de couverture brandée BIMData.
@@ -387,7 +428,7 @@ def _write_cover_page(
     _meta_line("Version", version_label)
     _meta_line("Date", date.today().isoformat())
     _meta_line("Auteur", auditor)
-    _meta_line("Référence du CCBIM utilisé", framework_label or "—")
+    _meta_line(cover_label, framework_label or "—")
 
     closing = meta_cell.add_paragraph()
     closing.paragraph_format.space_after = Pt(14)
@@ -436,6 +477,8 @@ def write_word_report(
     auditor: str = "AMO BIM (audit automatisé)",
     xlsx_annex_path: str | Path | None = None,
     context: ReportProjectContext | None = None,
+    *,
+    profile_id: str | None = None,
 ) -> Path:
     """Génère le rapport Word d'audit (modèle de conformité de maquette).
 
@@ -474,7 +517,7 @@ def write_word_report(
 
     # Contexte projet enrichi : auto-build si non fourni par le caller.
     if context is None:
-        context = build_report_context(result)
+        context = build_report_context(result, profile_id=profile_id)
 
     project_name = context.project_name or (result.snapshot.project or {}).get("name", "?")
     model_name = context.model_name or (result.snapshot.model or {}).get("name", "?")
@@ -494,6 +537,7 @@ def write_word_report(
         model_name=model_name,
         version_label=f"Phase BIM {result.phase.value}",
         framework_label=context.reference_framework.label,
+        cover_label=_narrative_text(profile_id, "cover_reference_label", "Référentiel"),
         auditor=display_auditor,
     )
     _section_break(doc)
@@ -503,7 +547,7 @@ def write_word_report(
     _section_break(doc)
 
     # ── 3. Périmètre de l'audit ─────────────────────────────────────────
-    _write_section_scope(doc, context, result)
+    _write_section_scope(doc, context, result, profile_id=profile_id)
     _section_break(doc)
 
     # ── 4. Méthodologie ─────────────────────────────────────────────────
@@ -515,7 +559,7 @@ def write_word_report(
     _section_break(doc)
 
     # ── 6. Résultats détaillés ──────────────────────────────────────────
-    _write_section_detailed_results(doc, result)
+    _write_section_detailed_results(doc, result, profile_id=profile_id)
     _section_break(doc)
 
     # ── 7. Liste des non-conformités ────────────────────────────────────
@@ -523,7 +567,7 @@ def write_word_report(
     _section_break(doc)
 
     # ── 8. Recommandations ──────────────────────────────────────────────
-    _write_section_recommendations(doc, result)
+    _write_section_recommendations(doc, result, profile_id=profile_id)
     _section_break(doc)
 
     # ── 9. Conclusion ───────────────────────────────────────────────────
@@ -531,7 +575,7 @@ def write_word_report(
     _section_break(doc)
 
     # ── 10. Annexes ─────────────────────────────────────────────────────
-    _write_section_annexes(doc, xlsx_annex_path, context)
+    _write_section_annexes(doc, xlsx_annex_path, context, profile_id=profile_id)
 
     doc.save(str(output_path))
     return output_path
@@ -639,7 +683,13 @@ def _write_section_executive_summary(
     )
 
 
-def _write_section_scope(doc: Document, context: ReportProjectContext, result: AuditResult) -> None:
+def _write_section_scope(
+    doc: Document,
+    context: ReportProjectContext,
+    result: AuditResult,
+    *,
+    profile_id: str | None = None,
+) -> None:
     """Section 3 — Périmètre de l'audit (documents de référence + maquette)."""
     _add_heading(doc, "3. Périmètre de l'audit", level=1)
     _para_intro(
@@ -655,8 +705,8 @@ def _write_section_scope(doc: Document, context: ReportProjectContext, result: A
     src_data = context.data_spec_source or "non précisé"
     src_naming = context.naming_spec_source or "non précisé"
     doc.add_paragraph(
-        f"• CCBIM appliqué : {context.reference_framework.label or '—'} "
-        f"(Cahier des annexes — {src_cch}).",
+        f"• {_narrative_text(profile_id, 'applied_reference_label', 'Référentiel')} : "
+        f"{context.reference_framework.label or '—'} (Cahier des annexes — {src_cch}).",
         style="List Bullet",
     )
     doc.add_paragraph(
@@ -811,7 +861,9 @@ def _write_section_global_results(doc: Document, result: AuditResult) -> None:
         row[3].text = str(n_severe)
 
 
-def _write_section_detailed_results(doc: Document, result: AuditResult) -> None:
+def _write_section_detailed_results(
+    doc: Document, result: AuditResult, *, profile_id: str | None = None
+) -> None:
     """Section 6 — Résultats détaillés (6.1 → 6.7)."""
     _add_heading(doc, "6. Résultats détaillés", level=1)
     _para_intro(
@@ -855,17 +907,17 @@ def _write_section_detailed_results(doc: Document, result: AuditResult) -> None:
 
     # 6.3 Classification
     _add_heading(doc, "6.3 Classification", level=2)
-    doc.add_paragraph(
-        "Présence et cohérence de la classification IFC (UniFormat II par "
-        "défaut ; Omniclass / CCI / table interne 3F selon le référentiel)."
-    )
+    doc.add_paragraph(_classification_intro(profile_id))
     _theme_block({Theme.CLASSIFICATION}, with_suggestions=True)
 
     # 6.4 Conventions de nommage
     _add_heading(doc, "6.4 Conventions de nommage", level=2)
     doc.add_paragraph(
-        "Contrôle du nommage des objets, niveaux, zones et espaces selon "
-        "les listes fermées et la codification I3F (CCH chap. 6.3)."
+        _narrative_text(
+            profile_id,
+            "naming_intro",
+            "Contrôle du nommage des objets, niveaux, zones et espaces.",
+        )
     )
     _theme_block({Theme.NAMING_SITE_BAT_ETAGE, Theme.NAMING_ZONE, Theme.NAMING_SPACE})
 
@@ -949,7 +1001,9 @@ def _write_section_nonconformities(doc: Document, result: AuditResult) -> None:
         row[5].text = (f.recommended_action or "—")[:90]
 
 
-def _write_section_recommendations(doc: Document, result: AuditResult) -> None:
+def _write_section_recommendations(
+    doc: Document, result: AuditResult, *, profile_id: str | None = None
+) -> None:
     """Section 8 — Recommandations classées par priorité."""
     _add_heading(doc, "8. Recommandations", level=1)
     _para_intro(
@@ -957,7 +1011,7 @@ def _write_section_recommendations(doc: Document, result: AuditResult) -> None:
         "Actions correctives priorisées à mener avant le prochain dépôt de "
         "maquette. Les recommandations sont déduites des anomalies détectées.",
     )
-    buckets = _recommendations_by_priority(result)
+    buckets = _recommendations_by_priority(result, profile_id=profile_id)
     any_rec = False
     for priority in ("Critique", "Majeure", "Mineure"):
         recs = buckets.get(priority, [])
@@ -1033,7 +1087,11 @@ def _write_section_conclusion(
 
 
 def _write_section_annexes(
-    doc: Document, xlsx_annex_path: str | Path | None, context: ReportProjectContext
+    doc: Document,
+    xlsx_annex_path: str | Path | None,
+    context: ReportProjectContext,
+    *,
+    profile_id: str | None = None,
 ) -> None:
     """Section 10 — Annexes."""
     _add_heading(doc, "10. Annexes", level=1)
@@ -1056,11 +1114,9 @@ def _write_section_annexes(
         f"{context.n_naming_rules} règle(s) de nommage.",
         style="List Bullet",
     )
-    doc.add_paragraph(
-        "• Référentiel CCH I3F : documents transmis par la maîtrise "
-        "d'ouvrage (Cahier des annexes, annexe Spécifications, annexe Nommage).",
-        style="List Bullet",
-    )
+    reference_line = _narrative_text(profile_id, "reference_documents_line")
+    if reference_line:
+        doc.add_paragraph(reference_line, style="List Bullet")
     # Limites de l'audit (rattachées aux annexes).
     if context.assumptions:
         _add_heading(doc, "Limites et hypothèses de l'audit", level=2)
@@ -1084,25 +1140,6 @@ def _suggestions_map(result: AuditResult) -> dict[str, dict]:
     return suggestions_map(result.findings, result.snapshot)
 
 
-# Indices correctifs par thème, réutilisés pour générer les recommandations
-# priorisées (section 8).
-_THEME_HINTS: dict[Theme, str] = {
-    Theme.SPATIAL_HIERARCHY: (
-        "compléter / corriger la hiérarchie spatiale Site → Bâtiment → "
-        "Étage → Espace (CCH chap. 6.1)"
-    ),
-    Theme.NAMING_SITE_BAT_ETAGE: (
-        "aligner le nommage des sites, bâtiments et étages sur les listes fermées du CCH chap. 6.3"
-    ),
-    Theme.NAMING_ZONE: "reprendre le nommage des zones (codification I3F, CCH chap. 6.3)",
-    Theme.NAMING_SPACE: "reprendre le nommage des pièces (listes fermées, CCH chap. 6.3)",
-    Theme.CLASSIFICATION: ("compléter la classification IFC (UniFormat / Omniclass / table 3F)"),
-    Theme.PROPERTY_MISSING: "renseigner les propriétés / Psets manquants pour la phase",
-    Theme.PROPERTY_INVALID: "corriger les valeurs de propriétés invalides ou hors domaine",
-    Theme.QUANTITY: "compléter les quantités (NetFloorArea / BaseQuantities)",
-    Theme.DOCUMENT: "fournir les documents attendus manquants",
-}
-
 # Sévérité → priorité métier de la recommandation.
 _SEV_TO_PRIORITY = {
     Severity.CRITICAL: "Critique",
@@ -1113,12 +1150,17 @@ _SEV_TO_PRIORITY = {
 }
 
 
-def _recommendations_by_priority(result: AuditResult) -> dict[str, list[str]]:
+def _recommendations_by_priority(
+    result: AuditResult, *, profile_id: str | None = None
+) -> dict[str, list[str]]:
     """Recommandations correctives groupées par priorité (Critique / Majeure / Mineure).
 
     Pour chaque (priorité, thème), on agrège le nombre d'anomalies et on
-    produit une action concrète à partir de ``_THEME_HINTS``.
+    produit une action concrète à partir des ``theme_hints`` du profil.
     """
+    spec = _narrative(profile_id)
+    theme_hints = spec.theme_hints if spec else {}
+
     # (priority, theme) → count
     agg: dict[tuple[str, Theme], int] = Counter()
     for f in result.findings:
@@ -1128,14 +1170,13 @@ def _recommendations_by_priority(result: AuditResult) -> dict[str, list[str]]:
     buckets: dict[str, list[str]] = {"Critique": [], "Majeure": [], "Mineure": []}
     # Tri stable : par priorité puis nombre décroissant.
     for (priority, theme), count in sorted(agg.items(), key=lambda kv: -kv[1]):
-        hint = _THEME_HINTS.get(theme, "corriger les écarts identifiés")
+        hint = theme_hints.get(theme.value, "corriger les écarts identifiés")
         label = f"{count} anomalie{'s' if count > 1 else ''} — {hint}."
         buckets[priority].append(label[0].upper() + label[1:])
 
     # Recommandation transverse si conformité faible.
     if result.conformity_rate() < 0.7:
-        buckets["Critique"].append(
-            "Ré-itérer un audit après reprise : l'écart au CCH est important — "
-            "prévoir une revue conjointe MOA / MOE avant la phase suivante."
-        )
+        transverse = _narrative_text(profile_id, "low_conformity_recommendation")
+        if transverse:
+            buckets["Critique"].append(transverse)
     return buckets
