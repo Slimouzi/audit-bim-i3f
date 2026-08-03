@@ -84,11 +84,23 @@ class ClassificationNarrativeSpec:
     système propriétaire au même rang qu'UniFormat. Un scalaire
     ``default_classification_system`` ne suffit donc pas — il faut la liste des
     systèmes cités, et celui qui fait défaut.
+
+    **Trois des quatre champs sont déclaratifs à ce stade** : seul
+    ``default_system`` est lu. C'est assumé et testé (cf.
+    ``test_report_narrative_spec``) plutôt que laissé ambigu — un champ de
+    profil qu'on croit branché alors qu'il ne l'est pas est une fausse commande,
+    et elle ne lève jamais.
     """
 
+    #: Système appliqué par défaut. **Seul champ consommé à ce jour**
+    #: (``context._build_controls_performed``).
     default_system: str
+    #: Systèmes normalisés reconnus. DÉCLARATIF pour l'instant : aucun lecteur.
+    #: Destinés à la structure Excel (PR C2) et au futur bim-classifier.
     known_systems: tuple[str, ...]
+    #: Systèmes propriétaires du client. DÉCLARATIF, même raison.
     proprietary_systems: tuple[str, ...]
+    #: Libellé imprimable du système propriétaire. DÉCLARATIF, même raison.
     proprietary_label: str
 
     def to_dict(self) -> dict:

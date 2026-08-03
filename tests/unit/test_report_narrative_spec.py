@@ -9,6 +9,7 @@ AMO de l'autre. Ces tests couvrent les deux sens.
 from __future__ import annotations
 
 import ast
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -241,20 +242,157 @@ def test_profile_without_narrative_degrades_without_leaking(tmp_path, monkeypatc
 # ── 4. Composition de l'intro classification ──────────────────────────
 
 
-def test_classification_intro_is_composed_from_the_spec():
-    assert word_report._classification_intro() == I3F_EXPECTED_PARAGRAPHS[0]
+def test_classification_intro_declared_by_a_profile_is_actually_printed(tmp_path, monkeypatch):
+    """Un champ de profil déclaré mais jamais lu est une fausse commande.
 
-
-def test_classification_intro_without_proprietary_system():
-    spec = ClassificationNarrativeSpec(
-        default_system="UniFormat II",
-        known_systems=("UniFormat", "Omniclass"),
-        proprietary_systems=(),
-        proprietary_label="",
+    `classification_intro` était renseigné dans le registre et ignoré par le
+    rendu, qui recomposait la phrase depuis `ClassificationNarrativeSpec`. Un
+    profil tiers aurait pu définir sa phrase sans qu'elle s'imprime jamais —
+    le pire cas, parce que rien n'échoue.
+    """
+    phrase = "Phrase classification BIM in Motion"
+    tiers = replace(
+        reg._BIM_IN_MOTION_PROFILE,
+        reference_framework=ReferenceFrameworkSpec(
+            name="Référentiel AMO BIM in Motion",
+            short_name="Référentiel",
+            long_name="Référentiel AMO BIM in Motion",
+        ),
+        report_narrative=ReportNarrativeSpec(
+            theme_hints={"Nommage Zone": "reprendre le nommage des zones"},
+            classification_intro=phrase,
+            naming_intro="Contrôle du nommage des objets, niveaux, zones et espaces.",
+            reference_documents_line="• Référentiel client : documents transmis.",
+            cover_reference_label="Référence contractuelle",
+            applied_reference_label="Référentiel appliqué",
+            low_conformity_recommendation="Ré-itérer un audit après reprise.",
+        ),
+        classification_narrative=ClassificationNarrativeSpec(
+            default_system="UniFormat II",
+            known_systems=("UniFormat",),
+            proprietary_systems=(),
+            proprietary_label="",
+        ),
     )
-    tiers = replace(reg._I3F_PROFILE, id="tmp", classification_narrative=spec)
-    assert "Omniclass" in word_report._classification_intro.__doc__ or True
-    # Composition directe, sans passer par le registre.
-    others = list(spec.known_systems[1:])
-    assert others == ["Omniclass"]
-    assert tiers.classification_narrative.proprietary_label == ""
+    monkeypatch.setattr(reg, "_PROFILES", (reg._I3F_PROFILE, tiers))
+
+    rendered = _render(tmp_path, monkeypatch, profile_id="bim_in_motion")
+    assert phrase in rendered, "la phrase du profil tiers n'est pas imprimée"
+
+    joined = "\n".join(rendered)
+    for term in (*FORBIDDEN_IN_THIRD_PARTY, "Omniclass", "CCI"):
+        assert term not in joined, f"{term!r} a fuité dans le Word d'un AMO tiers"
+
+
+def test_i3f_classification_intro_comes_from_the_narrative_spec(tmp_path, monkeypatch):
+    """Côté I3F, la phrase imprimée est bien celle du profil, à l'octet près."""
+    declared = get_profile("i3f").report_narrative.classification_intro
+    assert declared == I3F_EXPECTED_PARAGRAPHS[0]
+    assert declared in _render(tmp_path, monkeypatch)
+
+
+def test_profile_without_narrative_uses_the_neutral_classification_fallback(tmp_path, monkeypatch):
+    """Sans narratif, repli neutre — jamais la phrase d'un autre profil."""
+    rendered = _render(tmp_path, monkeypatch, profile_id="bim_in_motion")
+    assert "Présence et cohérence de la classification IFC." in rendered
+    assert I3F_EXPECTED_PARAGRAPHS[0] not in rendered
+
+
+# ── 5. Quels champs de profil sont RÉELLEMENT lus ─────────────────────
+
+
+def test_classification_spec_consumed_fields_are_pinned():
+    """Fige ce qui est branché, pour que le déclaratif reste visible comme tel.
+
+    Après C1, seul `default_system` est consommé (`_build_controls_performed`).
+    `known_systems`, `proprietary_systems` et `proprietary_label` attendent C2 et
+    le futur `bim-classifier`. Ce test échouera le jour où on les branchera —
+    c'est voulu : il faudra alors ajouter le test de rendu correspondant, au lieu
+    de croire la commande active parce que le champ existe.
+    """
+    import audit_bim.reporting.context as ctx_mod
+    import audit_bim.reporting.word_report as wr_mod
+
+    sources = Path(ctx_mod.__file__).read_text(encoding="utf-8") + Path(wr_mod.__file__).read_text(
+        encoding="utf-8"
+    )
+    assert "classification.default_system" in sources or "default_system" in sources
+    for dormant in ("known_systems", "proprietary_systems", "proprietary_label"):
+        assert dormant not in sources, (
+            f"{dormant!r} est désormais lu par le rendu : ajouter un test de "
+            "rendu tiers et retirer ce champ de la liste dormante"
+        )
+
+
+def _narrative_fields_read_by(module) -> set[str]:
+    """Champs de narratif réellement LUS par un module, détectés par AST.
+
+    Une simple recherche de sous-chaîne est piégeuse ici : avant l'amend,
+    `word_report.py` contenait bien « classification_intro » — c'était le nom
+    d'une fonction locale `_classification_intro`, pas une lecture du champ. Le
+    contrôle serait passé sur le bug qu'il visait.
+
+    On ne retient donc que deux formes de lecture réelle :
+    `_narrative_text(profile_id, "<champ>")` et `<qqch>.<champ>`.
+    """
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    read: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_narrative_text"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+        ):
+            read.add(node.args[1].value)
+        elif isinstance(node, ast.Attribute):
+            read.add(node.attr)
+    return read
+
+
+def test_narrative_spec_fields_are_all_consumed():
+    """TOUS les champs de ReportNarrativeSpec doivent être réellement lus.
+
+    C'est le contrôle qui attrape un champ de profil mort — le cas
+    `classification_intro`, déclaré, renseigné, et ignoré par le rendu. Rien
+    n'échouait : un profil tiers aurait défini sa phrase pour rien.
+    """
+    import audit_bim.reporting.word_report as wr_mod
+
+    declared = set(get_profile("i3f").report_narrative.to_dict())
+    unused = sorted(declared - _narrative_fields_read_by(wr_mod))
+    assert not unused, f"champs de ReportNarrativeSpec déclarés mais jamais lus : {unused}"
+
+
+def test_the_consumption_guard_would_have_caught_the_dead_field():
+    """Preuve de non-vacuité, contre la version d'avant l'amend.
+
+    On rejoue la détection sur le `word_report.py` du commit précédent : le
+    garde-fou doit y voir `classification_intro` non lu.
+    """
+    previous = subprocess.run(
+        ["git", "show", "HEAD:audit_bim/reporting/word_report.py"],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[2],
+    ).stdout
+    if not previous.strip():
+        pytest.skip("historique Git indisponible")
+
+    tree = ast.parse(previous)
+    read: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_narrative_text"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+        ):
+            read.add(node.args[1].value)
+        elif isinstance(node, ast.Attribute):
+            read.add(node.attr)
+    assert "classification_intro" not in read, (
+        "le garde-fou ne détecte pas le champ mort d'avant l'amend : il est vacueux"
+    )

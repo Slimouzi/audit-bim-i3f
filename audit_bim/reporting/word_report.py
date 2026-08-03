@@ -254,23 +254,6 @@ def _findings_table(
 # ── Page de garde ─────────────────────────────────────────────────────────
 
 
-def _classification_intro(profile_id: str | None = None) -> str:
-    """Phrase d'introduction de la section Classification.
-
-    Composée depuis ``ClassificationNarrativeSpec`` : le système par défaut, les
-    systèmes normalisés reconnus et l'éventuel système propriétaire du client
-    sont trois choses distinctes, qu'un profil tiers déclare séparément.
-    """
-    spec = _classification_narrative(profile_id)
-    if spec is None:
-        return "Présence et cohérence de la classification IFC."
-    others = list(spec.known_systems[1:]) + (
-        [spec.proprietary_label] if spec.proprietary_label else []
-    )
-    suffix = f" ; {' / '.join(others)} selon le référentiel" if others else ""
-    return f"Présence et cohérence de la classification IFC ({spec.default_system} par défaut{suffix})."
-
-
 def _narrative(profile_id: str | None = None) -> ReportNarrativeSpec | None:
     """Narratif du profil actif, ou ``None`` s'il n'en déclare pas.
 
@@ -279,11 +262,6 @@ def _narrative(profile_id: str | None = None) -> ReportNarrativeSpec | None:
     référentiel d'un autre AMO dans son rapport.
     """
     return get_profile(profile_id or DEFAULT_PROFILE_ID).report_narrative
-
-
-def _classification_narrative(profile_id: str | None = None):
-    """Systèmes de classification cités par le profil actif."""
-    return get_profile(profile_id or DEFAULT_PROFILE_ID).classification_narrative
 
 
 def _narrative_text(profile_id: str | None, field: str, fallback: str = "") -> str:
@@ -907,7 +885,13 @@ def _write_section_detailed_results(
 
     # 6.3 Classification
     _add_heading(doc, "6.3 Classification", level=2)
-    doc.add_paragraph(_classification_intro(profile_id))
+    doc.add_paragraph(
+        _narrative_text(
+            profile_id,
+            "classification_intro",
+            "Présence et cohérence de la classification IFC.",
+        )
+    )
     _theme_block({Theme.CLASSIFICATION}, with_suggestions=True)
 
     # 6.4 Conventions de nommage
