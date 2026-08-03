@@ -23,10 +23,15 @@ import xlsxwriter
 from ..audit.engine import AuditResult
 from ..audit.findings import ErrorType, Severity
 from ..classifier import suggest_for_findings, suggestions_map
+from ..profiles import DEFAULT_PROFILE_ID, get_profile
 from .context import build_reference_framework
 from .theming import (
     SEVERITY_COLORS,
 )
+
+#: Repli neutre quand aucun profil ne déclare de structure.
+DEFAULT_REFERENCE_COLUMN_LABEL = "Référence référentiel"
+DEFAULT_REFERENTIAL_SHEET_NAME = "Référentiel"
 
 COLUMNS = [
     ("UUID", 38),
@@ -39,7 +44,7 @@ COLUMNS = [
     ("Sévérité", 12),
     ("Attendu", 50),
     ("Réel", 50),
-    ("Référence CCH", 14),
+    (DEFAULT_REFERENCE_COLUMN_LABEL, 14),
     ("Action recommandée", 60),
 ]
 
@@ -66,12 +71,46 @@ def _build_formats(wb: xlsxwriter.Workbook) -> dict:
     return _bx.build_formats(wb, severity_colors=SEVERITY_COLORS)
 
 
+def _structure(profile_id: str | None = None):
+    """Structure de classeur déclarée par le profil actif, ou ``None``."""
+    return get_profile(profile_id or DEFAULT_PROFILE_ID).report_structure
+
+
+def _columns_for(profile_id: str | None = None) -> list[tuple[str, int]]:
+    """Colonnes des onglets de findings, en-tête de référence issu du profil.
+
+    Le gabarit — ordre et largeurs — reste figé ici : c'est de la mise en page,
+    pas du vocabulaire. Seul le libellé de la colonne de référence dépend du
+    client.
+    """
+    spec = _structure(profile_id)
+    label = spec.finding_reference_column_label if spec else DEFAULT_REFERENCE_COLUMN_LABEL
+    # Repérage par le libellé de repli plutôt que par un index figé : insérer
+    # une colonne ailleurs dans le gabarit ne doit pas renommer silencieusement
+    # la mauvaise.
+    return [
+        (label, width) if header == DEFAULT_REFERENCE_COLUMN_LABEL else (header, width)
+        for header, width in COLUMNS
+    ]
+
+
+def _referential_sheet_name(profile_id: str | None = None) -> str:
+    """Nom EXACT de l'onglet de référentiel — jamais composé.
+
+    Composer ``f"Référentiel {framework.name}"`` donnerait « Référentiel CCH BIM
+    I3F » au lieu de « Référentiel I3F » : un autre gabarit, pour un gain nul.
+    """
+    spec = _structure(profile_id)
+    return spec.referential_sheet_name if spec else DEFAULT_REFERENTIAL_SHEET_NAME
+
+
 def _write_findings_sheet(
     wb,
     name: str,
     findings: list,
     fmts: dict,
     suggestions_map: dict | None = None,
+    profile_id: str | None = None,
 ):
     """Écrit un onglet de findings. Si ``suggestions_map`` est fourni, deux
     colonnes supplémentaires (Classification proposée, Indice de confiance)
@@ -80,7 +119,7 @@ def _write_findings_sheet(
     """
     ws = wb.add_worksheet(name[:31])
     ws.freeze_panes(1, 0)
-    columns = list(COLUMNS)
+    columns = _columns_for(profile_id)
     if suggestions_map is not None:
         columns += [("Classification proposée", 30), ("Indice de confiance", 14)]
     for c, (label, width) in enumerate(columns):
@@ -189,8 +228,8 @@ def _write_synthesis(wb, result: AuditResult, fmts: dict):
         ws.write(20 + i, 4, count, fmts["kpi_val"])
 
 
-def _write_referential(wb, result: AuditResult, fmts: dict):
-    ws = wb.add_worksheet("Référentiel I3F")
+def _write_referential(wb, result: AuditResult, fmts: dict, profile_id: str | None = None):
+    ws = wb.add_worksheet(_referential_sheet_name(profile_id)[:31])
     ws.set_column("A:A", 28)
     ws.set_column("B:B", 28)
     ws.set_column("C:C", 16)
@@ -238,8 +277,15 @@ def _write_referential(wb, result: AuditResult, fmts: dict):
         row += 1
 
 
-def write_xlsx_annex(result: AuditResult, output_path: str | Path) -> Path:
-    """Génère l'annexe xlsx complète."""
+def write_xlsx_annex(
+    result: AuditResult, output_path: str | Path, *, profile_id: str | None = None
+) -> Path:
+    """Génère l'annexe xlsx complète.
+
+    ``profile_id`` choisit le profil qui nomme l'onglet de référentiel et
+    l'en-tête de la colonne de référence. Sans lui, le profil par défaut : le
+    classeur I3F reste identique à l'octet près.
+    """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -257,7 +303,12 @@ def write_xlsx_annex(result: AuditResult, output_path: str | Path) -> Path:
     suggestions_map = _build_suggestions_map(result)
 
     _write_findings_sheet(
-        wb, "Findings (tous)", result.findings, fmts, suggestions_map=suggestions_map
+        wb,
+        "Findings (tous)",
+        result.findings,
+        fmts,
+        suggestions_map=suggestions_map,
+        profile_id=profile_id,
     )
 
     # 1 onglet par type d'erreur (humanisé)
@@ -284,9 +335,11 @@ def write_xlsx_annex(result: AuditResult, output_path: str | Path) -> Path:
             continue
         # Les suggestions ne sont pertinentes que pour 'classification_missing'.
         smap = suggestions_map if et == ErrorType.CLASSIFICATION_MISSING.value else None
-        _write_findings_sheet(wb, label_for.get(et, et), items, fmts, suggestions_map=smap)
+        _write_findings_sheet(
+            wb, label_for.get(et, et), items, fmts, suggestions_map=smap, profile_id=profile_id
+        )
 
-    _write_referential(wb, result, fmts)
+    _write_referential(wb, result, fmts, profile_id)
     _write_classification_suggestions(wb, result, fmts)
 
     wb.close()

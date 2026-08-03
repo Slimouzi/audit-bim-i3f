@@ -151,6 +151,37 @@ class ReportNarrativeSpec:
 
 
 @dataclass(frozen=True)
+class ReportStructureSpec:
+    """Éléments de **structure** du classeur Excel : noms d'onglets, en-têtes.
+
+    Distincts du narratif, et à ne surtout pas confondre : une phrase se relit,
+    un nom d'onglet est une **clé technique**. Un TCD, une macro ou un
+    rapprochement côté maître d'ouvrage peuvent le référencer par son nom ; le
+    changer casse un usage aval sans rien faire échouer chez nous. C'est
+    pourquoi la recette de ces deux champs passe par l'ouverture du fichier
+    produit, pas par une comparaison de texte.
+
+    Le profil porte donc le nom **exact**, jamais une composition. Composer
+    ``f"Référentiel {framework.name}"`` donnerait « Référentiel CCH BIM I3F »
+    au lieu de « Référentiel I3F » — un gabarit différent, pour un gain nul.
+    La composition reste possible pour un futur profil qui n'a pas d'historique
+    à préserver.
+    """
+
+    #: En-tête de la colonne qui porte la référence au référentiel, dans les
+    #: onglets de findings.
+    finding_reference_column_label: str
+    #: Nom exact de l'onglet de rappel du référentiel.
+    referential_sheet_name: str
+
+    def to_dict(self) -> dict:
+        return {
+            "finding_reference_column_label": self.finding_reference_column_label,
+            "referential_sheet_name": self.referential_sheet_name,
+        }
+
+
+@dataclass(frozen=True)
 class McpProfile:
     """Profil de composition d'un MCP client/AMO."""
 
@@ -164,6 +195,7 @@ class McpProfile:
     reference_framework: ReferenceFrameworkSpec | None
     report_narrative: ReportNarrativeSpec | None
     classification_narrative: ClassificationNarrativeSpec | None
+    report_structure: ReportStructureSpec | None
     enabled_generic_modules: tuple[str, ...]
     specializations: tuple[ClientSpecialization, ...]
     report_packs: tuple[str, ...]
@@ -187,6 +219,9 @@ class McpProfile:
             ),
             "classification_narrative": (
                 self.classification_narrative.to_dict() if self.classification_narrative else None
+            ),
+            "report_structure": (
+                self.report_structure.to_dict() if self.report_structure else None
             ),
             "enabled_generic_modules": list(self.enabled_generic_modules),
             "specializations": [s.to_dict() for s in self.specializations],

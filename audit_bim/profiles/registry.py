@@ -14,6 +14,7 @@ from .models import (
     McpProfile,
     ReferenceFrameworkSpec,
     ReportNarrativeSpec,
+    ReportStructureSpec,
 )
 
 DEFAULT_PROFILE_ID = "i3f"
@@ -151,6 +152,13 @@ _I3F_REPORT_NARRATIVE = ReportNarrativeSpec(
     ),
 )
 
+# Valeurs HISTORIQUES, reprises à l'octet près. Ce sont des clés de gabarit :
+# le classeur I3F doit rester ouvrable par les mêmes outils MOA qu'avant.
+_I3F_REPORT_STRUCTURE = ReportStructureSpec(
+    finding_reference_column_label="Référence CCH",
+    referential_sheet_name="Référentiel I3F",
+)
+
 _I3F_CLASSIFICATION_NARRATIVE = ClassificationNarrativeSpec(
     default_system="UniFormat II",
     known_systems=("UniFormat", "Omniclass", "CCI"),
@@ -174,6 +182,7 @@ _I3F_PROFILE = McpProfile(
     ),
     report_narrative=_I3F_REPORT_NARRATIVE,
     classification_narrative=_I3F_CLASSIFICATION_NARRATIVE,
+    report_structure=_I3F_REPORT_STRUCTURE,
     enabled_generic_modules=_ALL_GENERIC_KEYS,
     report_packs=("avp_i3f",),
     specializations=(
@@ -229,6 +238,7 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
     # pas récupérer celles d'I3F par défaut.
     report_narrative=None,
     classification_narrative=None,
+    report_structure=None,
     enabled_generic_modules=_ALL_GENERIC_KEYS,
     report_packs=(),
     specializations=(
