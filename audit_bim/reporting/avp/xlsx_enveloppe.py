@@ -56,28 +56,43 @@ def _build_enveloppe_xlsx(path, sources, meta) -> Path:
         ratio = d_total / shab if d_total is not None else None
     ecart = (e_total / d_total - 1) if d_total else None
 
+    # Sans aucune ligne de données, le bloc synthèse remonte AU CONTACT de
+    # l'entête : ``summary_row`` vaut alors 2 (ligne Excel 3) et la plage
+    # ``D2:D3`` du total engloberait la cellule qui la porte — une référence
+    # circulaire, qu'Excel signale à l'ouverture et qui laisse #VALEUR! en
+    # cascade dans l'écart puis le ratio. Aucune formule ne doit donc être
+    # écrite quand il n'y a rien à sommer.
+    has_data = n_data > 0
+
     write_safe(ws, summary_row, 2, "Superficie des façades : ", fmts["summary_label_top"])
-    ws.write_formula(
-        summary_row,
-        3,
-        f"=SUM(D{first_data}:D{formula_end_with_blank})",
-        fmts["summary_value_top"],
-        _formula_cached(d_total),
-    )
-    ws.write_formula(
-        summary_row,
-        4,
-        f"=SUM(E{first_data}:E{formula_end_with_blank})",
-        fmts["summary_value"],
-        _formula_cached(e_total),
-    )
-    ws.write_formula(
-        summary_row,
-        5,
-        f"=SUM(F{first_data}:F{last_data})",
-        fmts["summary_value"],
-        _formula_cached(f_total),
-    )
+    if has_data:
+        ws.write_formula(
+            summary_row,
+            3,
+            f"=SUM(D{first_data}:D{formula_end_with_blank})",
+            fmts["summary_value_top"],
+            _formula_cached(d_total),
+        )
+        ws.write_formula(
+            summary_row,
+            4,
+            f"=SUM(E{first_data}:E{formula_end_with_blank})",
+            fmts["summary_value"],
+            _formula_cached(e_total),
+        )
+        ws.write_formula(
+            summary_row,
+            5,
+            f"=SUM(F{first_data}:F{last_data})",
+            fmts["summary_value"],
+            _formula_cached(f_total),
+        )
+    else:
+        # ``_sum_table_col`` rend 0.0 sur une table vide : un « 0,00 » dans la
+        # case du total de façade se lirait comme une surface mesurée, alors
+        # qu'aucune donnée n'a été produite. On dit l'absence.
+        for col, style in ((3, "summary_value_top"), (4, "summary_value"), (5, "summary_value")):
+            write_safe(ws, summary_row, col, NOT_AVAILABLE, fmts[style])
     write_safe(
         ws,
         summary_row,
@@ -87,13 +102,18 @@ def _build_enveloppe_xlsx(path, sources, meta) -> Path:
     )
 
     write_safe(ws, summary_row + 1, 3, "écart : ", fmts["label"])
-    ws.write_formula(
-        summary_row + 1,
-        4,
-        f"=E{summary_row + 1}/D{summary_row + 1}-1",
-        fmts["percent_fill"],
-        _formula_cached(ecart),
-    )
+    # ``=E/D-1`` divise par le total de façade : sans total, ou avec un total nul,
+    # la formule rend #DIV/0! dans un livrable client.
+    if has_data and d_total:
+        ws.write_formula(
+            summary_row + 1,
+            4,
+            f"=E{summary_row + 1}/D{summary_row + 1}-1",
+            fmts["percent_fill"],
+            _formula_cached(ecart),
+        )
+    else:
+        write_safe(ws, summary_row + 1, 4, NOT_AVAILABLE, fmts["label"])
     write_safe(ws, summary_row + 2, 6, "écart calcul IFC OpenShell à contrôler", fmts["note"])
 
     write_safe(ws, summary_row + 3, 2, "Superficie des menuiseries : ", fmts["summary_label"])
@@ -112,13 +132,20 @@ def _build_enveloppe_xlsx(path, sources, meta) -> Path:
         ws, summary_row + 5, 3, NOT_AVAILABLE if shab is None else shab, fmts["summary_value_top"]
     )
     write_safe(ws, summary_row + 6, 2, "ratio FAC/SHAB : ", fmts["summary_label_plain"])
-    ws.write_formula(
-        summary_row + 6,
-        3,
-        f"=D{summary_row + 1}/D{summary_row + 6}",
-        fmts["ratio"],
-        _formula_cached(ratio),
-    )
+    # Le dénominateur est la cellule SHAB écrite juste au-dessus. Quand la SHAB
+    # est absente, cette cellule porte ``NOT_AVAILABLE`` : diviser par du texte
+    # rend #VALEUR!. Le ratio FAC/SHAB est l'indicateur que le client lit en
+    # premier — mieux vaut le dire indisponible que le montrer en erreur.
+    if has_data and d_total and shab:
+        ws.write_formula(
+            summary_row + 6,
+            3,
+            f"=D{summary_row + 1}/D{summary_row + 6}",
+            fmts["ratio"],
+            _formula_cached(ratio),
+        )
+    else:
+        write_safe(ws, summary_row + 6, 3, NOT_AVAILABLE, fmts["summary_label_plain"])
     write_safe(ws, summary_row + 7, 2, "Seuil 3F 2026 : ", fmts["summary_label_plain"])
     write_safe(
         ws,

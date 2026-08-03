@@ -826,6 +826,23 @@ def generate_avp_i3f_pack(
                 "hérité du classeur MOA de référence. Retirer la mention du "
                 "template source, ou générer sans ``controle_xlsx``."
             )
+        if exc.kind == "empty" and "Enveloppe" in exc.empty:
+            # La maquette porte des murs d'enveloppe mais aucune source
+            # exploitable n'a produit de ligne. Dire quoi faire : sur une
+            # maquette sans calque ArchiCAD (export Revit), la sélection par
+            # défaut ne retient rien et il faut des motifs adaptés au nommage
+            # réel des types.
+            payload["needs_envelope_source"] = True
+            payload["next_step"] = (
+                "L'annexe Enveloppe est vide alors que la maquette porte des "
+                "murs d'enveloppe. Fournir ``envelope_json`` (contrat "
+                "``envelope_quantities/v1`` du MCP ifc-geometry), ou relancer "
+                "avec ``auto_compute_envelope=True`` et des motifs adaptés au "
+                "nommage de CETTE maquette (``envelope_layer_pattern`` / "
+                "``envelope_type_pattern``) — les motifs ArchiCAD I3F "
+                "(« 221|extérieurs périphériques », « ^ME[ _] ») ne retiennent "
+                "rien sur un export Revit, qui n'expose pas de calque."
+            )
         if manque_quantites:
             payload["needs_computed_quantities_json"] = True
             payload["next_step"] = (
