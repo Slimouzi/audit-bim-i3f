@@ -48,6 +48,7 @@ from .tools_audit import (  # noqa: F401  (ré-export compat)
     query_findings,
     run_audit_tool,
 )
+from .tools_profiles import list_mcp_profiles  # noqa: F401  (ré-export compat)
 from .tools_query import (  # noqa: F401  (ré-export compat)
     filter_bim_objects,
     get_object_detail,

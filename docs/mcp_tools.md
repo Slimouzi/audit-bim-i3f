@@ -1,9 +1,9 @@
 # Tools MCP — référence
 
-Le serveur `audit-bim-i3f` expose par défaut **45 tools MCP canoniques** répartis
+Le serveur `audit-bim-i3f` expose par défaut **46 tools MCP canoniques** répartis
 en 6 catégories. Les **8 aliases métier** sont désormais **LEGACY opt-in** (cf.
 [Aliases métier](#aliases-métier--compat-legacy-opt-in)) : absents par défaut, ils
-portent le total à **53** quand ils sont activés.
+portent le total à **54** quand ils sont activés.
 La table ci-dessous est la **source de vérité** pour la documentation
 utilisateur et les contrôles de migration.
 
@@ -41,6 +41,17 @@ Permet à un agent IA / AMO de poser des questions sémantiques type
 *« Liste les portes avec matériaux, performance acoustique et
 dimensions »*. Voir [docs/workflow_amo_bim.md](workflow_amo_bim.md)
 section *Interroger la maquette*.
+
+### Profils MCP multi-AMO (lecture seule, déclaratif)
+
+| Tool | Statut | R/W | `confirm=True` | Risque métier |
+|---|---|---|---|---|
+| `list_mcp_profiles` | actif | R | — | aucun |
+
+Expose la carte des briques génériques et des profils client/AMO connus
+(`i3f` par défaut, `bim_in_motion` préparatoire). **Purement déclaratif** : ne
+change pas le profil actif, ne touche pas à la session, ne déclenche aucun
+calcul. Voir [docs/scope-multi-amo-mcp.md](scope-multi-amo-mcp.md).
 
 ### Pattern `prepare → apply` (écriture contrôlée)
 

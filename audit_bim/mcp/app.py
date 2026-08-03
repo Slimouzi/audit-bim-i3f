@@ -76,6 +76,7 @@ def register_all() -> FastMCP:
         server,
         tools_actions,
         tools_audit,
+        tools_profiles,
         tools_query,
         tools_reporting,
         tools_session,

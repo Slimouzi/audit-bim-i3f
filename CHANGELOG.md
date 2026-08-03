@@ -7,6 +7,23 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Added (profils MCP multi-AMO — déclaratif)
+
+- **`audit_bim.profiles`** : registre versionnable des briques génériques
+  (extraction, geometry, audit_engine, query, bcf, smartview, classifier, doe,
+  enrichment, reporting) et des profils client/AMO. Chaque brique porte sa
+  localisation actuelle, son paquet cible et l'étape suivante ; chaque profil
+  déclare ce qui lui est propre (référentiel, règles, packs, prompt).
+- **Tool `list_mcp_profiles(profile_id=None)`** — lecture seule, expose cette
+  carte aux agents et aux développeurs.
+- **Aucun changement de comportement I3F.** `i3f` reste le profil par défaut et
+  le seul opérationnel, avec `avp_i3f`. `bim_in_motion` est **préparatoire** :
+  mêmes briques génériques, aucun pack de rapport — il ne doit surtout pas
+  hériter du pack AVP I3F par accident.
+- Rien ne sélectionne encore de profil à l'exécution : cette étape est
+  volontairement déclarative, pour figer la frontière socle / spécialisation
+  avant d'extraire `bim-reporting`. Cf. `docs/scope-multi-amo-mcp.md`.
+
 ### Added (CI — garde-fou de cohérence des versions first-party)
 
 - **`scripts/check_first_party_pins.py`** + job CI dédié. Les paquets
