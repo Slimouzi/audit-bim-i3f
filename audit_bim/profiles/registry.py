@@ -7,7 +7,7 @@ mêmes briques génériques, mais aucune spécialisation I3F ne lui est appliqu�
 
 from __future__ import annotations
 
-from .models import ClientSpecialization, GenericModule, McpProfile
+from .models import ClientSpecialization, GenericModule, McpProfile, ReferenceFrameworkSpec
 
 DEFAULT_PROFILE_ID = "i3f"
 
@@ -114,6 +114,11 @@ _I3F_PROFILE = McpProfile(
     prompt_key="amo_bim_i3f",
     default_catalog_label="CCH BIM I3F V3.x",
     default_classification_system="UniFormat II",
+    reference_framework=ReferenceFrameworkSpec(
+        name="CCH BIM I3F",
+        short_name="CCH",
+        long_name="Cahier des Charges BIM I3F",
+    ),
     enabled_generic_modules=_ALL_GENERIC_KEYS,
     report_packs=("avp_i3f",),
     specializations=(
@@ -161,6 +166,10 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
     prompt_key="amo_bim_in_motion",
     default_catalog_label=None,
     default_classification_system=None,
+    # Volontairement absent : BIM in Motion devra déclarer SON référentiel.
+    # Un défaut hérité ici imprimerait « CCH BIM I3F » dans le rapport d'un
+    # autre AMO — exactement l'accident que ce registre existe pour empêcher.
+    reference_framework=None,
     enabled_generic_modules=_ALL_GENERIC_KEYS,
     report_packs=(),
     specializations=(

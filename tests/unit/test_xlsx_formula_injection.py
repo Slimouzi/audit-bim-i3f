@@ -133,6 +133,10 @@ class TestWorkbookOptIn:
 
         catalog = MagicMock()
         catalog.cch_version = "V3.6"
+        # Le double doit modéliser TOUS les champs lus par le rendu : sans
+        # celui-ci, MagicMock fabrique un attribut factice que le modèle de
+        # référentiel rejette. Un mock trop permissif masque ce genre d'écart.
+        catalog.cch_source_pdf = "cch.pdf"
         catalog.data_spec_source = "spec.xlsx"
         catalog.storey_names = []
         catalog.zone_specs = []

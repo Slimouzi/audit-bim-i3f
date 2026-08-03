@@ -28,7 +28,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from ..profiles import DEFAULT_PROFILE_ID, get_profile
 
 if TYPE_CHECKING:
     from ..audit.engine import AuditResult
@@ -64,6 +66,55 @@ class ControlDescription(BaseModel):
     )
 
 
+class ReferenceFramework(BaseModel):
+    """Référentiel contractuel appliqué à l'audit — **modèle neutre**.
+
+    Remplace les champs ``cch_version`` / ``cch_source`` / ``bim_reference``,
+    qui nommaient un maître d'ouvrage dans le contrat lui-même. Ce modèle ne
+    contient que la structure ; l'identité vient du profil actif
+    (``McpProfile.reference_framework``), la version et la source du catalogue
+    d'exigences chargé pour la mission.
+
+    C'est ce découplage qui permettra d'extraire le modèle narratif vers
+    ``bim-reporting`` sans y emmener de vocabulaire client.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    name: str | None = Field(
+        None,
+        description="Nom du référentiel tel qu'il s'imprime, fourni par le profil actif.",
+    )
+    version: str | None = Field(None, description="Version appliquée (ex. '3.6').")
+    source: str | None = Field(None, description="Document porteur (chemin ou URL).")
+    short_name: str | None = Field(
+        None, description="Sigle utilisé dans les libellés courts (ex. 'CCH')."
+    )
+    long_name: str | None = Field(
+        None,
+        description=(
+            "Forme développée employée dans les phrases narratives "
+            "employée dans les phrases narratives. Distincte de ``name`` : "
+            "certaines tournures du rapport la nécessitent pour rester lisibles."
+        ),
+    )
+
+    @property
+    def label(self) -> str | None:
+        """Libellé complet « <name> V<version> », ou ``None`` si sans nom.
+
+        Reproduit exactement l'ancien ``bim_reference``, y compris son repli
+        « (version non précisée) ».
+        """
+        if not self.name:
+            return None
+        return (
+            f"{self.name} V{self.version}"
+            if self.version
+            else f"{self.name} (version non précisée)"
+        )
+
+
 class ReportProjectContext(BaseModel):
     """Contexte projet enrichi consommé par le rapport Word.
 
@@ -86,15 +137,10 @@ class ReportProjectContext(BaseModel):
     address: str | None = None
 
     # ── Référentiel ─────────────────────────────────────────────────────
-    bim_reference: str | None = Field(
-        None,
-        description=(
-            "Référentiel BIM appliqué (ex: 'CCH BIM I3F V3.6'). "
-            "Construit depuis ``catalog.cch_version`` si disponible."
-        ),
+    reference_framework: ReferenceFramework = Field(
+        default_factory=ReferenceFramework,
+        description="Référentiel contractuel appliqué (modèle neutre, alimenté par le profil).",
     )
-    cch_version: str | None = None
-    cch_source: str | None = None
     data_spec_source: str | None = None
     naming_spec_source: str | None = None
 
@@ -109,6 +155,67 @@ class ReportProjectContext(BaseModel):
     # ── Hypothèses et limites ───────────────────────────────────────────
     assumptions: list[str] = Field(default_factory=list)
     missing_information: list[str] = Field(default_factory=list)
+
+    # ── Compatibilité legacy (fenêtre de migration) ─────────────────────
+    # ``cch_version`` / ``cch_source`` / ``bim_reference`` nommaient un maître
+    # d'ouvrage dans le contrat. Ils sont encore ACCEPTÉS en entrée et convertis
+    # vers ``reference_framework`` ; ils restent lisibles via les propriétés
+    # ci-dessous. À retirer une fois le modèle extrait vers bim-reporting (PR C).
+
+    @model_validator(mode="before")
+    @classmethod
+    def _absorb_legacy_reference_fields(cls, data):
+        """Convertit les anciens champs plats vers ``reference_framework``.
+
+        Sans ce validateur, ``extra="ignore"`` les avalerait en silence : un
+        appelant non migré verrait son référentiel disparaître du rapport sans
+        la moindre erreur. On les absorbe donc explicitement, et seulement s'ils
+        apportent quelque chose que le modèle neutre n'a pas déjà.
+        """
+        if not isinstance(data, dict):
+            return data
+        legacy_name = data.get("bim_reference")
+        legacy_version = data.get("cch_version")
+        legacy_source = data.get("cch_source")
+        if not any((legacy_name, legacy_version, legacy_source)):
+            return data
+
+        data = dict(data)
+        current = data.get("reference_framework")
+        if isinstance(current, ReferenceFramework):
+            current = current.model_dump()
+        current = dict(current or {})
+        # Le modèle neutre prime : la compat ne remplit que les trous.
+        if legacy_version and not current.get("version"):
+            current["version"] = legacy_version
+        if legacy_source and not current.get("source"):
+            current["source"] = legacy_source
+        if legacy_name and not current.get("name"):
+            # ``bim_reference`` portait le libellé complet « <nom> V<version> ».
+            # On en retire le suffixe de version pour retrouver le nom seul.
+            name = legacy_name
+            if legacy_version and name.endswith(f"V{legacy_version}"):
+                name = name[: -len(f"V{legacy_version}")].strip()
+            elif name.endswith("(version non précisée)"):
+                name = name[: -len("(version non précisée)")].strip()
+            current["name"] = name
+        data["reference_framework"] = current
+        return data
+
+    @property
+    def bim_reference(self) -> str | None:
+        """DÉPRÉCIÉ — utiliser ``reference_framework.label``."""
+        return self.reference_framework.label
+
+    @property
+    def cch_version(self) -> str | None:
+        """DÉPRÉCIÉ — utiliser ``reference_framework.version``."""
+        return self.reference_framework.version
+
+    @property
+    def cch_source(self) -> str | None:
+        """DÉPRÉCIÉ — utiliser ``reference_framework.source``."""
+        return self.reference_framework.source
 
     # ── Métadonnées d'extraction ────────────────────────────────────────
     n_sites: int = 0
@@ -236,7 +343,28 @@ def _detect_bim_objectives_in_text(text: str) -> list[str]:
     return found
 
 
-def _build_controls_performed(catalog) -> list[ControlDescription]:
+def build_reference_framework(catalog, *, profile_id: str | None = None) -> ReferenceFramework:
+    """Compose le référentiel : identité du profil + version/source du catalogue.
+
+    Le profil est la **seule** source de l'identité. Si le profil actif n'en
+    déclare pas — cas de ``bim_in_motion``, préparatoire — le référentiel reste
+    sans nom : le rapport affichera ses replis « — », jamais le référentiel d'un
+    autre AMO.
+    """
+    profile = get_profile(profile_id or DEFAULT_PROFILE_ID)
+    spec = profile.reference_framework
+    return ReferenceFramework(
+        name=spec.name if spec else None,
+        short_name=spec.short_name if spec else None,
+        long_name=spec.long_name if spec else None,
+        version=catalog.cch_version if catalog else None,
+        source=catalog.cch_source_pdf if catalog else None,
+    )
+
+
+def _build_controls_performed(
+    catalog, *, profile_id: str | None = None
+) -> list[ControlDescription]:
     """Construit la liste descriptive des contrôles effectivement
     exécutés par l'agent ``audit_bim.audit.engine.run_audit``.
 
@@ -245,9 +373,12 @@ def _build_controls_performed(catalog) -> list[ControlDescription]:
     explicite de ce que l'agent contrôle. Si une nouvelle règle est
     ajoutée à ``run_audit``, il faut aussi étendre cette liste.
     """
-    cch_ref = "CCH BIM I3F"
-    if catalog and catalog.cch_version:
-        cch_ref = f"CCH BIM I3F V{catalog.cch_version}"
+    profile = get_profile(profile_id or DEFAULT_PROFILE_ID)
+    framework = build_reference_framework(catalog, profile_id=profile_id)
+    # ``owner_name`` et non ``short_name`` : la phrase cite le maître d'ouvrage
+    # (« codification I3F »), pas le document contractuel (« CCH »).
+    owner = profile.owner_name
+    cch_ref = framework.label or (framework.name or "")
 
     return [
         ControlDescription(
@@ -263,7 +394,7 @@ def _build_controls_performed(catalog) -> list[ControlDescription]:
         ControlDescription(
             theme="Nommage Site / Bâtiment / Étage",
             objective=(
-                "Conformité aux conventions de codification I3F et aux "
+                f"Conformité aux conventions de codification {owner} et aux "
                 "listes fermées d'étages et de zones."
             ),
             checked_items=(
@@ -309,7 +440,7 @@ def _build_controls_performed(catalog) -> list[ControlDescription]:
                 "NetVolume) sur les éléments quantifiables."
             ),
             checked_items="BaseQuantities IFC sur Slab, Wall, Space",
-            rule_source="MVD IFC + CCH BIM I3F",
+            rule_source=f"MVD IFC + {framework.name}" if framework.name else "MVD IFC",
         ),
     ]
 
@@ -356,7 +487,9 @@ def _build_missing_information(ctx_data: dict, catalog, findings_count: int) -> 
     return missing
 
 
-def build_report_context(result: AuditResult) -> ReportProjectContext:
+def build_report_context(
+    result: AuditResult, *, profile_id: str | None = None
+) -> ReportProjectContext:
     """Construit le :class:`ReportProjectContext` à partir d'un
     ``AuditResult``, **sans inventer de données**.
 
@@ -367,6 +500,10 @@ def build_report_context(result: AuditResult) -> ReportProjectContext:
     - ``result.snapshot.model`` (dict BIMData) — nom du modèle.
     - ``result.snapshot.sites`` / ``buildings`` — site, bâtiment,
       éventuellement adresse.
+    Le ``profile_id`` choisit le profil qui **nomme** le référentiel ; à défaut,
+    le profil par défaut du registre. C'est le seul point d'entrée par lequel un
+    futur MCP AMO imposera son propre référentiel.
+
     - ``result.catalog`` — version CCH, sources documentaires,
       nombre d'exigences.
     - ``result.phase`` — phase BIM (APS / AVP / PRO / DCE / EXE / DOE /
@@ -423,11 +560,10 @@ def build_report_context(result: AuditResult) -> ReportProjectContext:
     owner_name = _first_non_empty(project.get("owner"), project.get("maitre_ouvrage"))
 
     # ── Référentiel ─────────────────────────────────────────────────────
+    # L'identité vient du PROFIL, la version et la source du catalogue. Aucun
+    # nom de maître d'ouvrage n'est écrit en dur ici.
     catalog = result.catalog
-    cch_version = catalog.cch_version if catalog else None
-    bim_reference = (
-        f"CCH BIM I3F V{cch_version}" if cch_version else "CCH BIM I3F (version non précisée)"
-    )
+    framework = build_reference_framework(catalog, profile_id=profile_id)
 
     # ── Objectifs BIM ───────────────────────────────────────────────────
     # On cherche dans la description projet d'éventuels mots-clés.
@@ -442,14 +578,14 @@ def build_report_context(result: AuditResult) -> ReportProjectContext:
     expected_uses: list[str] = []
 
     # ── Contrôles réalisés ──────────────────────────────────────────────
-    controls = _build_controls_performed(catalog)
+    controls = _build_controls_performed(catalog, profile_id=profile_id)
 
     # ── Hypothèses ──────────────────────────────────────────────────────
     assumptions: list[str] = []
-    if cch_version:
+    if framework.version:
         assumptions.append(
-            f"Les exigences sont interprétées selon la version {cch_version} "
-            "du CCH BIM I3F transmise au moment de l'audit."
+            f"Les exigences sont interprétées selon la version {framework.version} "
+            f"du {framework.name} transmise au moment de l'audit."
         )
     assumptions.append(
         "Le périmètre audité est limité aux objets présents dans le "
@@ -475,9 +611,7 @@ def build_report_context(result: AuditResult) -> ReportProjectContext:
         site_name=site_name,
         building_name=building_name,
         address=address,
-        bim_reference=bim_reference,
-        cch_version=cch_version,
-        cch_source=catalog.cch_source_pdf if catalog else None,
+        reference_framework=framework,
         data_spec_source=catalog.data_spec_source if catalog else None,
         naming_spec_source=catalog.naming_spec_source if catalog else None,
         expected_deliverables=expected_deliverables,
@@ -518,9 +652,7 @@ def build_report_context(result: AuditResult) -> ReportProjectContext:
         "site_name",
         "building_name",
         "address",
-        "bim_reference",
-        "cch_version",
-        "cch_source",
+        "reference_framework",
         "data_spec_source",
         "naming_spec_source",
     ]

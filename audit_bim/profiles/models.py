@@ -59,6 +59,23 @@ class ClientSpecialization:
 
 
 @dataclass(frozen=True)
+class ReferenceFrameworkSpec:
+    """Identité du référentiel contractuel d'un profil.
+
+    Ce que le profil **nomme** ; la version et la source, elles, viennent du
+    catalogue d'exigences chargé pour la mission. Séparer les deux est ce qui
+    permet au socle narratif de ne plus citer aucun maître d'ouvrage.
+    """
+
+    name: str
+    short_name: str
+    long_name: str
+
+    def to_dict(self) -> dict:
+        return {"name": self.name, "short_name": self.short_name, "long_name": self.long_name}
+
+
+@dataclass(frozen=True)
 class McpProfile:
     """Profil de composition d'un MCP client/AMO."""
 
@@ -69,6 +86,7 @@ class McpProfile:
     prompt_key: str
     default_catalog_label: str | None
     default_classification_system: str | None
+    reference_framework: ReferenceFrameworkSpec | None
     enabled_generic_modules: tuple[str, ...]
     specializations: tuple[ClientSpecialization, ...]
     report_packs: tuple[str, ...]
@@ -84,6 +102,9 @@ class McpProfile:
             "prompt_key": self.prompt_key,
             "default_catalog_label": self.default_catalog_label,
             "default_classification_system": self.default_classification_system,
+            "reference_framework": (
+                self.reference_framework.to_dict() if self.reference_framework else None
+            ),
             "enabled_generic_modules": list(self.enabled_generic_modules),
             "specializations": [s.to_dict() for s in self.specializations],
             "report_packs": list(self.report_packs),
