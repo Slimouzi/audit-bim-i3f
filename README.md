@@ -588,6 +588,33 @@ calculée », zone sans surface propre = somme des espaces rattachés. Toute
 donnée absente (snapshot ET source) → « Information non disponible dans les
 documents fournis. » (**jamais inventée**).
 
+**Sélection de l'enveloppe.** `envelope_filter_mode` pilote le mode du backend
+IFC OpenShell : `layer_type_filter` (ArchiCAD, calque + type),
+`geometric_type_filter` (**Revit**, pas de calque) ou `geometric`. Sans lui, le
+mode est déduit des motifs fournis. Sur un export Revit, chaque façade est
+modélisée en murs superposés (structure, isolant, peau) : sans
+`envelope_type_pattern`, ces couches s'additionnent et la même façade est comptée
+trois ou quatre fois. Un mode dont le motif manque est **refusé**
+(`error: "invalid_envelope_filter_mode"`), jamais dégradé en silence.
+
+```python
+generate_avp_i3f_pack(
+    project_name="<Nom chantier réel>", project_code="<Code ESI>", phase="APD",
+    auditor_name="<Auteur du contrôle>",
+    envelope_filter_mode="geometric_type_filter",
+    envelope_type_pattern=r"MUR ENDUIT|BARDAGE BOIS|ZINC|VERRE REGLIT",
+)
+```
+
+Le motif est **propre au chantier** : il se lit sur le nommage réel des types de
+mur de la maquette, et n'est codé en dur nulle part.
+
+En mode Revit, les menuiseries sont comptées sur les murs extérieurs **avant**
+filtre de type — la baie est portée par le mur porteur, pas par la peau retenue
+comme façade. La colonne « ouvertures » du livrable peut donc être à zéro sur
+toutes les lignes face à un total non nul : une **note** l'explique dans l'Excel
+et le Word, chiffres à l'appui, plutôt que de laisser conclure à un bug.
+
 **QA gate** : après génération, chaque annexe est rouverte et ses lignes
 métier comptées. Si SHAB, Zones/Espaces ou Enveloppe sortent sans ligne alors
 que le snapshot contient des entités exploitables, le tool renvoie

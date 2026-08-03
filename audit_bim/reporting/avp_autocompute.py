@@ -450,6 +450,7 @@ def ensure_envelope_json(
     seuil_3f: float | None = None,
     layer_pattern: str | None = None,
     type_pattern: str | None = None,
+    filter_mode: str | None = None,
     force: bool = False,
     session_ifc_path: str | Path | None = None,
     model_ids: tuple[str | None, ...] | None = None,
@@ -490,6 +491,7 @@ def ensure_envelope_json(
         seuil_3f=seuil_3f,
         layer_pattern=layer_pattern,
         type_pattern=type_pattern,
+        filter_mode=filter_mode,
     )
     if not payload.get("par_type"):
         raise GeometryInputMissing(
