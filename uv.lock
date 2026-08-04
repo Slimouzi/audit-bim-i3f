@@ -85,6 +85,7 @@ source = { editable = "." }
 dependencies = [
     { name = "bim-audit-engine" },
     { name = "bim-core" },
+    { name = "bim-mcp-runtime" },
     { name = "bim-publication" },
     { name = "bim-query" },
     { name = "bim-reporting" },
@@ -132,6 +133,7 @@ test = [
 requires-dist = [
     { name = "bim-audit-engine", git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.5" },
     { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.3.0" },
+    { name = "bim-mcp-runtime", git = "https://github.com/Slimouzi/bim-mcp-runtime.git?tag=bim-mcp-runtime-v0.1.1" },
     { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.4" },
     { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.4" },
     { name = "bim-reporting", git = "https://github.com/Slimouzi/bim-reporting.git?tag=bim-reporting-v0.2.0" },
@@ -211,6 +213,11 @@ source = { git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.3.0#5
 dependencies = [
     { name = "pydantic" },
 ]
+
+[[package]]
+name = "bim-mcp-runtime"
+version = "0.1.1"
+source = { git = "https://github.com/Slimouzi/bim-mcp-runtime.git?tag=bim-mcp-runtime-v0.1.1#8cfd0f1e0f4997dca690095c6d58c3eeed197675" }
 
 [[package]]
 name = "bim-publication"

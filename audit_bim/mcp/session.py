@@ -5,18 +5,24 @@ BIMData authentifié, snapshot modèle, résultat d'audit). En transport
 ``stdio`` (mono-client), un état global suffit. En transport HTTP / SSE
 multi-clients, deux auditeurs distincts ne doivent pas se voir.
 
+**La mécanique vient de ``bim-mcp-runtime``** : magasin borné (TTL, plafond,
+éviction LRU), session courante et proxy d'attributs. Ce module ne garde que ce
+qui est propre à ce serveur — les CHAMPS de la session, qui portent catalogue
+d'exigences, client BIMData, snapshot et résultat d'audit.
+
+C'est la frontière du moteur : il sait faire vivre des sessions sans savoir ce
+qu'elles contiennent.
+
 Architecture :
 
-- :class:`_Session` — un dataclass-like qui porte l'état d'une session.
-- :class:`_SessionStore` — registry borné (TTL + LRU) keyed par
-  ``session_id`` MCP.
-- :data:`current_session` — :class:`contextvars.ContextVar` qui pointe
-  vers la session active du tool en cours d'exécution. Bindée par
-  :class:`audit_bim.mcp.middleware.SessionBindingMiddleware` avant
-  chaque appel de tool.
-- :data:`_State` — proxy d'attributs (drop-in remplacement de l'ancien
-  ``class _State``). Toute lecture/écriture est routée vers
-  ``current_session.get()``. Les tools n'ont rien à modifier.
+- :class:`_Session` — porte l'état d'une session. **Reste ici** : ses champs
+  sont métier.
+- ``_store`` — ``SessionStore[_Session]`` du moteur, construit avec
+  :class:`_Session` comme fabrique.
+- :data:`current_session` — ``ContextVar`` du moteur, pointant la session active.
+  Bindée par :class:`audit_bim.mcp.middleware.SessionBindingMiddleware`.
+- :data:`_State` — proxy d'attributs du moteur, drop-in de l'ancien
+  ``class _State``. Les tools n'ont rien à modifier.
 
 Pour stdio, ``current_session`` reste sur la session par défaut tout au
 long du process — comportement strictement identique à l'ancien
@@ -27,13 +33,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import time
-from collections import OrderedDict
-from contextvars import ContextVar
 from pathlib import Path
-from threading import Lock
 from typing import TYPE_CHECKING
+
+from bim_mcp_runtime import DEFAULT_MAX_SESSIONS as _RUNTIME_DEFAULT_MAX_SESSIONS
+from bim_mcp_runtime import DEFAULT_SESSION_TTL_S as _RUNTIME_DEFAULT_TTL_S
+from bim_mcp_runtime import RuntimeConfig, SessionBinding, SessionStore
 
 if TYPE_CHECKING:
     from ..audit.engine import AuditResult
@@ -44,20 +49,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("audit_bim.mcp.session")
 
+# Noms publics des variables lues par ce serveur — c'est SON préfixe, pas celui
+# du moteur, qui les compose (cf. ``_runtime_config`` plus bas). Les valeurs par
+# défaut viennent du moteur : une seule source, pas deux qui dérivent.
 SESSION_TTL_ENV = "AUDIT_BIM_SESSION_TTL_S"
 MAX_SESSIONS_ENV = "AUDIT_BIM_MAX_SESSIONS"
-DEFAULT_SESSION_TTL_S = 3600
-DEFAULT_MAX_SESSIONS = 64
-
-
-def _read_int_env(name: str, default: int, *, minimum: int = 1) -> int:
-    raw = os.getenv(name)
-    if not raw:
-        return default
-    try:
-        return max(minimum, int(raw))
-    except ValueError:
-        return default
+DEFAULT_SESSION_TTL_S = _RUNTIME_DEFAULT_TTL_S
+DEFAULT_MAX_SESSIONS = _RUNTIME_DEFAULT_MAX_SESSIONS
 
 
 # ── Session ──────────────────────────────────────────────────────────────
@@ -139,100 +137,20 @@ class _Session:
             raise RuntimeError("Aucun audit en cours — appelez `run_audit`.")
 
 
-# ── Store : TTL + LRU + thread-safe ──────────────────────────────────────
+# ── Store, session courante et proxy : fournis par le moteur ─────────────
 
+# Le préfixe d'environnement reste celui de ce serveur : les déploiements
+# existants continuent de lire AUDIT_BIM_SESSION_TTL_S / AUDIT_BIM_MAX_SESSIONS.
+# C'est exactement pourquoi le moteur prend le préfixe en paramètre plutôt que
+# de le figer.
+_runtime_config = RuntimeConfig(env_prefix="AUDIT_BIM")
 
-class _SessionStore:
-    """Registry borné de sessions MCP, keyed par ``session_id`` client.
+_store: SessionStore[_Session] = SessionStore(_Session, config=_runtime_config)
 
-    - TTL (``AUDIT_BIM_SESSION_TTL_S``, défaut 3600 s) : sessions
-      inactives purgées à la prochaine lecture.
-    - Cap (``AUDIT_BIM_MAX_SESSIONS``, défaut 64) avec éviction LRU.
+_binding: SessionBinding[_Session] = SessionBinding(_Session, name="audit_bim_current_session")
 
-    Thread-safe.
-    """
+#: ``ContextVar`` de la session active — bindée par le middleware.
+current_session = _binding.var
 
-    def __init__(self, *, ttl_s: int | None = None, max_sessions: int | None = None) -> None:
-        self._ttl_s = (
-            ttl_s if ttl_s is not None else _read_int_env(SESSION_TTL_ENV, DEFAULT_SESSION_TTL_S)
-        )
-        self._max = (
-            max_sessions
-            if max_sessions is not None
-            else _read_int_env(MAX_SESSIONS_ENV, DEFAULT_MAX_SESSIONS)
-        )
-        self._sessions: OrderedDict[str, _Session] = OrderedDict()
-        self._touched: dict[str, float] = {}
-        self._lock = Lock()
-
-    def _evict_expired(self, now: float) -> None:
-        expired = [k for k, t in self._touched.items() if now - t > self._ttl_s]
-        for k in expired:
-            self._sessions.pop(k, None)
-            self._touched.pop(k, None)
-            logger.info("session evicted (ttl) key=%s", k)
-
-    def _evict_lru(self) -> None:
-        while len(self._sessions) >= self._max:
-            k, _ = self._sessions.popitem(last=False)
-            self._touched.pop(k, None)
-            logger.info("session evicted (lru) key=%s", k)
-
-    def get(self, key: str) -> _Session:
-        now = time.monotonic()
-        with self._lock:
-            self._evict_expired(now)
-            if key in self._sessions:
-                self._sessions.move_to_end(key)
-                self._touched[key] = now
-                return self._sessions[key]
-            self._evict_lru()
-            sess = _Session()
-            self._sessions[key] = sess
-            self._touched[key] = now
-            return sess
-
-    def clear(self, key: str) -> bool:
-        with self._lock:
-            existed = self._sessions.pop(key, None) is not None
-            self._touched.pop(key, None)
-            return existed
-
-    def keys(self) -> list[str]:
-        with self._lock:
-            return list(self._sessions)
-
-
-_store = _SessionStore()
-
-
-# ── ContextVar + proxy de compatibilité ──────────────────────────────────
-
-
-# Session par défaut : utilisée en stdio (mono-client) et comme fallback
-# hors middleware (tests unitaires, scripts internes).
-_default_session = _Session()
-
-current_session: ContextVar[_Session] = ContextVar(
-    "audit_bim_current_session",
-    default=_default_session,
-)
-
-
-class _StateProxy:
-    """Proxy d'attributs : route toutes les lectures/écritures vers la
-    session courante (cf. :data:`current_session`).
-
-    Permet aux tools écrits avec ``_State.foo`` de fonctionner sans
-    modification, en obtenant automatiquement la session du client MCP
-    actif (bindée par le middleware).
-    """
-
-    def __getattr__(self, name: str):
-        return getattr(current_session.get(), name)
-
-    def __setattr__(self, name: str, value) -> None:
-        setattr(current_session.get(), name, value)
-
-
-_State = _StateProxy()
+#: Proxy d'attributs : route lectures et écritures vers la session courante.
+_State = _binding.proxy
