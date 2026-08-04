@@ -124,3 +124,43 @@ def test_registry_points_at_the_new_location():
     assert locations["prompt_i3f"] == "audit_bim/profiles/i3f/prompts.py"
     for location in locations.values():
         assert Path(location).exists() or (Path.cwd() / location).exists()
+
+
+# ── 4. Aucun cycle d'import, quel que soit l'ordre ────────────────────
+
+#: Chaque module du profil, importé **en premier** dans un interpréteur neuf.
+#: C'est la condition qui révèle le cycle : en suite complète, un autre test a
+#: déjà chargé ``audit_bim.mcp`` et le masque.
+IMPORT_ORDERS = [
+    "from audit_bim.profiles.i3f.tools_actions import apply_bcf_topics",
+    "from audit_bim.profiles.i3f.tools_session import set_active_model",
+    "from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack",
+    "from audit_bim.profiles.i3f.prompts import AMO_BIM_I3F_PROMPT",
+    "from audit_bim.profiles.i3f import aliases",
+    "from audit_bim.mcp import main, mcp, register_all",
+    "import audit_bim.mcp.server",
+]
+
+
+@pytest.mark.parametrize("statement", IMPORT_ORDERS)
+def test_no_circular_import_whatever_the_entry_point(statement):
+    """Importer le profil en premier ne doit pas casser.
+
+    E2 a introduit ce cycle : importer un module du profil initialise
+    ``audit_bim.mcp``, dont l'``__init__`` importait ``server``, qui
+    réimportait le module en cours. La suite locale ne le voyait pas — un
+    autre test chargeait ``audit_bim.mcp`` avant. La CI, elle, a rougi.
+
+    Un interpréteur neuf par cas : c'est le seul moyen de contrôler l'ordre.
+    """
+    import subprocess
+    import sys
+
+    repo = Path(mcp_pkg.__file__).resolve().parents[2]
+    proc = subprocess.run(
+        [sys.executable, "-c", statement],
+        capture_output=True,
+        text=True,
+        cwd=str(repo),
+    )
+    assert proc.returncode == 0, f"{statement}\n{proc.stderr}"
