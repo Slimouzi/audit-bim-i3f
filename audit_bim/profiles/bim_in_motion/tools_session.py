@@ -18,8 +18,9 @@ from ... import config
 from ...extraction.client import BIMDataClient
 from ...extraction.model_data import extract_snapshot
 from ...extraction.snapshot_cache import cached_extract_snapshot
+from ...extraction.snapshot_health import snapshot_diagnostics
 from ...mcp.app import mcp
-from ...mcp.model_identity import model_matches_expected, resolve_bimdata_target
+from ...mcp.model_identity import model_matches_expected, parse_bimdata_viewer_url
 from ...mcp.security import ensure_access_token_param_allowed
 from ...mcp.security import scrub as _scrub
 from ...mcp.session import _State
@@ -41,11 +42,41 @@ def _require_target() -> None:
         raise RuntimeError(_NO_TARGET)
 
 
+def _clean_id(label: str, value: str | None) -> str | None:
+    """Valide un identifiant BIMData, en ne citant que des actions disponibles ici.
+
+    ``resolve_bimdata_target`` refuse déjà les URL, mais son message renvoie vers
+    ``parse_bimdata_target`` — un outil d'I3F, absent de ce profil. Envoyer un
+    utilisateur vers un outil que son serveur n'expose pas est une impasse
+    d'autant plus coûteuse qu'elle a l'air d'une instruction valide. Et ce
+    contrôle ne portait que sur ``model_id`` : une URL passée en ``cloud_id``
+    était acceptée telle quelle, produisant une cible invalide annoncée comme
+    configurée.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower().startswith(("http://", "https://")):
+        raise ValueError(
+            f"{label} est une URL. Passe-la plutôt dans `bimdata_url`, qui en "
+            f"extrait cloud_id / project_id / model_id."
+        )
+    if not text.isdigit():
+        raise ValueError(
+            f"{label} doit être un identifiant numérique BIMData (reçu {text!r}). "
+            f"Depuis une URL viewer, utilise `bimdata_url`."
+        )
+    return text
+
+
 @mcp.tool()
 def set_active_target(
     cloud_id: str | None = None,
     project_id: str | None = None,
     model_id: str | None = None,
+    bimdata_url: str | None = None,
     access_token: str | None = None,
 ) -> dict:
     """Désigne la maquette BIMData à examiner.
@@ -54,8 +85,11 @@ def set_active_target(
     erreur d'identifiant ne se manifestera qu'à la première lecture.
 
     Args:
-        cloud_id, project_id, model_id: identifiants numériques BIMData. À
+        cloud_id, project_id, model_id: identifiants **numériques** BIMData. À
             défaut, les valeurs de configuration du serveur sont utilisées.
+        bimdata_url: URL viewer BIMData, dont les trois identifiants sont
+            extraits ici. Alternative aux trois paramètres ci-dessus, pas un
+            complément : fournir les deux serait ambigu et est refusé.
         access_token: jeton porteur. **Déconseillé** : un paramètre MCP peut
             transiter dans les journaux d'un client ou les traces d'un agent.
             Préférer la configuration serveur. Refusé par défaut en transport
@@ -64,11 +98,17 @@ def set_active_target(
     Returns:
         La cible retenue, et ``auth`` à ``"configured"`` — jamais ``"proved"``.
     """
-    cloud_id, project_id, model_id = resolve_bimdata_target(
-        cloud_id=cloud_id,
-        project_id=project_id,
-        model_id=model_id,
-    )
+    if bimdata_url:
+        if any((cloud_id, project_id, model_id)):
+            raise ValueError(
+                "Fournis soit `bimdata_url`, soit cloud_id/project_id/model_id, "
+                "mais pas les deux : la cible retenue serait ambiguë."
+            )
+        cloud_id, project_id, model_id = parse_bimdata_viewer_url(bimdata_url)
+
+    cloud_id = _clean_id("cloud_id", cloud_id)
+    project_id = _clean_id("project_id", project_id)
+    model_id = _clean_id("model_id", model_id)
     _State.cloud_id = cloud_id or config.CLOUD_ID
     _State.project_id = project_id or config.PROJECT_ID
     _State.model_id = model_id or config.MODEL_ID
@@ -118,8 +158,11 @@ def verify_active_target(expected_model_name: str, use_cache: bool = False) -> d
             cache pourrait confirmer une maquette d'après une lecture antérieure.
 
     Returns:
-        ``{ok, expected_model_name, model_name, model_id, from_cache}``.
-        ``ok=False`` doit interrompre le travail en cours.
+        ``{ok, expected_model_name, model_name, model_id, from_cache}`` plus les
+        diagnostics de lecture (``snapshot_health``, ``snapshot_warning``,
+        ``n_extraction_errors``, ``extraction_errors``). ``ok=False`` doit
+        interrompre le travail en cours — et ``snapshot_health`` dit s'il s'agit
+        d'un écart de nom ou d'une lecture qui n'a pas abouti.
     """
     _require_target()
     expected = (expected_model_name or "").strip()
@@ -131,12 +174,16 @@ def verify_active_target(expected_model_name: str, use_cache: bool = False) -> d
     model = snapshot.model or {}
     name = model.get("name")
 
+    # Sans les diagnostics, une lecture qui a échoué renverrait `ok: false` avec
+    # `model_name: null` — indiscernable d'un simple écart de nom. L'auditeur
+    # conclurait « mauvaise maquette » là où la maquette n'a pas pu être lue.
     return {
         "ok": model_matches_expected(name, expected),
         "expected_model_name": expected,
         "model_name": name,
         "model_id": _State.model_id,
         "from_cache": from_cache,
+        **snapshot_diagnostics(snapshot),
     }
 
 
@@ -149,13 +196,20 @@ def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cach
         cache_dir: dossier de cache, confiné sous la racine d'export du serveur.
 
     Returns:
-        Un résumé du contenu et ``from_cache``.
+        Un résumé du contenu, ``from_cache``, et les diagnostics de lecture
+        (``snapshot_health``, ``snapshot_warning``, ``n_extraction_errors``,
+        ``extraction_errors``) — sans lesquels des compteurs à zéro ne
+        distingueraient pas une maquette vide d'une extraction en échec.
     """
     _require_target()
     snapshot, from_cache = _load_snapshot(use_cache=use_cache, cache_dir=cache_dir)
     _State.snapshot = snapshot
     model = snapshot.model or {}
 
+    # Des compteurs à zéro ne disent pas s'ils décrivent une maquette vide ou
+    # une extraction qui a échoué. Les diagnostics rendent les deux cas
+    # distinguables — sans eux, l'outil présente une lecture ratée comme un
+    # résultat.
     return {
         "model_name": model.get("name"),
         "model_id": _State.model_id,
@@ -163,6 +217,7 @@ def extract_model_snapshot(use_cache: bool = True, cache_dir: str = ".audit_cach
         "storeys": len(getattr(snapshot, "storeys", None) or []),
         "elements": len(getattr(snapshot, "elements", None) or []),
         "from_cache": from_cache,
+        **snapshot_diagnostics(snapshot),
     }
 
 

@@ -12,6 +12,7 @@
     ],
     "set_active_target": [
       "access_token",
+      "bimdata_url",
       "cloud_id",
       "model_id",
       "project_id"

@@ -222,10 +222,10 @@ def test_the_tools_answer_without_any_i3f_module_loaded():
         "for fn, kwargs in ((verify_active_target, {'expected_model_name': 'X'}),\n"
         "                   (extract_model_snapshot, {'use_cache': False})):\n"
         "    try:\n"
-        "        fn(**kwargs)\n"
-        "        outcomes.append('returned')\n"
+        "        res = fn(**kwargs)\n"
+        "        outcomes.append(res)\n"
         "    except Exception as exc:\n"
-        "        outcomes.append(type(exc).__name__)\n"
+        "        outcomes.append({'error': type(exc).__name__})\n"
         "print(json.dumps({\n"
         "    'target': out,\n"
         "    'outcomes': outcomes,\n"
@@ -268,6 +268,22 @@ def test_the_tools_answer_without_any_i3f_module_loaded():
     assert len(seen["outcomes"]) == 2, seen["outcomes"]
     assert seen["i3f"] == [], f"un appel a chargé le profil I3F : {seen['i3f']}"
 
+    # Une lecture qui n'aboutit pas doit se voir dans la réponse. Sans cela, les
+    # deux outils renvoient `model_name: null` et des compteurs à zéro —
+    # présentés comme un résultat, alors que rien n'a été lu. C'est la panne la
+    # plus coûteuse d'un outil de contrôle : elle a l'air d'une mesure.
+    for outcome in seen["outcomes"]:
+        assert "error" not in outcome, outcome
+        assert outcome["snapshot_health"] != "ok", outcome
+        assert outcome["snapshot_warning"], outcome
+        assert outcome["n_extraction_errors"] >= 1, outcome
+        assert len(outcome["extraction_errors"]) == outcome["n_extraction_errors"]
+
+    # Non-vacuité : `ok=False` seul serait indiscernable d'un écart de nom.
+    identity = seen["outcomes"][0]
+    assert identity["ok"] is False and identity["model_name"] is None
+    assert identity["snapshot_health"] in {"empty_model", "partial", "empty_elements"}
+
 
 def test_missing_target_names_a_tool_of_this_profile():
     """Le message d'erreur ne doit pas renvoyer vers un outil d'un autre profil.
@@ -289,3 +305,83 @@ def test_missing_target_names_a_tool_of_this_profile():
     )
     assert "set_active_target" in message
     assert "set_active_model" not in message
+
+
+def _in_profile_process(body: str) -> dict:
+    """Exécute ``body`` dans un interpréteur au profil BIM in Motion actif.
+
+    Les appels passent par un sous-processus parce qu'importer le module
+    d'outils ici déclencherait ses ``@mcp.tool`` sur l'instance MCP partagée du
+    processus de test, faussant la surface mesurée par les fichiers suivants.
+    """
+    probe = (
+        "import json\n"
+        "from audit_bim.profiles.bim_in_motion.tools_session import set_active_target\n"
+        "def attempt(**kw):\n"
+        "    try:\n"
+        "        return {'ok': True, 'value': set_active_target(**kw)}\n"
+        "    except Exception as exc:\n"
+        "        return {'ok': False, 'type': type(exc).__name__, 'message': str(exc)}\n"
+        f"{body}\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(REPO),
+            "AUDIT_BIM_PROFILE": "bim_in_motion",
+            "BIMDATA_API_KEY": "cle-factice-de-test",
+            "BIMDATA_BASE_URL": "http://127.0.0.1:9",
+        },
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stderr[-3000:]
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+@pytest.mark.parametrize("field", ["cloud_id", "project_id", "model_id"])
+def test_a_url_in_any_id_field_is_refused_without_naming_an_absent_tool(field):
+    """Le refus doit nommer une action **disponible dans ce profil**.
+
+    ``resolve_bimdata_target`` renvoyait vers ``parse_bimdata_target``, un outil
+    d'I3F que ce serveur n'expose pas : une instruction qui a l'air valide et ne
+    mène nulle part. Et son contrôle ne portait que sur ``model_id`` — une URL
+    passée en ``cloud_id`` produisait une cible invalide annoncée « configured ».
+    """
+    url = "https://platform.bimdata.io/spaces/1/projects/2/viewer/3"
+    out = _in_profile_process(f"print(json.dumps(attempt({field}={url!r})))")
+
+    assert out["ok"] is False, f"{field} a accepté une URL : {out}"
+    assert "bimdata_url" in out["message"]
+    assert "parse_bimdata_target" not in out["message"]
+
+
+def test_a_non_numeric_identifier_is_refused():
+    """Un identifiant fantaisiste ne doit pas produire une cible « configurée »."""
+    out = _in_profile_process("print(json.dumps(attempt(cloud_id='mon-espace')))")
+    assert out["ok"] is False
+    assert "numérique" in out["message"]
+
+
+def test_the_viewer_url_is_accepted_by_this_tool():
+    """Le profil est autonome : l'URL se traite ici, sans outil supplémentaire."""
+    url = "https://platform.bimdata.io/spaces/11/projects/22/viewer/33"
+    out = _in_profile_process(f"print(json.dumps(attempt(bimdata_url={url!r})))")
+
+    assert out["ok"] is True, out
+    assert (out["value"]["cloud_id"], out["value"]["project_id"], out["value"]["model_id"]) == (
+        "11",
+        "22",
+        "33",
+    )
+
+
+def test_mixing_url_and_explicit_ids_is_refused():
+    """Deux cibles possibles dans un seul appel : le refus vaut mieux qu'un choix."""
+    url = "https://platform.bimdata.io/spaces/11/projects/22/viewer/33"
+    out = _in_profile_process(f"print(json.dumps(attempt(bimdata_url={url!r}, cloud_id='9')))")
+    assert out["ok"] is False
+    assert "ambiguë" in out["message"]

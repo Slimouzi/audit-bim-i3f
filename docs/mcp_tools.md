@@ -161,7 +161,10 @@ décrite dans ce document.
   (`set_active_target`, `verify_active_target`, `extract_model_snapshot`), le
   prompt `amo_bim_in_motion`, plus `list_mcp_profiles`. Les modules du profil
   I3F ne sont pas importés du tout. Ce profil ne produit ni audit, ni notation,
-  ni livrable : il établit une cible, la vérifie, et décrit le modèle.
+  ni livrable : il établit une cible, la vérifie, et décrit le modèle. Les deux
+  outils de lecture renvoient les diagnostics d'extraction (`snapshot_health`,
+  `snapshot_warning`, `n_extraction_errors`, `extraction_errors`) : sans eux,
+  une lecture en échec serait présentée comme un résultat vide.
 - Casse, tirets et espaces sont normalisés (`BIM-IN-MOTION` fonctionne).
 
 Un identifiant inconnu **empêche le démarrage**, en nommant la valeur fautive et
