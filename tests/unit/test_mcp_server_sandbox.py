@@ -13,8 +13,11 @@ import pytest
 import reportlab.lib.pagesizes
 from reportlab.pdfgen import canvas
 
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_audit import (
+    enrich_with_public_data as tau_enrich_with_public_data,
+)
+from audit_bim.profiles.i3f.tools_session import set_owner_documents as ts_set_owner_documents
 from audit_bim.safe_paths import UnsafePathError
 
 
@@ -59,36 +62,36 @@ def _make_xlsx(tmp_path):
 class TestSetOwnerDocumentsSandbox:
     def test_accepts_pdf_for_cch(self, _isolated_session, _make_pdf):
         pdf = _make_pdf()
-        res = mcp_server.set_owner_documents(cch_pdf=pdf)
+        res = ts_set_owner_documents(cch_pdf=pdf)
         assert res["cch_pdf"]["exists"] is True
 
     def test_refuses_xlsx_for_cch(self, _isolated_session, _make_xlsx):
         xlsx = _make_xlsx()
         with pytest.raises(UnsafePathError, match="Extension"):
-            mcp_server.set_owner_documents(cch_pdf=xlsx)
+            ts_set_owner_documents(cch_pdf=xlsx)
 
     def test_accepts_xlsx_for_data_spec(self, _isolated_session, _make_xlsx):
         xlsx = _make_xlsx()
-        res = mcp_server.set_owner_documents(data_spec_xlsx=xlsx)
+        res = ts_set_owner_documents(data_spec_xlsx=xlsx)
         assert res["data_spec_xlsx"]["exists"] is True
 
     def test_refuses_pdf_for_data_spec(self, _isolated_session, _make_pdf):
         pdf = _make_pdf()
         with pytest.raises(UnsafePathError, match="Extension"):
-            mcp_server.set_owner_documents(data_spec_xlsx=pdf)
+            ts_set_owner_documents(data_spec_xlsx=pdf)
 
     def test_refuses_pdf_for_naming_spec(self, _isolated_session, _make_pdf):
         pdf = _make_pdf()
         with pytest.raises(UnsafePathError, match="Extension"):
-            mcp_server.set_owner_documents(naming_spec_xlsx=pdf)
+            ts_set_owner_documents(naming_spec_xlsx=pdf)
 
     def test_refuses_missing_file(self, _isolated_session, tmp_path):
         with pytest.raises(FileNotFoundError):
-            mcp_server.set_owner_documents(cch_pdf=str(tmp_path / "ghost.pdf"))
+            ts_set_owner_documents(cch_pdf=str(tmp_path / "ghost.pdf"))
 
     def test_refuses_traversal(self, _isolated_session):
         with pytest.raises(UnsafePathError, match=r"\.\."):
-            mcp_server.set_owner_documents(cch_pdf="../etc/passwd.pdf")
+            ts_set_owner_documents(cch_pdf="../etc/passwd.pdf")
 
 
 # ── enrich_with_public_data : sandbox doe_path ──────────────────────────
@@ -100,17 +103,17 @@ class TestEnrichWithPublicDataSandbox:
         evil.write_bytes(b"x")
         _isolated_session.snapshot = object()  # ensure_snapshot passe
         with pytest.raises(UnsafePathError, match="Extension"):
-            mcp_server.enrich_with_public_data(doe_path=str(evil))
+            tau_enrich_with_public_data(doe_path=str(evil))
 
     def test_refuses_missing_file(self, _isolated_session, tmp_path):
         _isolated_session.snapshot = object()
         with pytest.raises(FileNotFoundError):
-            mcp_server.enrich_with_public_data(doe_path=str(tmp_path / "ghost.xlsx"))
+            tau_enrich_with_public_data(doe_path=str(tmp_path / "ghost.xlsx"))
 
     def test_refuses_traversal(self, _isolated_session):
         _isolated_session.snapshot = object()
         with pytest.raises(UnsafePathError, match=r"\.\."):
-            mcp_server.enrich_with_public_data(doe_path="../doe.xlsx")
+            tau_enrich_with_public_data(doe_path="../doe.xlsx")
 
     def test_accepts_valid_doe_and_passes_resolved_path(self, _isolated_session, _make_xlsx):
         # On accepte le xlsx, et la valeur passée à l'enrichissement
@@ -128,7 +131,7 @@ class TestEnrichWithPublicDataSandbox:
                 address=ProjectAddress(),
                 geocoding=GeocodingResult(matched=False),
             )
-            mcp_server.enrich_with_public_data(doe_path=doe)
+            tau_enrich_with_public_data(doe_path=doe)
         assert mock_enrich.call_args.kwargs["doe_path"] is not None
         assert mock_enrich.call_args.kwargs["doe_path"].endswith("doe.xlsx")
         # Le chemin transmis est un absolu (résolu) — pas la string brute
@@ -148,5 +151,5 @@ class TestEnrichWithPublicDataSandbox:
                 address=ProjectAddress(),
                 geocoding=GeocodingResult(matched=False),
             )
-            mcp_server.enrich_with_public_data(doe_path=None)
+            tau_enrich_with_public_data(doe_path=None)
         assert mock_enrich.call_args.kwargs["doe_path"] is None

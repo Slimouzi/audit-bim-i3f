@@ -24,9 +24,10 @@ from audit_bim.audit.engine import AuditResult
 from audit_bim.audit.findings import ErrorType, Finding, Severity, Theme
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import phase
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.profiles.i3f import tools_audit as ta
+from audit_bim.profiles.i3f.tools_audit import full_audit as tau_full_audit
+from audit_bim.profiles.i3f.tools_reporting import generate_word_report as tr_generate_word_report
 from audit_bim.reporting.context import (
     merge_user_context,
 )
@@ -121,7 +122,7 @@ class TestGenerateWordReportValidation:
     def test_refuses_when_address_missing(self, _isolated):
         sess, _ = _isolated
         _wire_audit(sess)
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             project_phase="PRO",
             auditor_name="Stanislas",
             # project_address manquant
@@ -133,7 +134,7 @@ class TestGenerateWordReportValidation:
     def test_refuses_when_phase_missing(self, _isolated):
         sess, _ = _isolated
         _wire_audit(sess)
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             project_address="12 rue de la Paix",
             auditor_name="Stanislas",
             # project_phase manquant
@@ -144,7 +145,7 @@ class TestGenerateWordReportValidation:
     def test_refuses_when_auditor_missing(self, _isolated):
         sess, _ = _isolated
         _wire_audit(sess)
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             project_address="12 rue de la Paix",
             project_phase="PRO",
             # auditor_name manquant
@@ -155,7 +156,7 @@ class TestGenerateWordReportValidation:
     def test_refuses_when_phase_invalid(self, _isolated):
         sess, _ = _isolated
         _wire_audit(sess)
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             project_address="12 rue de la Paix",
             project_phase="NOPE",  # phase invalide
             auditor_name="Stanislas",
@@ -166,7 +167,7 @@ class TestGenerateWordReportValidation:
     def test_accepts_when_all_fields_provided(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire_audit(sess)
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             output_path="rapport_complet.docx",
             project_address="12 rue de la Paix, 35340 LIFFRÉ",
             project_phase="PRO",
@@ -181,7 +182,7 @@ class TestGenerateWordReportValidation:
     def test_confirm_context_bypasses_validation(self, _isolated):
         sess, _ = _isolated
         _wire_audit(sess)
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             output_path="rapport_minimal.docx",
             confirm_context=True,
             # Pas d'address ni phase ni auditor — mais confirm=True passe.
@@ -234,7 +235,7 @@ class TestFullAuditValidation:
 
         monkeypatch.setattr(ta, "_fa_prepare_publication", _publication)
 
-        res = mcp_server.full_audit(
+        res = tau_full_audit(
             phase="PRO",
             project_address="12 rue de la Paix",
             auditor_name="Stanislas Limouzi",
@@ -249,7 +250,7 @@ class TestFullAuditValidation:
     def test_refuses_when_address_missing(self, _isolated):
         sess, _ = _isolated
         # Pas besoin de wire — la validation tombe AVANT toute exécution.
-        res = mcp_server.full_audit(
+        res = tau_full_audit(
             phase="PRO",
             auditor_name="Stanislas",
             push_mode="none",
@@ -259,7 +260,7 @@ class TestFullAuditValidation:
 
     def test_refuses_when_auditor_missing(self, _isolated):
         sess, _ = _isolated
-        res = mcp_server.full_audit(
+        res = tau_full_audit(
             phase="PRO",
             project_address="12 rue de la Paix",
             push_mode="none",
@@ -269,7 +270,7 @@ class TestFullAuditValidation:
 
     def test_refuses_when_phase_invalid(self, _isolated):
         sess, _ = _isolated
-        res = mcp_server.full_audit(
+        res = tau_full_audit(
             phase="WRONG",
             project_address="12 rue de la Paix",
             auditor_name="Stan",
@@ -285,7 +286,7 @@ class TestFullAuditValidation:
         sess, _ = _isolated
         # Même avec push_mode=ask explicite, on n'a pas fourni adresse/auditeur
         # → on doit obtenir needs_context, pas needs_user_choice.
-        res = mcp_server.full_audit(phase="PRO", push_mode="ask")
+        res = tau_full_audit(phase="PRO", push_mode="ask")
         assert res.get("status") == "needs_context"
         assert res.get("status") != "needs_user_choice"
 
@@ -297,7 +298,7 @@ class TestWordReportSourceMarking:
     def test_user_provided_values_have_no_deduced_suffix(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire_audit(sess)
-        mcp_server.generate_word_report(
+        tr_generate_word_report(
             output_path="rapport.docx",
             project_address="42 boulevard Saint-Germain, 75005 PARIS",
             project_phase="DCE",
@@ -322,7 +323,7 @@ class TestWordReportSourceMarking:
         « déduit — à confirmer »."""
         sess, _ = _isolated
         _wire_audit(sess)  # le snapshot contient une adresse via IfcSite
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             output_path="rapport_extracted.docx",
             # On ne fournit PAS project_address user, mais on bypass
             # la validation pour pouvoir générer le rapport.
@@ -347,7 +348,7 @@ class TestWordReportSourceMarking:
     def test_auditor_name_appears_on_cover_page_and_in_context(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire_audit(sess)
-        mcp_server.generate_word_report(
+        tr_generate_word_report(
             output_path="rapport.docx",
             project_address="X",
             project_phase="PRO",
@@ -361,7 +362,7 @@ class TestWordReportSourceMarking:
     def test_phase_user_provided_displayed_correctly(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire_audit(sess)  # snapshot a phase PRO via _wire_audit
-        mcp_server.generate_word_report(
+        tr_generate_word_report(
             output_path="rapport.docx",
             project_address="X",
             project_phase="DCE",  # user fournit DCE
@@ -380,7 +381,7 @@ class TestEnrichedSectionsStillPresent:
     def test_all_enriched_sections_present_in_validated_report(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire_audit(sess)
-        mcp_server.generate_word_report(
+        tr_generate_word_report(
             output_path="rapport.docx",
             project_address="X",
             project_phase="PRO",
@@ -504,7 +505,7 @@ class TestFullAuditPhaseConfirmation:
         """full_audit sans phase explicite → needs_context sur la phase
         (confirmation exigée), avant toute extraction."""
         sess, _ = _isolated
-        res = mcp_server.full_audit(
+        res = tau_full_audit(
             project_address="12 rue X",
             auditor_name="Stan",
             push_mode="none",
@@ -518,7 +519,7 @@ class TestFullAuditPhaseConfirmation:
         _wire_audit(sess)
         # Injecte une phase brute loi MOP dans le snapshot.
         sess.snapshot.project = {"name": "Programme Test", "phase": "APD"}
-        res = mcp_server.full_audit(
+        res = tau_full_audit(
             project_address="12 rue X",
             auditor_name="Stan",
             push_mode="none",
@@ -616,7 +617,7 @@ class TestWordReportSuggestionsAndDescription:
         l'adresse extraite de l'IfcSite.SiteAddress."""
         sess, _ = _isolated
         _wire_audit(sess)
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             project_phase="PRO",
             auditor_name="Stan",
             # project_address omis
@@ -631,7 +632,7 @@ class TestWordReportSuggestionsAndDescription:
         valider/corriger par l'utilisateur (attendu CTO)."""
         sess, _ = _isolated
         _wire_audit(sess)  # snapshot avec project.description
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",
@@ -645,7 +646,7 @@ class TestWordReportSuggestionsAndDescription:
     def test_user_description_flows_to_report(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire_audit(sess)
-        mcp_server.generate_word_report(
+        tr_generate_word_report(
             output_path="rapport_userdesc.docx",
             project_address="X",
             project_phase="PRO",
@@ -662,7 +663,7 @@ class TestWordReportSuggestionsAndDescription:
         _wire_audit(sess)
         # Retire la description du snapshot pour simuler une maquette muette.
         sess.snapshot.project = {"name": "Programme Test"}
-        res = mcp_server.generate_word_report(
+        res = tr_generate_word_report(
             project_address="X",
             project_phase="PRO",
             auditor_name="Stan",

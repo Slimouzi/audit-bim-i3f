@@ -9,9 +9,9 @@ import openpyxl
 import pytest
 
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.profiles.i3f import tools_reporting as mcp_reporting
+from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack as tr_generate_avp_i3f_pack
 from audit_bim.reporting.avp_i3f import (
     AvpMeta,
     _build_enveloppe_xlsx,
@@ -235,7 +235,7 @@ def test_mcp_auto_uses_unique_envelope_json_from_input_dir(tmp_path, monkeypatch
     ).index()
     token = current_session.set(sess)
     try:
-        res = mcp_server.generate_avp_i3f_pack(
+        res = tr_generate_avp_i3f_pack(
             project_name="Dieppe",
             project_code="0546L",
             phase="PRO",
@@ -288,7 +288,7 @@ def test_mcp_auto_uses_local_envelope_json_when_input_dir_unset(tmp_path, monkey
     ).index()
     token = current_session.set(sess)
     try:
-        res = mcp_server.generate_avp_i3f_pack(
+        res = tr_generate_avp_i3f_pack(
             project_name="Dieppe",
             project_code="0546L",
             phase="PRO",

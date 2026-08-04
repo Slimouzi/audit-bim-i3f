@@ -20,7 +20,6 @@ import requests
 
 from audit_bim.extraction.client import BIMDataAuthError
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.model_identity import (
     model_matches_expected,
     normalize_model_name,
@@ -29,6 +28,8 @@ from audit_bim.mcp.model_identity import (
 )
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.profiles.i3f import tools_audit, tools_session
+from audit_bim.profiles.i3f.tools_audit import full_audit as tau_full_audit
+from audit_bim.profiles.i3f.tools_session import verify_active_model as ts_verify_active_model
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -352,7 +353,7 @@ class TestVerifyActiveModel:
         _isolated_session.client = _FakeClient(model_id="abc")
         snap = _snapshot_with_model("Maquette BIM - LIFFRÉ - DOE.ifc", model_id="abc")
         with patch.object(tools_session, "extract_snapshot", return_value=snap):
-            res = mcp_server.verify_active_model(expected_model_name="LIFFRE")
+            res = ts_verify_active_model(expected_model_name="LIFFRE")
         assert res["ok"] is True
         assert res["model_name"] == "Maquette BIM - LIFFRÉ - DOE.ifc"
         assert res["model_id"] == "abc"
@@ -368,7 +369,7 @@ class TestVerifyActiveModel:
         _isolated_session.client = _FakeClient(model_id="abc")
         snap = _snapshot_with_model("Maquette BIM - LIFFRÉ - DOE.ifc", model_id="abc", status="I")
         with patch.object(tools_session, "extract_snapshot", return_value=snap):
-            res = mcp_server.verify_active_model(expected_model_name="LIFFRE")
+            res = ts_verify_active_model(expected_model_name="LIFFRE")
         assert res["ok"] is True
         assert res["model_status"] == "I"
         assert res["model_status_label"] == "In Process"
@@ -380,7 +381,7 @@ class TestVerifyActiveModel:
         _isolated_session.client = _FakeClient(model_id="zzz")
         snap = _snapshot_with_model("Autre projet.ifc", model_id="zzz")
         with patch.object(tools_session, "extract_snapshot", return_value=snap):
-            res = mcp_server.verify_active_model(expected_model_name="LIFFRE")
+            res = ts_verify_active_model(expected_model_name="LIFFRE")
         assert res["ok"] is False
         assert "inattendu" in res["message"].lower()
         assert "liffre" in res["message"].lower()
@@ -390,18 +391,18 @@ class TestVerifyActiveModel:
     def test_no_client_raises(self, _isolated_session):
         # Pas de set_active_model — _State.client est None.
         with pytest.raises(RuntimeError, match="BIMData"):
-            mcp_server.verify_active_model(expected_model_name="LIFFRE")
+            ts_verify_active_model(expected_model_name="LIFFRE")
 
     def test_empty_expected_raises(self, _isolated_session):
         _isolated_session.client = _FakeClient()
         with pytest.raises(ValueError, match="expected_model_name"):
-            mcp_server.verify_active_model(expected_model_name="   ")
+            ts_verify_active_model(expected_model_name="   ")
 
     def test_refresh_false_without_snapshot_raises(self, _isolated_session):
         _isolated_session.client = _FakeClient()
         # Pas de snapshot en session, refresh désactivé → message clair.
         with pytest.raises(RuntimeError, match="snapshot"):
-            mcp_server.verify_active_model(
+            ts_verify_active_model(
                 expected_model_name="LIFFRE",
                 refresh_snapshot=False,
             )
@@ -411,7 +412,7 @@ class TestVerifyActiveModel:
         snap = _snapshot_with_model("Maquette LIFFRE DOE.ifc")
         _isolated_session.snapshot = snap
         with patch.object(tools_session, "extract_snapshot") as m_extract:
-            res = mcp_server.verify_active_model(
+            res = ts_verify_active_model(
                 expected_model_name="LIFFRE",
                 refresh_snapshot=False,
             )
@@ -428,7 +429,7 @@ class TestVerifyActiveModel:
             ) as m_cached,
             patch.object(tools_session, "extract_snapshot") as m_direct,
         ):
-            res = mcp_server.verify_active_model(
+            res = ts_verify_active_model(
                 expected_model_name="LIFFRE",
                 refresh_snapshot=True,
                 use_cache=True,
@@ -465,7 +466,7 @@ class TestFullAuditExpectedModelName:
 
             m_set.side_effect = _fake_set
             with pytest.raises(ValueError, match="Modèle actif inattendu"):
-                mcp_server.full_audit(
+                tau_full_audit(
                     cloud_id="c",
                     project_id="p",
                     model_id="m",
@@ -521,7 +522,7 @@ class TestFullAuditExpectedModelName:
             m_set.side_effect = _fake_set
             # Pas d'exception attendue : si le garde-fou se déclenche
             # à tort, ValueError remonterait.
-            out = mcp_server.full_audit(
+            out = tau_full_audit(
                 cloud_id="c",
                 project_id="p",
                 model_id="m",
@@ -567,7 +568,7 @@ class TestFullAuditExpectedModelName:
                 _isolated_session.phase = BIMPhase.PRO
 
             m_set.side_effect = _fake_set
-            out = mcp_server.full_audit(
+            out = tau_full_audit(
                 cloud_id="c",
                 project_id="p",
                 model_id="m",

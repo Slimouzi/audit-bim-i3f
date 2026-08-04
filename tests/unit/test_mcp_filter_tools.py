@@ -24,6 +24,12 @@ from audit_bim.domain.filters import ConfidenceBand, SuggestionStatus
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_query import filter_bim_objects as tq_filter_bim_objects
+from audit_bim.profiles.i3f.tools_query import get_object_detail as tq_get_object_detail
+from audit_bim.profiles.i3f.tools_query import list_audit_findings as tq_list_audit_findings
+from audit_bim.profiles.i3f.tools_query import (
+    list_classification_suggestions as tq_list_classification_suggestions,
+)
 from audit_bim.requirements.models import BIMPhase, RequirementsCatalog
 from audit_bim.safe_paths import UnsafePathError
 
@@ -137,28 +143,28 @@ class TestToolsRegistered:
 class TestFilterBimObjects:
     def test_requires_snapshot(self, _isolated_session):
         with pytest.raises(RuntimeError, match="snapshot"):
-            mcp_server.filter_bim_objects(filter={})
+            tq_filter_bim_objects(filter={})
 
     def test_returns_all_when_no_filter(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.filter_bim_objects()
+        res = tq_filter_bim_objects()
         assert res["total"] == 2
         assert len(res["items"]) == 2
 
     def test_filters_by_ifc_type(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.filter_bim_objects(filter={"ifc_types": ["IfcWallStandardCase"]})
+        res = tq_filter_bim_objects(filter={"ifc_types": ["IfcWallStandardCase"]})
         assert res["total"] == 2
 
     def test_filters_by_has_classification(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.filter_bim_objects(filter={"has_any_classification": False})
+        res = tq_filter_bim_objects(filter={"has_any_classification": False})
         assert res["total"] == 1
         assert res["items"][0]["uuid"] == "W2"
 
     def test_output_path_writes_disk_and_returns_compact(self, _isolated_session, tmp_path):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.filter_bim_objects(filter={}, output_path="out.json")
+        res = tq_filter_bim_objects(filter={}, output_path="out.json")
         assert res.get("items_truncated") is True
         path = tmp_path / "out.json"
         assert path.exists()
@@ -169,18 +175,18 @@ class TestFilterBimObjects:
     def test_output_path_rejects_traversal(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
         with pytest.raises(UnsafePathError):
-            mcp_server.filter_bim_objects(filter={}, output_path="../escape.json")
+            tq_filter_bim_objects(filter={}, output_path="../escape.json")
 
     def test_pagination_returns_next_offset(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.filter_bim_objects(filter={"limit": 1, "offset": 0})
+        res = tq_filter_bim_objects(filter={"limit": 1, "offset": 0})
         assert res["total"] == 2
         assert len(res["items"]) == 1
         assert res["next_offset"] == 1
 
     def test_uuids_is_full_selection_not_just_page(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.filter_bim_objects(filter={"limit": 1, "offset": 0})
+        res = tq_filter_bim_objects(filter={"limit": 1, "offset": 0})
         # total = cardinal post-filtres / pré-pagination ; uuids = sélection complète.
         assert res["total"] == 2
         assert len(res["items"]) == 1
@@ -191,26 +197,26 @@ class TestFilterBimObjects:
     def test_finding_filter_requires_audit(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
         with pytest.raises(RuntimeError, match="audit"):
-            mcp_server.filter_bim_objects(with_finding_error_types=["classification_missing"])
+            tq_filter_bim_objects(with_finding_error_types=["classification_missing"])
 
     def test_finding_error_type_intersect(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
         _isolated_session.result = _result_with_two_walls()
-        res = mcp_server.filter_bim_objects(with_finding_error_types=["classification_missing"])
+        res = tq_filter_bim_objects(with_finding_error_types=["classification_missing"])
         assert set(res["uuids"]) == {"W2"}
         assert res["total"] == 1
 
     def test_finding_theme_intersect(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
         _isolated_session.result = _result_with_two_walls()
-        res = mcp_server.filter_bim_objects(with_finding_themes=["Propriété manquante"])
+        res = tq_filter_bim_objects(with_finding_themes=["Propriété manquante"])
         assert set(res["uuids"]) == {"W1"}
 
     def test_structural_intersect_audit(self, _isolated_session):
         # W2 a la finding classification_missing ET n'a aucune classification.
         _isolated_session.snapshot = _snapshot_two_walls()
         _isolated_session.result = _result_with_two_walls()
-        res = mcp_server.filter_bim_objects(
+        res = tq_filter_bim_objects(
             filter={"has_any_classification": False},
             with_finding_error_types=["classification_missing"],
         )
@@ -220,13 +226,13 @@ class TestFilterBimObjects:
         _isolated_session.snapshot = _snapshot_two_walls()
         _isolated_session.result = _result_with_two_walls()
         with pytest.raises(ValueError, match="with_finding_error_types invalide"):
-            mcp_server.filter_bim_objects(with_finding_error_types=["nope"])
+            tq_filter_bim_objects(with_finding_error_types=["nope"])
 
     def test_invalid_finding_theme_raises(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
         _isolated_session.result = _result_with_two_walls()
         with pytest.raises(ValueError, match="with_finding_themes invalide"):
-            mcp_server.filter_bim_objects(with_finding_themes=["Pas un thème"])
+            tq_filter_bim_objects(with_finding_themes=["Pas un thème"])
 
     @staticmethod
     def _snapshot_space_and_wall() -> ModelSnapshot:
@@ -247,13 +253,13 @@ class TestFilterBimObjects:
     def test_spatial_excluded_by_default(self, _isolated_session):
         # Sélection non ciblée spatiale → IfcSpace exclus.
         _isolated_session.snapshot = self._snapshot_space_and_wall()
-        res = mcp_server.filter_bim_objects(filter={})
+        res = tq_filter_bim_objects(filter={})
         assert set(res["uuids"]) == {"W1"}
 
     def test_spatial_auto_included_when_ifc_type_targets_space(self, _isolated_session):
         # ifc_types spatial → include_spatial auto-activé (pas de piège).
         _isolated_session.snapshot = self._snapshot_space_and_wall()
-        res = mcp_server.filter_bim_objects(
+        res = tq_filter_bim_objects(
             filter={"ifc_types": ["IfcSpace"], "has_base_quantities": False}
         )
         assert set(res["uuids"]) == {"SP1"}
@@ -278,7 +284,7 @@ class TestFilterBimObjects:
                 )
             ],
         )
-        res = mcp_server.filter_bim_objects(with_finding_error_types=["spatial_missing_quantity"])
+        res = tq_filter_bim_objects(with_finding_error_types=["spatial_missing_quantity"])
         assert set(res["uuids"]) == {"SP1"}
 
     def test_uuids_compacted_on_disk_overflow(self, _isolated_session):
@@ -298,7 +304,7 @@ class TestFilterBimObjects:
             elements=elements,
         ).index()
         _isolated_session.snapshot = snap
-        res = mcp_server.filter_bim_objects(filter={"limit": 500}, output_path="big.json")
+        res = tq_filter_bim_objects(filter={"limit": 500}, output_path="big.json")
         assert res["items_truncated"] is True
         assert res["uuids_count"] == 60
         assert res["uuids_truncated"] is True
@@ -311,22 +317,22 @@ class TestFilterBimObjects:
 class TestListAuditFindings:
     def test_requires_audit(self, _isolated_session):
         with pytest.raises(RuntimeError, match="audit"):
-            mcp_server.list_audit_findings(filter={})
+            tq_list_audit_findings(filter={})
 
     def test_returns_all(self, _isolated_session):
         _isolated_session.result = _result_with_two_walls()
-        res = mcp_server.list_audit_findings()
+        res = tq_list_audit_findings()
         assert res["total"] == 2
 
     def test_filter_severity_min(self, _isolated_session):
         _isolated_session.result = _result_with_two_walls()
-        res = mcp_server.list_audit_findings(filter={"severity_min": "HIGH"})
+        res = tq_list_audit_findings(filter={"severity_min": "HIGH"})
         assert res["total"] == 1
         assert res["items"][0]["severity"] == "HIGH"
 
     def test_filter_error_types(self, _isolated_session):
         _isolated_session.result = _result_with_two_walls()
-        res = mcp_server.list_audit_findings(filter={"error_types": ["classification_missing"]})
+        res = tq_list_audit_findings(filter={"error_types": ["classification_missing"]})
         assert res["total"] == 1
 
 
@@ -337,19 +343,19 @@ class TestGetObjectDetail:
     def test_unknown_uuid_raises(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
         with pytest.raises(ValueError, match="UUID inconnu"):
-            mcp_server.get_object_detail(uuid="NOPE")
+            tq_get_object_detail(uuid="NOPE")
 
     def test_returns_object_with_findings(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
         _isolated_session.result = _result_with_two_walls()
-        res = mcp_server.get_object_detail(uuid="W2")
+        res = tq_get_object_detail(uuid="W2")
         assert res["object"]["uuid"] == "W2"
         assert res["n_findings"] == 1
         assert res["findings"][0]["error_type"] == "classification_missing"
 
     def test_excludes_psets_when_flag_false(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.get_object_detail(uuid="W1", include_psets=False)
+        res = tq_get_object_detail(uuid="W1", include_psets=False)
         assert "properties" not in res["object"]
 
     def test_includes_suggestion_when_in_store(self, _isolated_session):
@@ -366,7 +372,7 @@ class TestGetObjectDetail:
             )
         )
         _isolated_session.suggestion_store = store
-        res = mcp_server.get_object_detail(uuid="W2")
+        res = tq_get_object_detail(uuid="W2")
         assert res["suggestion"] is not None
         assert res["suggestion"]["proposed_classification"] == "C1010"
 
@@ -377,7 +383,7 @@ class TestGetObjectDetail:
 class TestListClassificationSuggestions:
     def test_populates_lazily_from_audit(self, _isolated_session):
         _isolated_session.result = _result_with_two_walls()
-        res = mcp_server.list_classification_suggestions()
+        res = tq_list_classification_suggestions()
         # W2 a un finding classification_missing → 1 suggestion attendue.
         assert res["total"] >= 1
         assert res["store_counts"]["total"] >= 1
@@ -400,7 +406,7 @@ class TestListClassificationSuggestions:
             )
         )
         _isolated_session.suggestion_store = store
-        res = mcp_server.list_classification_suggestions(populate=False)
+        res = tq_list_classification_suggestions(populate=False)
         assert res["total"] == 1
         assert res["items"][0]["element_uuid"] == "WX"
 
@@ -408,5 +414,5 @@ class TestListClassificationSuggestions:
         _isolated_session.result = _result_with_two_walls()
         # Filtre haut → 0 suggestion attendue (suggester sur IfcWallStandardCase
         # sans IsExternal renvoie ~0.5).
-        res = mcp_server.list_classification_suggestions(filter={"min_confidence": 0.95})
+        res = tq_list_classification_suggestions(filter={"min_confidence": 0.95})
         assert res["total"] == 0

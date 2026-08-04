@@ -16,9 +16,15 @@ from audit_bim.audit.engine import AuditResult
 from audit_bim.audit.findings import ErrorType, Finding, Severity, Theme
 from audit_bim.domain.write_plan import WritePlanKind
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.selection import ObjectSelection, resolve_object_selection
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_actions import (
+    prepare_smart_view_from_filter_plan as ta_prepare_smart_view_from_filter_plan,
+)
+from audit_bim.profiles.i3f.tools_query import filter_bim_objects as tq_filter_bim_objects
+from audit_bim.profiles.i3f.tools_query import (
+    show_filtered_objects_in_viewer as tq_show_filtered_objects_in_viewer,
+)
 from audit_bim.requirements.models import BIMPhase, RequirementsCatalog
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
@@ -202,7 +208,7 @@ class TestResolveObjectSelection:
 class TestFilterBimObjectsUnchanged:
     def test_output_structure_unchanged(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.filter_bim_objects(filter={"limit": 1, "offset": 0})
+        res = tq_filter_bim_objects(filter={"limit": 1, "offset": 0})
         # Mêmes clés, même sémantique qu'avant le refactor.
         assert set(res) >= {"items", "uuids", "total", "next_offset", "limit", "offset"}
         assert res["total"] == 2
@@ -219,18 +225,18 @@ class TestFilterBimObjectsUnchanged:
 class TestShowFilteredObjectsInViewer:
     def test_requires_snapshot(self, _isolated_session):
         with pytest.raises(RuntimeError, match="snapshot"):
-            mcp_server.show_filtered_objects_in_viewer(filter={})
+            tq_show_filtered_objects_in_viewer(filter={})
 
     def test_default_mode_is_isolate(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.show_filtered_objects_in_viewer(filter={})
+        res = tq_show_filtered_objects_in_viewer(filter={})
         assert res["ok"] is True
         assert res["mode"] == "isolate"
         assert res["viewer_instruction"]["action"] == "isolate"
 
     def test_returns_viewer_instruction_with_right_uuids(self, _isolated_session):
         _isolated_session.snapshot = _snapshot_two_walls()
-        res = mcp_server.show_filtered_objects_in_viewer(
+        res = tq_show_filtered_objects_in_viewer(
             filter={"has_any_classification": False}, mode="select"
         )
         assert res["mode"] == "select"
@@ -242,7 +248,7 @@ class TestShowFilteredObjectsInViewer:
         snap = _snapshot_space_and_wall()
         _isolated_session.snapshot = snap
         _isolated_session.result = _result_space_missing_quantity(snap)
-        res = mcp_server.show_filtered_objects_in_viewer(
+        res = tq_show_filtered_objects_in_viewer(
             filter={"ifc_types": ["IfcSpace"]},
             with_finding_error_types=["spatial_missing_quantity"],
             mode="color",
@@ -265,7 +271,7 @@ class TestShowFilteredObjectsInViewer:
             elements=elements,
         ).index()
         _isolated_session.snapshot = snap
-        res = mcp_server.show_filtered_objects_in_viewer(filter={}, output_path="viewer.json")
+        res = tq_show_filtered_objects_in_viewer(filter={}, output_path="viewer.json")
         # Le jeu complet est dérivé sur disque ; aperçu inline borné.
         assert res["uuids_count"] == 60
         assert res["uuids_truncated"] is True
@@ -297,7 +303,7 @@ class TestPrepareSmartViewFromFilterPlan:
         _isolated_session.snapshot = _snapshot_two_walls()
         _isolated_session.client = _ExplodingClient()
 
-        res = mcp_server.prepare_smart_view_from_filter_plan(
+        res = ta_prepare_smart_view_from_filter_plan(
             name="Murs sans classification",
             filter={"has_any_classification": False},
             description="sélection à corriger",
@@ -324,7 +330,7 @@ class TestPrepareSmartViewFromFilterPlan:
             model_id = "42"
 
         _isolated_session.client = _Client()
-        res = mcp_server.prepare_smart_view_from_filter_plan(name="Tous", filter={})
+        res = ta_prepare_smart_view_from_filter_plan(name="Tous", filter={})
         plan = load_plan(res["plan_path"])
         assert plan.kind == WritePlanKind.SMART_VIEWS
         assert len(plan.items) == 1
