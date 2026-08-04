@@ -98,7 +98,7 @@ def resolve_object_selection(
     enums moteur). Auto-inclusion des éléments spatiaux dès qu'un ``ifc_types``
     spatial est ciblé OU qu'un filtre audit est utilisé.
 
-    Voir :func:`audit_bim.mcp.tools_query.filter_bim_objects` pour le détail
+    Voir :func:`audit_bim.profiles.i3f.tools_query.filter_bim_objects` pour le détail
     sémantique des champs.
 
     Raises:

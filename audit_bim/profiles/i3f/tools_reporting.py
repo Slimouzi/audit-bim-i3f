@@ -28,7 +28,7 @@ from ...reporting.word_report import NOT_AVAILABLE, write_word_report
 from ...reporting.xlsx_annex import write_xlsx_annex
 from ...safe_paths import safe_export_dir, safe_export_path, safe_input_path
 
-_server_logger = logging.getLogger("audit_bim.mcp.tools_reporting")
+_server_logger = logging.getLogger("audit_bim.profiles.i3f.tools_reporting")
 
 
 #: Libellés qui ne désignent **aucun chantier**. Trois familles, toutes vues en

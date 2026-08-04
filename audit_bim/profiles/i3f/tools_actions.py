@@ -206,7 +206,7 @@ def prepare_smart_view_from_filter_plan(
     Args:
         name: Titre de la Smart View (tel quel, sans préfixe).
         filter / with_finding_* / include_spatial: Voir
-            :func:`audit_bim.mcp.tools_query.filter_bim_objects` (mêmes
+            :func:`audit_bim.profiles.i3f.tools_query.filter_bim_objects` (mêmes
             sémantiques de sélection structurelle + audit).
         description: Note libre tracée dans le plan (hors payload Smart View,
             qui doit rester minimal pour rester dans le panneau dédié).

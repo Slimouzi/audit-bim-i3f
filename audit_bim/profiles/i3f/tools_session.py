@@ -35,7 +35,7 @@ from ...requirements.models import BIMPhase
 from ...safe_paths import safe_export_dir, safe_input_path
 from ...security.redaction import redact_secrets
 
-_server_logger = logging.getLogger("audit_bim.mcp.tools_session")
+_server_logger = logging.getLogger("audit_bim.profiles.i3f.tools_session")
 
 _MODEL_STATUS_LABELS = {
     "C": "Completed",

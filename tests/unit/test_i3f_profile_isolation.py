@@ -164,3 +164,69 @@ def test_no_circular_import_whatever_the_entry_point(statement):
         cwd=str(repo),
     )
     assert proc.returncode == 0, f"{statement}\n{proc.stderr}"
+
+
+# ── 5. Aucun chemin d'import mort dans le dépôt ───────────────────────
+
+#: Modules qui ne vivent plus sous ``audit_bim.mcp``. Une référence résiduelle
+#: est un import mort : il ne casse qu'à l'exécution du chemin concerné, donc
+#: potentiellement jamais en test.
+DEAD_MODULE_PATHS = tuple(f"audit_bim.mcp.{name}" for name in MOVED_MODULES)
+
+#: Reste légitimement sous ``audit_bim.mcp`` : il liste les profils.
+STILL_IN_MCP = "audit_bim.mcp.tools_profiles"
+
+#: Module supprimé en v0.5.0 ; un test vérifie précisément son absence.
+REMOVED_MODULE = "audit_bim.mcp.tools_legacy"
+
+
+def test_no_dead_import_path_anywhere_in_the_repository():
+    """Aucun fichier ne référence encore l'ancien emplacement.
+
+    Ce contrôle est né d'un vrai manqué : `scripts/a1_replay/run_replay.py`
+    importait `audit_bim.mcp.tools_actions` **dans le corps d'une fonction**.
+    Aucun test ne parcourait ce chemin, la CI était verte, et le script était
+    cassé — un `ModuleNotFoundError` à l'exécution.
+
+    Un import différé n'est vérifié par rien tant qu'on ne l'exécute pas :
+    seul un contrôle statique le voit.
+    """
+    root = Path(mcp_pkg.__file__).resolve().parents[2]
+    offenders: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        if ".venv" in path.parts or "__pycache__" in path.parts:
+            continue
+        if path.name == Path(__file__).name:
+            continue  # ce fichier cite les chemins morts pour les interdire
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if STILL_IN_MCP in line or REMOVED_MODULE in line:
+                continue
+            for dead in DEAD_MODULE_PATHS:
+                if dead in line:
+                    rel = path.relative_to(root)
+                    offenders.append(f"{rel}:{lineno} -> {dead}")
+    assert not offenders, f"chemins d'import morts : {offenders}"
+
+
+def test_the_dead_path_guard_is_not_vacuous(tmp_path):
+    """Le contrôle doit reconnaître une référence morte."""
+    sample = "from audit_bim.mcp.tools_actions import apply_bcf_topics\n"
+    assert any(dead in sample for dead in DEAD_MODULE_PATHS)
+    # Et laisser passer ce qui reste légitimement sous mcp/.
+    ok = "from audit_bim.mcp.tools_profiles import list_mcp_profiles\n"
+    assert STILL_IN_MCP in ok
+
+
+def test_the_a1_replay_runner_imports_resolve():
+    """Le script qui a révélé le manqué doit importer sans erreur.
+
+    Contrôle statique du module, sans l'exécuter : ses imports différés sont
+    résolus en compilant puis en important les cibles citées.
+    """
+    root = Path(mcp_pkg.__file__).resolve().parents[2]
+    runner = root / "scripts" / "a1_replay" / "run_replay.py"
+    assert runner.is_file()
+    source = runner.read_text(encoding="utf-8")
+    compile(source, str(runner), "exec")
+    for dead in DEAD_MODULE_PATHS:
+        assert dead not in source, f"{runner.name} référence encore {dead}"

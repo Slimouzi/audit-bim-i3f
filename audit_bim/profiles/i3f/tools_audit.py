@@ -35,7 +35,7 @@ from .tools_actions import prepare_bcf_topics, prepare_smart_views_plan
 from .tools_reporting import _default_output_paths
 from .tools_session import set_active_model
 
-_server_logger = logging.getLogger("audit_bim.mcp.tools_audit")
+_server_logger = logging.getLogger("audit_bim.profiles.i3f.tools_audit")
 
 
 @mcp.tool()
