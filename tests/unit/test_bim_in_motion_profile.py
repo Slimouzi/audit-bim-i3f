@@ -218,16 +218,17 @@ def test_the_tools_answer_without_any_i3f_module_loaded():
         "from audit_bim.profiles.bim_in_motion.tools_session import (\n"
         "    set_active_target, verify_active_target, extract_model_snapshot)\n"
         "out = set_active_target(cloud_id='1', project_id='2', model_id='3')\n"
-        "errors = []\n"
+        "outcomes = []\n"
         "for fn, kwargs in ((verify_active_target, {'expected_model_name': 'X'}),\n"
         "                   (extract_model_snapshot, {'use_cache': False})):\n"
         "    try:\n"
         "        fn(**kwargs)\n"
+        "        outcomes.append('returned')\n"
         "    except Exception as exc:\n"
-        "        errors.append(type(exc).__name__)\n"
+        "        outcomes.append(type(exc).__name__)\n"
         "print(json.dumps({\n"
         "    'target': out,\n"
-        "    'errors': errors,\n"
+        "    'outcomes': outcomes,\n"
         "    'i3f': sorted(m for m in sys.modules if m.startswith('audit_bim.profiles.i3f')),\n"
         "}))\n"
     )
@@ -236,7 +237,22 @@ def test_the_tools_answer_without_any_i3f_module_loaded():
         capture_output=True,
         text=True,
         cwd=REPO,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(REPO), "AUDIT_BIM_PROFILE": "bim_in_motion"},
+        env={
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(REPO),
+            "AUDIT_BIM_PROFILE": "bim_in_motion",
+            # Identifiants factices, délibérément. Sans eux, la construction du
+            # client échoue là où aucune authentification n'est configurée (la
+            # CI) et réussit là où il y en a une (un poste de dev) — le test
+            # mesurerait alors l'environnement plutôt que le code. Pire : avec
+            # de vrais identifiants, les deux lectures ci-dessous atteindraient
+            # un compte réel.
+            "BIMDATA_API_KEY": "cle-factice-de-test",
+            # …et une API injoignable : la sonde ne doit atteindre aucun service
+            # externe, et son résultat ne doit pas dépendre du réseau du poste
+            # qui l'exécute.
+            "BIMDATA_BASE_URL": "http://127.0.0.1:9",
+        },
         timeout=180,
     )
     assert result.returncode == 0, result.stderr[-3000:]
@@ -245,8 +261,11 @@ def test_the_tools_answer_without_any_i3f_module_loaded():
     # La cible se configure sans réseau : c'est le contrat de `set_active_target`.
     assert seen["target"]["auth"] == "configured"
     assert seen["target"]["model_id"] == "3"
-    # Les deux lectures échouent faute d'accès BIMData réel — attendu ici. Ce
-    # qui compte est *comment* : une erreur de lecture, jamais un import d'I3F.
+    # Les deux lectures sont bien tentées. Leur issue dépend de la façon dont
+    # l'extraction traite une API injoignable — échec, ou résultat dégradé — et
+    # ce n'est pas l'objet de ce test. Ce qui compte est qu'aucune des deux, ni
+    # en réussissant ni en échouant, n'a chargé le profil I3F.
+    assert len(seen["outcomes"]) == 2, seen["outcomes"]
     assert seen["i3f"] == [], f"un appel a chargé le profil I3F : {seen['i3f']}"
 
 
