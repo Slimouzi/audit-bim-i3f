@@ -20,7 +20,6 @@ flag). (Imports au niveau module : aucun cycle — tous ces modules importent
 
 from __future__ import annotations
 
-from ..profiles.i3f.prompts import AMO_BIM_I3F_PROMPT
 from ..profiles.i3f.tools_actions import (  # noqa: F401  (ré-export compat)
     apply_bcf_topics,
     apply_classification_update_plan,
@@ -105,15 +104,6 @@ def __getattr__(name: str):
 
         return getattr(aliases, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-# ── Prompt MCP ─────────────────────────────────────────────────────────────
-
-
-@mcp.prompt()
-def amo_bim_i3f() -> str:
-    """Persona AMO BIM I3F — chargée par Claude au démarrage du serveur."""
-    return AMO_BIM_I3F_PROMPT
 
 
 def main() -> None:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import anyio
 import pytest
 
 from audit_bim import mcp as mcp_pkg
@@ -97,12 +98,87 @@ def test_legacy_aliases_are_still_lazily_reachable():
     assert callable(server.prepare_bcf_from_findings)
 
 
-def test_prompt_text_moved_without_being_touched():
-    from audit_bim.mcp import server
-    from audit_bim.profiles.i3f.prompts import AMO_BIM_I3F_PROMPT
+def test_server_no_longer_knows_the_profile_prompt():
+    """E3-A : le serveur ignore jusqu'au nom de la constante du profil.
 
-    assert server.AMO_BIM_I3F_PROMPT is AMO_BIM_I3F_PROMPT
+    En E2, `server.py` importait encore `AMO_BIM_I3F_PROMPT` et portait le
+    `@mcp.prompt()`. C'était la dernière déclaration client dans le serveur, et
+    ce qui empêchait un second AMO d'enregistrer ses prompts sans le modifier.
+    """
+    from audit_bim.mcp import server
+
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    assert "AMO_BIM_I3F_PROMPT" not in source
+    assert "@mcp.prompt" not in source
+
+
+def test_prompt_is_registered_by_the_profile():
+    """La déclaration vit dans le profil, et `register_all()` la déclenche."""
+    from audit_bim.mcp.app import register_all
+    from audit_bim.profiles.i3f.prompts import AMO_BIM_I3F_PROMPT, register_prompts
+
+    assert callable(register_prompts)
     assert AMO_BIM_I3F_PROMPT.strip()
+
+    mcp = register_all()
+    names = [p.name for p in anyio.run(mcp.list_prompts)]
+    assert names == ["amo_bim_i3f"]
+
+
+def test_registering_prompts_twice_is_harmless():
+    """`register_prompts` est idempotente par instance.
+
+    `register_all()` l'est déjà, mais un appelant direct ne l'est pas — et
+    FastMCP refuse un nom de prompt déjà pris.
+    """
+    from audit_bim.mcp.app import mcp
+    from audit_bim.profiles.i3f.prompts import register_prompts
+
+    register_prompts(mcp)
+    register_prompts(mcp)
+    names = [p.name for p in anyio.run(mcp.list_prompts)]
+    assert names.count("amo_bim_i3f") == 1
+
+
+def test_a_third_party_profile_can_register_its_own_prompt():
+    """Un profil tiers enregistre son prompt SANS toucher à `server.py`.
+
+    C'est le test qui prouve que la frontière tient : il n'importe rien du
+    profil I3F, et n'a besoin d'aucune ligne côté serveur.
+    """
+
+    class _FakeApp:
+        def __init__(self):
+            self.registered: list[str] = []
+
+        def prompt(self):
+            def decorate(fn):
+                self.registered.append(fn.__name__)
+                return fn
+
+            return decorate
+
+    def register_prompts(app) -> None:
+        @app.prompt()
+        def amo_tiers() -> str:
+            return "Persona AMO tiers."
+
+    app = _FakeApp()
+    register_prompts(app)
+    assert app.registered == ["amo_tiers"]
+
+
+def test_no_client_prompt_is_declared_in_mcp_package():
+    """Contrôle statique : aucun `@mcp.prompt()` sous `audit_bim/mcp/`."""
+    offenders = [
+        f"{path.name}:{node.lineno}"
+        for path in sorted(MCP_DIR.glob("*.py"))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for deco in node.decorator_list
+        if getattr(getattr(deco, "func", deco), "attr", None) == "prompt"
+    ]
+    assert not offenders, f"prompts déclarés côté serveur : {offenders}"
 
 
 # ── 3. Le registre de profils dit vrai ────────────────────────────────

@@ -24,6 +24,7 @@ import anyio
 import pytest
 
 from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp.app import register_all
 
 GOLDEN = Path(__file__).parent / "golden" / "mcp_surface.json"
 
@@ -45,6 +46,13 @@ LEGACY_ALIASES = frozenset(
 
 
 def _current_surface() -> dict:
+    """Surface telle que la produit ``register_all()``.
+
+    C'est ce qu'appelle ``main()`` avant de démarrer : mesurer autre chose
+    reviendrait à figer une surface que personne ne sert. Depuis E3-A, le prompt
+    du profil y est enregistré explicitement, plus par effet de bord d'import.
+    """
+    register_all()
     tools = anyio.run(mcp_server.mcp.list_tools)
     prompts = anyio.run(mcp_server.mcp.list_prompts)
     return {

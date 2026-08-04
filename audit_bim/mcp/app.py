@@ -79,12 +79,18 @@ def register_all() -> FastMCP:
         tools_reporting,
         tools_session,
     )
-    from . import server, tools_profiles  # noqa: F401
 
     # Aliases = compat LEGACY, **opt-in** par env : par défaut on ne les importe
     # pas → 8 tools de moins exposés par défaut. ``server`` n'importe plus
     # ``aliases`` au niveau module (ré-exports compat rendus lazy via PEP 562),
     # donc ce garde suffit à ne rien enregistrer quand le flag est absent/faux.
+    # Prompts du profil actif : déclaration explicite, pas effet de bord d'import.
+    # C'est le point par lequel un autre profil enregistrera les siens.
+    from ..profiles.i3f.prompts import register_prompts
+    from . import server, tools_profiles  # noqa: F401
+
+    register_prompts(mcp)
+
     if _legacy_aliases_enabled():
         from ..profiles.i3f import aliases  # noqa: F401
 
