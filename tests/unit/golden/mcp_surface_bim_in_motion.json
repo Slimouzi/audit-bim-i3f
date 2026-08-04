@@ -1,0 +1,25 @@
+{
+  "prompts": [
+    "amo_bim_in_motion"
+  ],
+  "tools": {
+    "extract_model_snapshot": [
+      "cache_dir",
+      "use_cache"
+    ],
+    "list_mcp_profiles": [
+      "profile_id"
+    ],
+    "set_active_target": [
+      "access_token",
+      "bimdata_url",
+      "cloud_id",
+      "model_id",
+      "project_id"
+    ],
+    "verify_active_target": [
+      "expected_model_name",
+      "use_cache"
+    ]
+  }
+}

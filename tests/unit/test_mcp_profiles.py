@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
+from pathlib import Path
+
 import anyio
 
 from audit_bim.mcp import server as mcp_server
@@ -35,26 +40,44 @@ def test_list_mcp_profiles_is_registered():
 
 
 def test_operational_profile_prompt_keys_are_registered():
-    """Un profil dont le prompt est `ready` doit pointer un prompt réellement servi.
+    """Un profil dont le prompt est `ready` doit servir réellement ce prompt.
 
-    Piloté par le registre, pas par une liste en dur : `bim_in_motion` est
-    ignoré tant que sa spécialisation prompt est `planned`, et sera couvert
-    automatiquement le jour où elle passera `ready`.
+    Piloté par le registre, pas par une liste en dur. La mesure se fait **par
+    sous-processus, un par profil** : un serveur n'active qu'un profil à la
+    fois, donc son registre de prompts ne contient jamais que celui du profil
+    courant. Interroger l'instance partagée du processus de test ne pourrait
+    valider qu'un seul profil — et ferait passer les autres pour absents.
+
+    Ce contrôle annonçait couvrir `bim_in_motion` le jour où sa spécialisation
+    prompt passerait `ready`. C'est arrivé en E5.
     """
-    registered = {p.name for p in anyio.run(mcp_server.mcp.list_prompts)}
-    checked, missing = [], []
-    for profile in list_profiles():
-        prompt_spec = next(
-            (s for s in profile.specializations if s.key.startswith("prompt_")), None
-        )
-        if prompt_spec is None or prompt_spec.status != "ready":
-            continue
-        checked.append(profile.id)
-        if profile.prompt_key not in registered:
-            missing.append(f"{profile.id} -> {profile.prompt_key}")
+    ready = [
+        profile
+        for profile in list_profiles()
+        for spec in [
+            next((s for s in profile.specializations if s.key.startswith("prompt_")), None)
+        ]
+        if spec is not None and spec.status == "ready"
+    ]
+    assert {p.id for p in ready} == {"i3f", "bim_in_motion"}, [p.id for p in ready]
 
-    assert "i3f" in checked, "le profil I3F doit être couvert par ce garde-fou"
-    assert "bim_in_motion" not in checked, "bim_in_motion est `planned` : pas de prompt attendu"
-    assert not missing, (
-        f"prompt_key déclaré mais non enregistré : {missing} (servis : {registered})"
-    )
+    repo = Path(__file__).resolve().parents[2]
+    for profile in ready:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import anyio, json\n"
+                "from audit_bim.mcp.app import register_all\n"
+                "mcp = register_all()\n"
+                "print(json.dumps(sorted(p.name for p in anyio.run(mcp.list_prompts))))\n",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=repo,
+            env={"PATH": "/usr/bin:/bin", "HOME": str(repo), "AUDIT_BIM_PROFILE": profile.id},
+            timeout=180,
+        )
+        assert proc.returncode == 0, proc.stderr[-2000:]
+        served = json.loads(proc.stdout.strip().splitlines()[-1])
+        assert served == [profile.prompt_key], f"{profile.id} sert {served}"

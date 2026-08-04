@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -128,16 +127,32 @@ def test_another_profile_neither_registers_nor_imports_i3f():
     assert i3f["i3f_modules"], "la sonde ne mesure pas les imports — le reste ne prouve rien"
 
     assert other["profile"] == "bim_in_motion"
-    assert other["prompts"] == []
+    assert other["prompts"] == ["amo_bim_in_motion"]
     assert other["i3f_modules"] == [], f"le profil I3F a été importé : {other['i3f_modules']}"
-    assert not (set(other["tools"]) & (set(i3f["tools"]) - {"list_mcp_profiles"})), (
-        "des outils I3F sont exposés au profil tiers"
-    )
+    assert other["tools"] == THIRD_PARTY_TOOLS
+
+    # Recouvrement de noms **assumé** : `extract_model_snapshot` désigne le même
+    # concept dans les deux profils, avec deux implémentations indépendantes.
+    # C'est un signal pour l'inventaire du socle partagé, pas une fuite — les
+    # deux profils ne coexistent jamais dans un processus. Ce qui serait une
+    # fuite, ce sont les outils porteurs du référentiel I3F.
+    shared_names = set(other["tools"]) & set(i3f["tools"])
+    assert shared_names == {"list_mcp_profiles", "extract_model_snapshot"}, shared_names
+    assert "full_audit" not in other["tools"]
+    assert "generate_avp_i3f_pack" not in other["tools"]
 
 
 #: Ce qu'un appelant peut charger **avant** ``register_all()``. La sélection de
 #: profil doit tenir quel que soit l'ordre — sinon elle n'est pas une garantie,
 #: seulement l'espoir que personne n'importe le mauvais module en premier.
+#: Surface attendue du profil tiers depuis E5 : ses 3 outils + le transverse.
+THIRD_PARTY_TOOLS = [
+    "extract_model_snapshot",
+    "list_mcp_profiles",
+    "set_active_target",
+    "verify_active_target",
+]
+
 PRELUDES = [
     "pass",
     "import audit_bim.mcp.server",
@@ -162,7 +177,7 @@ def test_no_import_order_can_smuggle_the_i3f_profile_in(prelude):
     tester les autres.
     """
     seen = _probe("bim_in_motion", prelude=prelude)
-    assert seen["tools"] == ["list_mcp_profiles"], f"prélude {prelude!r} : {seen['tools']}"
+    assert seen["tools"] == THIRD_PARTY_TOOLS, f"prélude {prelude!r} : {seen['tools']}"
     assert seen["i3f_modules"] == [], f"prélude {prelude!r} a importé {seen['i3f_modules']}"
 
 
@@ -205,8 +220,14 @@ def test_compat_reexports_refuse_to_serve_another_profile():
 
 
 def test_the_server_keeps_its_own_transverse_tools():
-    """Ce qui reste sous un profil vide appartient au serveur, pas à un client."""
-    assert _probe("bim_in_motion")["tools"] == ["list_mcp_profiles"]
+    """La surface tierce = ses propres outils + les transverses du serveur.
+
+    ``list_mcp_profiles`` est le seul outil que le serveur possède en propre ;
+    les trois autres appartiennent au profil BIM in Motion (E5).
+    """
+    tools = _probe("bim_in_motion")["tools"]
+    assert tools == THIRD_PARTY_TOOLS
+    assert "list_mcp_profiles" in tools
 
 
 # ── 3. Un identifiant inconnu arrête le serveur ────────────────────────
@@ -252,14 +273,47 @@ def test_every_declared_tool_module_exists_and_declares_tools():
     C'est le mode de défaillance propre aux imports par chaîne : le profil
     paraît complet, le serveur démarre, et la surface est vide. On vérifie donc
     que chaque module déclaré est importable et porte au moins un ``@mcp.tool``.
+
+    L'import se fait en **sous-processus**. Le faire ici chargerait les modules
+    d'outils de *tous* les profils dans l'interpréteur de test, donc
+    déclencherait leurs décorateurs sur l'instance MCP partagée : les fichiers
+    exécutés ensuite mesureraient une surface gonflée par ce contrôle. Un test
+    ne doit pas modifier ce qu'il observe.
     """
+    declared = [(p.id, path) for p in list_profiles() for path in p.tool_modules]
+    assert declared, "aucun profil ne déclare de module d'outils"
+
+    script = (
+        "import importlib, json, sys\n"
+        "paths = json.loads(sys.argv[1])\n"
+        "failed = []\n"
+        "for path in paths:\n"
+        "    try:\n"
+        "        importlib.import_module(path)\n"
+        "    except Exception as exc:\n"
+        "        failed.append(f'{path}: {type(exc).__name__}')\n"
+        "print(json.dumps(failed))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, json.dumps([path for _, path in declared])],
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(REPO)},
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == []
+
+    for profile_id, path in declared:
+        source = REPO.joinpath(*path.split(".")).with_suffix(".py")
+        assert source.exists(), f"{profile_id} déclare {path}, absent du disque"
+        assert "@mcp.tool" in source.read_text(encoding="utf-8"), f"{path} ne déclare aucun outil"
+
     for profile in list_profiles():
-        for path in profile.tool_modules:
-            module = import_module(path)
-            source = Path(module.__file__).read_text(encoding="utf-8")
-            assert "@mcp.tool" in source, f"{path} ne déclare aucun outil"
         if profile.prompt_module:
-            assert callable(import_module(profile.prompt_module).register_prompts)
+            module = REPO.joinpath(*profile.prompt_module.split(".")).with_suffix(".py")
+            assert "def register_prompts" in module.read_text(encoding="utf-8")
 
 
 def test_a_third_party_profile_declares_no_i3f_module():
@@ -271,5 +325,7 @@ def test_a_third_party_profile_declares_no_i3f_module():
 
 def test_the_module_guard_is_not_vacuous():
     """Le contrôle ci-dessus doit savoir reconnaître un chemin faux."""
-    with pytest.raises(ModuleNotFoundError):
-        import_module("audit_bim.profiles.i3f.tools_qui_nexistent_pas")
+    ghost = REPO.joinpath(*"audit_bim.profiles.i3f.tools_qui_nexistent_pas".split(".")).with_suffix(
+        ".py"
+    )
+    assert not ghost.exists()

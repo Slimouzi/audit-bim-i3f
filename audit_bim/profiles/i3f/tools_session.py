@@ -17,6 +17,7 @@ from ...extraction.computed_quantities import (
 from ...extraction.ifc_download import download_model_ifc as download_ifc
 from ...extraction.model_data import extract_snapshot
 from ...extraction.snapshot_cache import cached_extract_snapshot
+from ...extraction.snapshot_health import snapshot_diagnostics
 from ...mcp.app import mcp
 from ...mcp.model_identity import (
     model_matches_expected,
@@ -37,53 +38,10 @@ from ...security.redaction import redact_secrets
 
 _server_logger = logging.getLogger("audit_bim.profiles.i3f.tools_session")
 
-_MODEL_STATUS_LABELS = {
-    "C": "Completed",
-    "D": "Deleted",
-    "P": "Pending",
-    "W": "Waiting",
-    "I": "In Process",
-    "E": "Error",
-}
 
-
-def _snapshot_diagnostics(snapshot) -> dict:
-    """Expose les signaux de sante du snapshot sans bloquer la connexion."""
-    model = snapshot.model or {}
-    status = model.get("status")
-    errors = list(getattr(snapshot, "extraction_errors", None) or [])
-    label = _MODEL_STATUS_LABELS.get(status) if status else None
-
-    health = "ok"
-    warning = None
-    if not model:
-        health = "empty_model"
-        warning = (
-            "Snapshot sans metadonnees model : cible/auth potentiellement invalides "
-            "ou extraction BIMData incomplete."
-        )
-    elif status and status != "C":
-        health = "model_not_completed"
-        warning = (
-            f"Modele BIMData status={status!r}"
-            + (f" ({label})" if label else "")
-            + " : les donnees d'elements peuvent etre absentes ou instables."
-        )
-    elif errors:
-        health = "partial"
-        warning = "Snapshot partiel : une ou plusieurs routes BIMData ont echoue."
-    elif not snapshot.elements:
-        health = "empty_elements"
-        warning = "Snapshot sans elements bruts : verifier que la maquette est bien exploitable."
-
-    return {
-        "snapshot_health": health,
-        "snapshot_warning": warning,
-        "model_status": status,
-        "model_status_label": label,
-        "n_extraction_errors": len(errors),
-        "extraction_errors": errors,
-    }
+#: Repris du module partagé : la santé d'un snapshot ne dépend d'aucun
+#: référentiel client. Nom privé conservé — les appelants d'I3F sont inchangés.
+_snapshot_diagnostics = snapshot_diagnostics
 
 
 @mcp.tool()
