@@ -12,18 +12,24 @@ permanent ce qui n'était jusqu'ici qu'une comparaison manuelle contre `master`.
 modification de `mcp_surface.json` est un changement d'API MCP, à annoncer et à
 justifier dans la PR qui la porte. Un outil ajouté, renommé, ou dont un
 paramètre change, se voit ici en premier.
+
+**La mesure se fait dans un interpréteur neuf**, via `register_all()` seul. Une
+version antérieure importait `server` au niveau module : comme `server` importe
+les modules d'outils pour ses ré-exports de compat, les 46 décorateurs
+s'exécutaient AVANT l'appel. Le test annonçait mesurer `register_all()` et
+mesurait en fait un effet de bord d'import — exactement ce que E3-A voulait
+éliminer. Un sous-processus est le seul moyen de garantir l'ordre.
 """
 
 from __future__ import annotations
 
-import inspect
 import json
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 
-import anyio
 import pytest
-
-from audit_bim.mcp import server as mcp_server
 
 GOLDEN = Path(__file__).parent / "golden" / "mcp_surface.json"
 
@@ -44,17 +50,43 @@ LEGACY_ALIASES = frozenset(
 )
 
 
-def _current_surface() -> dict:
-    tools = anyio.run(mcp_server.mcp.list_tools)
-    prompts = anyio.run(mcp_server.mcp.list_prompts)
-    return {
+_DUMP_SCRIPT = textwrap.dedent(
+    """
+    import anyio, inspect, json, sys
+    from audit_bim.mcp.app import register_all
+
+    LEGACY = set(json.loads(sys.argv[1]))
+    mcp = register_all()
+    tools = anyio.run(mcp.list_tools)
+    prompts = anyio.run(mcp.list_prompts)
+    print(json.dumps({
         "tools": {
             t.name: sorted(inspect.signature(t.fn).parameters)
-            for t in tools
-            if t.name not in LEGACY_ALIASES
+            for t in tools if t.name not in LEGACY
         },
         "prompts": sorted(p.name for p in prompts),
-    }
+    }, sort_keys=True))
+    """
+)
+
+
+def _current_surface() -> dict:
+    """Surface produite par ``register_all()``, dans un interpréteur NEUF.
+
+    C'est ce qu'appelle ``main()`` avant de démarrer. Le sous-processus n'est
+    pas un excès de prudence : dans le processus de test, d'autres modules ont
+    déjà importé ``server`` — donc déclenché les 46 décorateurs — et la mesure
+    ne dirait rien de ce que ``register_all()`` produit réellement.
+    """
+    repo = Path(__file__).resolve().parents[2]
+    proc = subprocess.run(
+        [sys.executable, "-c", _DUMP_SCRIPT, json.dumps(sorted(LEGACY_ALIASES))],
+        capture_output=True,
+        text=True,
+        cwd=str(repo),
+    )
+    assert proc.returncode == 0, f"dump de surface échoué :\n{proc.stderr}"
+    return json.loads(proc.stdout)
 
 
 def _golden_surface() -> dict:

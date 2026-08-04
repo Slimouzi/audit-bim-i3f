@@ -1,26 +1,33 @@
-"""Serveur MCP « Audit BIM I3F » — **compat + prompt + point d'entrée**.
+"""Serveur MCP « Audit BIM I3F » — **compat + point d'entrée**.
 
-Les tools sont désormais répartis **par nature** (PR2 §2b) :
-``tools_session`` (cible/contexte/config), ``tools_audit`` (audit + findings),
-``tools_reporting`` (livrables), ``tools_actions`` (écritures), ``tools_query``
-(lecture). Les ``aliases`` (re-dispatch) sont désormais **opt-in LEGACY** (cf.
+Les tools vivent dans le **profil** (``audit_bim.profiles.i3f``, E2), répartis
+par nature : ``tools_session`` (cible/contexte/config), ``tools_audit`` (audit +
+findings), ``tools_reporting`` (livrables), ``tools_actions`` (écritures),
+``tools_query`` (lecture). Les ``aliases`` (re-dispatch) sont désormais **opt-in LEGACY** (cf.
 ``app._legacy_aliases_enabled`` / ``AUDIT_BIM_ENABLE_LEGACY_ALIASES``). L'instance
 ``mcp``, les middlewares et l'enregistrement **explicite** (``register_all``)
 vivent dans ``app.py``.
 
-Ce module ne conserve que : le **prompt** MCP, le point d'entrée ``main()``, et
-des **ré-exports de compat** (DÉPRÉCIÉS) pour que
+Ce module ne conserve que le point d'entrée ``main()`` et des **ré-exports de
+compat** (DÉPRÉCIÉS) pour que
 ``from audit_bim.mcp import server; server.<tool>(...)`` reste valide (tests +
 quelques scripts) — à retirer une fois les appelants migrés. Les ré-exports des
 **aliases** sont **lazy** (PEP 562, cf. ``__getattr__``) : importer ``server`` ne
 tire plus ``aliases.py`` (sinon les tools LEGACY seraient enregistrés malgré le
-flag). (Imports au niveau module : aucun cycle — tous ces modules importent
-``mcp`` depuis ``.app``.)
+flag).
+
+Le **prompt** n'est plus déclaré ici depuis E3-A : sa déclaration vit dans
+``audit_bim.profiles.i3f.prompts.register_prompts()``, appelée par
+``app.register_all()``. Ce module ignore jusqu'au nom de la constante — c'est ce
+qui permet à un autre profil d'enregistrer les siens sans le modifier.
+
+Le cycle d'import est évité par ``audit_bim/mcp/__init__`` qui expose ``main``
+paresseusement (PEP 562) : ``server`` important le profil, le tirer depuis
+l'``__init__`` du paquet réimporterait un module en cours d'initialisation.
 """
 
 from __future__ import annotations
 
-from ..profiles.i3f.prompts import AMO_BIM_I3F_PROMPT
 from ..profiles.i3f.tools_actions import (  # noqa: F401  (ré-export compat)
     apply_bcf_topics,
     apply_classification_update_plan,
@@ -105,15 +112,6 @@ def __getattr__(name: str):
 
         return getattr(aliases, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-# ── Prompt MCP ─────────────────────────────────────────────────────────────
-
-
-@mcp.prompt()
-def amo_bim_i3f() -> str:
-    """Persona AMO BIM I3F — chargée par Claude au démarrage du serveur."""
-    return AMO_BIM_I3F_PROMPT
 
 
 def main() -> None:

@@ -276,3 +276,31 @@ identifier ce qui manque et formuler les questions au MOA. N'enchaîne
 pas sur l'audit tant que les questions critiques (`missing`) n'ont pas
 été clarifiées.
 """
+
+
+# ── Enregistrement MCP ───────────────────────────────────────────────────────
+# La DÉCLARATION du prompt vit ici, pas dans le serveur. C'est ce qui permet à
+# un autre profil d'enregistrer les siens sans qu'aucune ligne de
+# ``audit_bim/mcp`` ne le mentionne.
+
+#: Instances déjà servies — l'enregistrement est idempotent par instance.
+#: ``register_all()`` est elle-même idempotente, mais un appelant direct ne l'est
+#: pas forcément, et FastMCP refuse un nom déjà pris.
+_registered_on: set[int] = set()
+
+
+def register_prompts(mcp) -> None:
+    """Enregistre les prompts du profil I3F sur une instance MCP.
+
+    Args:
+        mcp: instance exposant ``prompt()``. Typage canard : ce module n'importe
+            aucun serveur, comme le reste du profil.
+    """
+    if id(mcp) in _registered_on:
+        return
+    _registered_on.add(id(mcp))
+
+    @mcp.prompt()
+    def amo_bim_i3f() -> str:
+        """Persona AMO BIM I3F — chargée par Claude au démarrage du serveur."""
+        return AMO_BIM_I3F_PROMPT
