@@ -26,7 +26,7 @@ from .middleware import (
 )
 from .session import _State  # ré-export : conteneur d'état de session
 
-__all__ = ["mcp", "_State", "register_all", "registered_profile_id"]
+__all__ = ["mcp", "_State", "main", "register_all", "registered_profile_id"]
 
 mcp = FastMCP("audit-bim-i3f")
 # Masquage d'erreurs en réseau (E10) en **premier** = enveloppe extérieure : il
@@ -113,3 +113,18 @@ def register_all() -> FastMCP:
     _registered = True
     _registered_profile_id = profile.id
     return mcp
+
+
+def main() -> None:
+    """Point d'entrée stdio simple : enregistre le profil actif, puis sert.
+
+    Vivait dans ``server.py``. L'y laisser obligeait le paquet à importer
+    ``server`` pour exposer ``main`` — donc à charger ses ré-exports, donc à
+    enregistrer le profil I3F avant même le choix du profil actif. Le point
+    d'entrée appartient au module qui tient l'instance, pas au module de compat.
+
+    L'exécutable ``audit-bim-mcp`` passe, lui, par ``__main__.main`` (argparse,
+    transports réseau, garde-fous de démarrage).
+    """
+    register_all()
+    mcp.run()

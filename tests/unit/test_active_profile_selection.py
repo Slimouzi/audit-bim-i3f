@@ -51,7 +51,7 @@ print(json.dumps({
 """
 
 
-def _probe(profile_id: str | None = None) -> dict:
+def _probe(profile_id: str | None = None, prelude: str = "pass") -> dict:
     """Lance ``register_all()`` dans un interpréteur **frais**.
 
     Indispensable : l'enregistrement est idempotent par processus, et
@@ -62,7 +62,7 @@ def _probe(profile_id: str | None = None) -> dict:
     if profile_id is not None:
         env[ACTIVE_PROFILE_ENV] = profile_id
     result = subprocess.run(
-        [sys.executable, "-c", _PROBE],
+        [sys.executable, "-c", f"{prelude}\n{_PROBE}"],
         capture_output=True,
         text=True,
         cwd=REPO,
@@ -133,6 +133,75 @@ def test_another_profile_neither_registers_nor_imports_i3f():
     assert not (set(other["tools"]) & (set(i3f["tools"]) - {"list_mcp_profiles"})), (
         "des outils I3F sont exposés au profil tiers"
     )
+
+
+#: Ce qu'un appelant peut charger **avant** ``register_all()``. La sélection de
+#: profil doit tenir quel que soit l'ordre — sinon elle n'est pas une garantie,
+#: seulement l'espoir que personne n'importe le mauvais module en premier.
+PRELUDES = [
+    "pass",
+    "import audit_bim.mcp.server",
+    "from audit_bim.mcp import server",
+    "from audit_bim.mcp import main",
+    "import audit_bim.mcp",
+    "from audit_bim.profiles.registry import list_profiles; list_profiles()",
+]
+
+
+@pytest.mark.parametrize("prelude", PRELUDES)
+def test_no_import_order_can_smuggle_the_i3f_profile_in(prelude):
+    """Le défaut réel corrigé après revue d'E4.
+
+    ``audit_bim/mcp/__init__`` exposait ``main`` depuis ``server``, et
+    ``server`` importait les modules I3F au niveau module pour ses ré-exports.
+    Un simple ``import audit_bim.mcp.server`` enregistrait donc les 45 outils
+    I3F **avant** que ``register_all()`` n'ait lu le profil : le profil actif
+    était correctement rapporté, et la surface était quand même celle d'I3F.
+
+    Le chemin nominal était sain, ce qui est exactement pourquoi il fallait
+    tester les autres.
+    """
+    seen = _probe("bim_in_motion", prelude=prelude)
+    assert seen["tools"] == ["list_mcp_profiles"], f"prélude {prelude!r} : {seen['tools']}"
+    assert seen["i3f_modules"] == [], f"prélude {prelude!r} a importé {seen['i3f_modules']}"
+
+
+def test_the_prelude_probe_is_not_vacuous():
+    """Les mêmes préludes, sous I3F, doivent bien charger le profil."""
+    for prelude in PRELUDES:
+        seen = _probe("i3f", prelude=prelude)
+        assert len(seen["tools"]) == 46, f"prélude {prelude!r} : {len(seen['tools'])} outils"
+        assert seen["i3f_modules"], f"prélude {prelude!r} n'a rien chargé"
+
+
+def test_compat_reexports_refuse_to_serve_another_profile():
+    """Sous un autre profil, ``server.<tool>`` n'existe pas.
+
+    Servir le nom importerait le profil I3F dans le processus d'un autre AMO et
+    y enregistrerait ses outils. L'``AttributeError`` est le comportement
+    correct : le ré-export est une compat pour I3F, pas une API universelle.
+    """
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(REPO), ACTIVE_PROFILE_ENV: "bim_in_motion"}
+    probe = (
+        "import sys\n"
+        "from audit_bim.mcp import server\n"
+        "try:\n"
+        "    server.full_audit\n"
+        "except AttributeError as exc:\n"
+        "    assert 'I3F' in str(exc), str(exc)\n"
+        "else:\n"
+        "    raise SystemExit('le ré-export a servi un outil I3F sous un autre profil')\n"
+        "assert not [m for m in sys.modules if m.startswith('audit_bim.profiles.i3f')]\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+        env=env,
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr[-2000:]
 
 
 def test_the_server_keeps_its_own_transverse_tools():

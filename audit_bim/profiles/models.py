@@ -237,6 +237,7 @@ class McpProfile:
             "enabled_generic_modules": list(self.enabled_generic_modules),
             "tool_modules": list(self.tool_modules),
             "prompt_module": self.prompt_module,
+            "legacy_alias_module": self.legacy_alias_module,
             "specializations": [s.to_dict() for s in self.specializations],
             "report_packs": list(self.report_packs),
             "notes": list(self.notes),

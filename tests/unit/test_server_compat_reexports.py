@@ -16,6 +16,7 @@ import json
 import re
 import subprocess
 import sys
+from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -49,14 +50,38 @@ LAZY_ALIASES = (
 
 
 def _reexported_names() -> list[str]:
-    """Noms importés par ``server.py`` depuis le profil."""
-    tree = ast.parse(Path(server.__file__).read_text(encoding="utf-8"))
-    return [
-        alias.asname or alias.name
-        for node in tree.body
-        if isinstance(node, ast.ImportFrom) and node.module and "profiles.i3f" in node.module
-        for alias in node.names
-    ]
+    """Noms que ``server.py`` ré-exporte depuis le profil.
+
+    Lus dans la carte ``_REEXPORTS``, et non plus dans les ``import`` du module :
+    depuis E4 il n'y en a plus un seul au niveau module, précisément pour que
+    charger ``server`` n'enregistre rien. Une lecture des imports renverrait
+    donc une liste vide — et rendrait vacants tous les contrôles qui la
+    parcourent, sans rien signaler.
+    """
+    return sorted(server._REEXPORTS)
+
+
+def test_the_reexport_inventory_is_not_empty():
+    """Sentinelle : la liste alimente des boucles, un vide passerait partout."""
+    assert len(_reexported_names()) == 43
+
+
+def test_every_reexport_points_at_a_module_of_the_profile():
+    """La carte nom → module doit rester alignée sur le profil.
+
+    Elle a été **dérivée** des anciens imports, pas retapée ; ce test empêche
+    qu'elle diverge ensuite du module qui déclare réellement l'outil.
+    """
+    from audit_bim.profiles.registry import get_profile
+
+    declared = set(get_profile("i3f").tool_modules)
+    stray = {m for m in server._REEXPORTS.values() if m not in declared}
+    assert not stray, f"modules hors profil dans la carte de compat : {stray}"
+
+    for name, module_path in server._REEXPORTS.items():
+        assert getattr(import_module(module_path), name, None) is not None, (
+            f"{module_path} ne fournit pas {name}"
+        )
 
 
 # ── 1. La compat fonctionne toujours ──────────────────────────────────
