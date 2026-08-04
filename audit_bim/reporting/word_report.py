@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import io
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import date
 from pathlib import Path
 
@@ -141,16 +141,20 @@ NONCONFORMITY_SEVERITIES = {Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM}
 
 # ── Mapping thèmes du moteur → domaines de la synthèse « Résultats globaux »
 # Chaque domaine agrège un ou plusieurs ``Theme`` du moteur d'audit.
-DOMAINS: list[tuple[str, set[Theme]]] = [
-    ("Structure IFC / hiérarchie spatiale", {Theme.SPATIAL_HIERARCHY}),
+# Thèmes déclarés en TUPLES, pas en sets : ces collections ne servent
+# aujourd'hui qu'à construire des mappings (ordre indifférent), mais un set qui
+# traîne finit toujours par être itéré pour produire de la sortie — c'est
+# exactement ce qui s'est passé dans ``_theme_block``.
+DOMAINS: list[tuple[str, tuple[Theme, ...]]] = [
+    ("Structure IFC / hiérarchie spatiale", (Theme.SPATIAL_HIERARCHY,)),
     (
         "Conventions de nommage",
-        {Theme.NAMING_SITE_BAT_ETAGE, Theme.NAMING_ZONE, Theme.NAMING_SPACE},
+        (Theme.NAMING_SITE_BAT_ETAGE, Theme.NAMING_ZONE, Theme.NAMING_SPACE),
     ),
-    ("Classification", {Theme.CLASSIFICATION}),
-    ("Propriétés (Psets)", {Theme.PROPERTY_MISSING, Theme.PROPERTY_INVALID}),
-    ("Quantités / géométrie", {Theme.QUANTITY}),
-    ("Documents attendus", {Theme.DOCUMENT}),
+    ("Classification", (Theme.CLASSIFICATION,)),
+    ("Propriétés (Psets)", (Theme.PROPERTY_MISSING, Theme.PROPERTY_INVALID)),
+    ("Quantités / géométrie", (Theme.QUANTITY,)),
+    ("Documents attendus", (Theme.DOCUMENT,)),
 ]
 
 # Statut domaine → libellé + couleur (charte feux tricolores).
@@ -739,11 +743,20 @@ def _write_section_detailed_results(
     for f in result.findings:
         by_theme_all.setdefault(f.theme, []).append(f)
 
-    def _theme_block(themes: set[Theme], *, with_suggestions: bool = False) -> None:
+    def _theme_block(themes: Sequence[Theme], *, with_suggestions: bool = False) -> None:
+        """Rend le bloc d'un ou plusieurs thèmes, dans l'ordre DÉCLARÉ.
+
+        ``themes`` est une séquence, pas un ensemble : l'itération d'un
+        ``set[Theme]`` dépend du hash de ses membres, donc du processus. Deux
+        rendus du même audit sortaient les lignes dans un ordre différent —
+        sans erreur, sans que rien ne le signale. L'ordre d'écriture au site
+        d'appel devient la référence, et il est lisible en relecture.
+        """
         items: list[Finding] = []
         for th in themes:
             items.extend(by_theme_all.get(th, []))
-        # Tri par sévérité (CRITICAL d'abord) puis cap.
+        # Tri par sévérité (CRITICAL d'abord) puis cap. ``sort`` est stable :
+        # à sévérité égale, l'ordre des thèmes ci-dessus est conservé.
         order = {s: i for i, s in enumerate(Severity.ordered())}
         items.sort(key=lambda f: order.get(f.severity, 99))
         smap = _suggestions_map(result) if with_suggestions else None
@@ -755,7 +768,7 @@ def _write_section_detailed_results(
         "Organisation IFC (Site → Bâtiment → Niveau → Espace) et présence "
         "des entités spatiales attendues."
     )
-    _theme_block({Theme.SPATIAL_HIERARCHY})
+    _theme_block((Theme.SPATIAL_HIERARCHY,))
 
     # 6.2 Qualité des données
     _add_heading(doc, "6.2 Qualité des données", level=2)
@@ -763,7 +776,7 @@ def _write_section_detailed_results(
         "Contrôle des propriétés obligatoires (Psets par phase) et de la "
         "validité des valeurs (présence, type, valeurs non vides)."
     )
-    _theme_block({Theme.PROPERTY_MISSING, Theme.PROPERTY_INVALID})
+    _theme_block((Theme.PROPERTY_MISSING, Theme.PROPERTY_INVALID))
 
     # 6.3 Classification
     _add_heading(doc, "6.3 Classification", level=2)
@@ -774,7 +787,7 @@ def _write_section_detailed_results(
             "Présence et cohérence de la classification IFC.",
         )
     )
-    _theme_block({Theme.CLASSIFICATION}, with_suggestions=True)
+    _theme_block((Theme.CLASSIFICATION,), with_suggestions=True)
 
     # 6.4 Conventions de nommage
     _add_heading(doc, "6.4 Conventions de nommage", level=2)
@@ -785,7 +798,7 @@ def _write_section_detailed_results(
             "Contrôle du nommage des objets, niveaux, zones et espaces.",
         )
     )
-    _theme_block({Theme.NAMING_SITE_BAT_ETAGE, Theme.NAMING_ZONE, Theme.NAMING_SPACE})
+    _theme_block((Theme.NAMING_SITE_BAT_ETAGE, Theme.NAMING_ZONE, Theme.NAMING_SPACE))
 
     # 6.5 Contrôles géométriques
     _add_heading(doc, "6.5 Contrôles géométriques", level=2)
