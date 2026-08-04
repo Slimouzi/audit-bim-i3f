@@ -12,6 +12,7 @@ import pytest
 
 from audit_bim.audit.engine import AuditResult
 from audit_bim.extraction.model_data import ModelSnapshot
+from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack as tr_generate_avp_i3f_pack
 from audit_bim.reporting import avp_i3f
 from audit_bim.reporting.avp_i3f import AvpQaError, write_avp_i3f_report_pack
 from audit_bim.reporting.avp_sources import AvpSources, MultiSheetSource, SheetGrid
@@ -491,7 +492,6 @@ def test_snapshot_param_activates_fallback_without_result(tmp_path):
 def test_tool_passes_state_snapshot_without_audit(tmp_path, monkeypatch):
     """P1 (bout en bout) : après verify_active_model seul (_State.snapshot
     posé, _State.result None), generate_avp_i3f_pack remplit les annexes."""
-    from audit_bim.mcp import server as mcp_server
     from audit_bim.mcp.session import _Session, current_session
 
     monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
@@ -506,7 +506,7 @@ def test_tool_passes_state_snapshot_without_audit(tmp_path, monkeypatch):
     sess.snapshot = _synthetic_result().snapshot  # snapshot chargé, pas d'audit
     token = current_session.set(sess)
     try:
-        res = mcp_server.generate_avp_i3f_pack(
+        res = tr_generate_avp_i3f_pack(
             project_name="X",
             project_code="Y",
             phase="AVP",
@@ -709,7 +709,6 @@ def test_qa_gate_blocks_empty_menuiseries(tmp_path, monkeypatch):
 def test_tool_returns_error_status_on_empty(tmp_path, monkeypatch):
     """Le tool MCP renvoie un statut d'erreur explicite (pas un fichier vide)
     quand la QA gate échoue."""
-    from audit_bim.mcp import server as mcp_server
     from audit_bim.mcp.session import _Session, current_session
 
     monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
@@ -719,7 +718,7 @@ def test_tool_returns_error_status_on_empty(tmp_path, monkeypatch):
     sess.result = _synthetic_result()
     token = current_session.set(sess)
     try:
-        res = mcp_server.generate_avp_i3f_pack(
+        res = tr_generate_avp_i3f_pack(
             project_name="X", project_code="Y", phase="AVP", auditor="AMO BIM", export_pdf=False
         )
     finally:

@@ -27,8 +27,39 @@ import pytest
 from audit_bim.audit.engine import AuditResult
 from audit_bim.audit.findings import ErrorType, Finding, Severity, Theme
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.aliases import apply_bcf_plan as al_apply_bcf_plan
+from audit_bim.profiles.i3f.aliases import apply_smartviews_plan as al_apply_smartviews_plan
+from audit_bim.profiles.i3f.aliases import prepare_bcf_from_findings as al_prepare_bcf_from_findings
+from audit_bim.profiles.i3f.aliases import (
+    prepare_doe_enrichment_from_file as al_prepare_doe_enrichment_from_file,
+)
+from audit_bim.profiles.i3f.aliases import (
+    prepare_smartviews_from_findings as al_prepare_smartviews_from_findings,
+)
+from audit_bim.profiles.i3f.tools_actions import (
+    apply_classification_update_plan as ta_apply_classification_update_plan,
+)
+from audit_bim.profiles.i3f.tools_actions import (
+    apply_doe_enrichment_plan as ta_apply_doe_enrichment_plan,
+)
+from audit_bim.profiles.i3f.tools_actions import audit_trail as ta_audit_trail
+from audit_bim.profiles.i3f.tools_actions import extract_doe_records as ta_extract_doe_records
+from audit_bim.profiles.i3f.tools_actions import list_write_plans as ta_list_write_plans
+from audit_bim.profiles.i3f.tools_actions import match_doe_to_ifc as ta_match_doe_to_ifc
+from audit_bim.profiles.i3f.tools_actions import (
+    prepare_classification_update_plan as ta_prepare_classification_update_plan,
+)
+from audit_bim.profiles.i3f.tools_actions import (
+    prepare_doe_enrichment_plan as ta_prepare_doe_enrichment_plan,
+)
+from audit_bim.profiles.i3f.tools_actions import (
+    update_suggestion_status as ta_update_suggestion_status,
+)
+from audit_bim.profiles.i3f.tools_query import list_audit_findings as tq_list_audit_findings
+from audit_bim.profiles.i3f.tools_query import (
+    list_classification_suggestions as tq_list_classification_suggestions,
+)
 from audit_bim.requirements.models import BIMPhase, RequirementsCatalog
 from audit_bim.security import write_journal as journal_mod
 
@@ -220,12 +251,12 @@ class TestWorkflowAmoBimE2E:
         sess, client, tmp_path = amo_workflow_session
 
         # ── Étape 3 : filtrer les findings ────────────────────────────────
-        findings_resp = mcp_server.list_audit_findings(filter={"themes": ["Classification IFC"]})
+        findings_resp = tq_list_audit_findings(filter={"themes": ["Classification IFC"]})
         assert findings_resp["total"] == 3
         _assert_no_api_calls(client, "list_audit_findings")
 
         # ── Étape 4 : lister les suggestions (lazy-populate) ──────────────
-        suggestions_resp = mcp_server.list_classification_suggestions()
+        suggestions_resp = tq_list_classification_suggestions()
         assert suggestions_resp["total"] >= 1
         assert sess.suggestion_store is not None
         assert len(sess.suggestion_store) >= 1
@@ -235,15 +266,13 @@ class TestWorkflowAmoBimE2E:
         accepted_uuids = []
         for entry in list(sess.suggestion_store):
             if entry.confidence >= 0.4:
-                mcp_server.update_suggestion_status(
-                    element_uuid=entry.element_uuid, status="accepted"
-                )
+                ta_update_suggestion_status(element_uuid=entry.element_uuid, status="accepted")
                 accepted_uuids.append(entry.element_uuid)
         assert len(accepted_uuids) >= 1
         _assert_no_api_calls(client, "update_suggestion_status")
 
         # ── Étape 6 : préparer le plan classification ─────────────────────
-        plan_classif = mcp_server.prepare_classification_update_plan()
+        plan_classif = ta_prepare_classification_update_plan()
         assert plan_classif["kind"] == "classification_update"
         assert plan_classif["requires_confirm"] is True
         assert "plan_path" in plan_classif
@@ -257,35 +286,35 @@ class TestWorkflowAmoBimE2E:
         assert (tmp_path / "plans").is_dir()
 
         # ── Étape 8 : préparer le plan BCF (via alias métier) ─────────────
-        plan_bcf = mcp_server.prepare_bcf_from_findings(finding_filter={"severity_min": "HIGH"})
+        plan_bcf = al_prepare_bcf_from_findings(finding_filter={"severity_min": "HIGH"})
         assert plan_bcf["kind"] == "bcf_topics"
         assert plan_bcf["requires_confirm"] is True
         assert plan_bcf["n_items"] >= 1
         _assert_no_api_calls(client, "prepare_bcf_from_findings")
 
         # ── Étape 10 : préparer le plan Smart Views (via alias) ───────────
-        plan_sv = mcp_server.prepare_smartviews_from_findings()
+        plan_sv = al_prepare_smartviews_from_findings()
         assert plan_sv["kind"] == "smart_views"
         assert plan_sv["requires_confirm"] is True
         _assert_no_api_calls(client, "prepare_smartviews_from_findings")
 
         # ── Étapes 7/9/11 : tous les apply_* refusent confirm=False ───────
-        refused_classif = mcp_server.apply_classification_update_plan(
+        refused_classif = ta_apply_classification_update_plan(
             plan_path=plan_classif["plan_path"], confirm=False
         )
         assert refused_classif.get("refused") is True
         _assert_no_api_calls(client, "apply_classification_update_plan(False)")
 
-        refused_bcf = mcp_server.apply_bcf_plan(plan_path=plan_bcf["plan_path"], confirm=False)
+        refused_bcf = al_apply_bcf_plan(plan_path=plan_bcf["plan_path"], confirm=False)
         assert refused_bcf.get("refused") is True
         _assert_no_api_calls(client, "apply_bcf_plan(False)")
 
-        refused_sv = mcp_server.apply_smartviews_plan(plan_path=plan_sv["plan_path"], confirm=False)
+        refused_sv = al_apply_smartviews_plan(plan_path=plan_sv["plan_path"], confirm=False)
         assert refused_sv.get("refused") is True
         _assert_no_api_calls(client, "apply_smartviews_plan(False)")
 
         # ── Étape 12 : audit_trail — vide (rien n'a été exécuté) ─────────
-        trail = mcp_server.audit_trail()
+        trail = ta_audit_trail()
         assert trail["total_returned"] == 0
 
     def test_workflow_full_audit_with_push_mode_none_does_not_write(self, amo_workflow_session):
@@ -297,13 +326,13 @@ class TestWorkflowAmoBimE2E:
         # injecté le résultat manuellement, on ne le rejoue pas ici ;
         # on vérifie juste que list_write_plans et audit_trail
         # fonctionnent sans appel API.
-        plans = mcp_server.list_write_plans()
+        plans = ta_list_write_plans()
         assert "plans" in plans
         # Aucun plan préparé dans ce test (fixture isolated) → liste vide
         # ou bien des plans créés par d'autres sous-tests (selon ordre).
         _assert_no_api_calls(client, "list_write_plans")
 
-        trail = mcp_server.audit_trail()
+        trail = ta_audit_trail()
         assert "entries" in trail
         _assert_no_api_calls(client, "audit_trail")
 
@@ -330,30 +359,28 @@ class TestWorkflowAmoBimE2E:
         wb.save(doe_path)
 
         # ── Étape DOE-1 : extract_doe_records ─────────────────────────────
-        extracted = mcp_server.extract_doe_records(doe_path=str(doe_path))
+        extracted = ta_extract_doe_records(doe_path=str(doe_path))
         assert extracted["total"] >= 2
         _assert_no_api_calls(client, "extract_doe_records")
 
         # ── Étape DOE-2 : match_doe_to_ifc ────────────────────────────────
-        matched = mcp_server.match_doe_to_ifc(doe_path=str(doe_path))
+        matched = ta_match_doe_to_ifc(doe_path=str(doe_path))
         assert matched["n_records"] >= 2
         _assert_no_api_calls(client, "match_doe_to_ifc")
 
         # ── Étape DOE-3 : prepare_doe_enrichment_plan ─────────────────────
-        plan_doe = mcp_server.prepare_doe_enrichment_plan(doe_path=str(doe_path))
+        plan_doe = ta_prepare_doe_enrichment_plan(doe_path=str(doe_path))
         assert plan_doe["kind"] == "doe_enrichment"
         assert plan_doe["requires_confirm"] is True
         assert "plan_path" in plan_doe
         _assert_no_api_calls(client, "prepare_doe_enrichment_plan")
 
         # ── Étape DOE-3 bis : alias métier ───────────────────────────────
-        plan_alias = mcp_server.prepare_doe_enrichment_from_file(doe_path=str(doe_path))
+        plan_alias = al_prepare_doe_enrichment_from_file(doe_path=str(doe_path))
         assert plan_alias["kind"] == "doe_enrichment"
         _assert_no_api_calls(client, "prepare_doe_enrichment_from_file")
 
         # ── Étape DOE-4 : apply_doe_enrichment_plan(confirm=False) ────────
-        refused = mcp_server.apply_doe_enrichment_plan(
-            plan_path=plan_doe["plan_path"], confirm=False
-        )
+        refused = ta_apply_doe_enrichment_plan(plan_path=plan_doe["plan_path"], confirm=False)
         assert refused.get("refused") is True
         _assert_no_api_calls(client, "apply_doe_enrichment_plan(False)")

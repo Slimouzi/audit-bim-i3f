@@ -10,8 +10,17 @@ vivent dans ``app.py``.
 
 Ce module ne conserve que le point d'entrée ``main()`` et des **ré-exports de
 compat** (DÉPRÉCIÉS) pour que
-``from audit_bim.mcp import server; server.<tool>(...)`` reste valide (tests +
-quelques scripts) — à retirer une fois les appelants migrés. Les ré-exports des
+``from audit_bim.mcp import server; server.<tool>(...)`` reste valide.
+
+**Plus aucun appelant du dépôt ne les utilise** depuis E3-B : tests et scripts
+appellent les modules du profil directement. Ils ne subsistent que pour un
+consommateur externe éventuel, et ne sont **pas** l'API principale — celle-ci
+est le registre MCP, ou ``audit_bim.profiles.i3f.tools_*`` côté Python.
+
+Ils ne sont plus non plus nécessaires à l'enregistrement : depuis E3-A,
+``register_all()`` importe elle-même les modules du profil. Les retirer serait
+donc sans effet sur la surface MCP — c'est un choix de compatibilité, pas une
+contrainte technique. Les ré-exports des
 **aliases** sont **lazy** (PEP 562, cf. ``__getattr__``) : importer ``server`` ne
 tire plus ``aliases.py`` (sinon les tools LEGACY seraient enregistrés malgré le
 flag).

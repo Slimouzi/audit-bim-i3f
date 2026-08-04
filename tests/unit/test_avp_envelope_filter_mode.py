@@ -21,8 +21,8 @@ import json
 import pytest
 
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack as tr_generate_avp_i3f_pack
 from audit_bim.reporting import avp_autocompute
 from audit_bim.reporting.avp.xlsx_enveloppe import _note_menuiseries, _note_methodologie
 from audit_bim.reporting.avp_sources import read_envelope_json
@@ -96,7 +96,7 @@ def test_filter_mode_reaches_the_geometry_backend(session, tmp_path, monkeypatch
     ifc = tmp_path / "DIEPPE-7427L.ifc"
     ifc.write_text("ISO-10303-21;", encoding="utf-8")
 
-    mcp_server.generate_avp_i3f_pack(
+    tr_generate_avp_i3f_pack(
         project_name="Dieppe",
         project_code="7427L",
         phase="APD",
@@ -123,7 +123,7 @@ def test_incoherent_filter_mode_is_refused_not_degraded(session, tmp_path, monke
     ifc = tmp_path / "DIEPPE-7427L.ifc"
     ifc.write_text("ISO-10303-21;", encoding="utf-8")
 
-    res = mcp_server.generate_avp_i3f_pack(
+    res = tr_generate_avp_i3f_pack(
         project_name="Dieppe",
         project_code="7427L",
         phase="APD",
@@ -284,7 +284,7 @@ def test_notes_reach_the_generated_xlsx(session, tmp_path, monkeypatch):
     ifc = tmp_path / "DIEPPE-7427L.ifc"
     ifc.write_text("ISO-10303-21;", encoding="utf-8")
 
-    res = mcp_server.generate_avp_i3f_pack(
+    res = tr_generate_avp_i3f_pack(
         project_name="Dieppe",
         project_code="7427L",
         phase="APD",
@@ -370,7 +370,7 @@ def _generer_pack_avec_shab(tmp_path, monkeypatch, methode="pieces_zonees_hors_a
     monkeypatch.setattr(avp_autocompute, "compute_envelope_payload", _fake)
     ifc = tmp_path / "DIEPPE-7427L.ifc"
     ifc.write_text("ISO-10303-21;", encoding="utf-8")
-    return mcp_server.generate_avp_i3f_pack(
+    return tr_generate_avp_i3f_pack(
         project_name="Dieppe",
         project_code="7427L",
         phase="APD",

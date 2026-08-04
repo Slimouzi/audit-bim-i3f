@@ -19,6 +19,7 @@ import pytest
 
 from audit_bim import mcp as mcp_pkg
 from audit_bim.profiles import i3f as i3f_pkg
+from audit_bim.profiles.i3f.aliases import prepare_bcf_from_findings as al_prepare_bcf_from_findings
 
 MCP_DIR = Path(mcp_pkg.__file__).parent
 I3F_DIR = Path(i3f_pkg.__file__).parent
@@ -104,9 +105,8 @@ def test_public_names_are_still_reachable_from_server():
 
 def test_legacy_aliases_are_still_lazily_reachable():
     """Les aliases restent opt-in : accessibles, mais non enregistrés par défaut."""
-    from audit_bim.mcp import server
 
-    assert callable(server.prepare_bcf_from_findings)
+    assert callable(al_prepare_bcf_from_findings)
 
 
 def test_server_no_longer_knows_the_profile_prompt():

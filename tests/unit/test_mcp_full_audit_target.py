@@ -27,6 +27,7 @@ from audit_bim import config as _config
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.profiles.i3f import tools_audit as mcp_server
+from audit_bim.profiles.i3f.tools_audit import full_audit as tau_full_audit
 from audit_bim.requirements.models import BIMPhase
 
 # ── Fixtures ───────────────────────────────────────────────────────────
@@ -112,7 +113,7 @@ class TestFullAuditPreservesActiveTarget:
             m_ctx.return_value = object()
             m_merge.return_value = object()
 
-            out = mcp_server.full_audit(
+            out = tau_full_audit(
                 cloud_id=None,
                 project_id=None,
                 model_id=None,
@@ -199,7 +200,7 @@ class TestFullAuditPreservesActiveTarget:
 
             m_set.side_effect = _fake_set
 
-            mcp_server.full_audit(
+            tau_full_audit(
                 push_mode="none",
                 output_dir=str(tmp_path),
                 confirm_context=True,
@@ -250,7 +251,7 @@ class TestFullAuditPreservesActiveTarget:
 
             m_set.side_effect = _fake_set
 
-            mcp_server.full_audit(
+            tau_full_audit(
                 cloud_id=None,
                 project_id=None,
                 model_id=None,
@@ -295,7 +296,7 @@ class TestFullAuditPreservesActiveTarget:
             m_ctx.return_value = object()
             m_merge.return_value = object()
 
-            mcp_server.full_audit(
+            tau_full_audit(
                 cloud_id=None,
                 project_id=None,
                 model_id=None,
@@ -372,7 +373,7 @@ class TestFullAuditNoCrossModelContextContamination:
             patch.object(mcp_server, "extract_snapshot", return_value=snap_b),
             patch.object(mcp_server, "_snapshot_address_suggestion", side_effect=_fake_addr),
         ):
-            out = mcp_server.full_audit(
+            out = tau_full_audit(
                 cloud_id="1",
                 project_id="2",
                 model_id="BBB",
@@ -442,7 +443,7 @@ class TestForceRefreshSnapshotSemantics:
             patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
             patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
         ):
-            mcp_server.full_audit(
+            tau_full_audit(
                 cloud_id="1",
                 project_id="2",
                 model_id="BBB",
@@ -483,7 +484,7 @@ class TestForceRefreshSnapshotSemantics:
             patch.object(mcp_server, "write_xlsx_annex", return_value=tmp_path / "x.xlsx"),
             patch.object(mcp_server, "write_word_report", return_value=tmp_path / "x.docx"),
         ):
-            mcp_server.full_audit(
+            tau_full_audit(
                 cloud_id=None,
                 project_id=None,
                 model_id=None,

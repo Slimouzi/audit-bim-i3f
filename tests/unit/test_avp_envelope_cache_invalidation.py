@@ -21,6 +21,7 @@ import pytest
 from audit_bim.extraction import geometry_backend
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack as tr_generate_avp_i3f_pack
 from audit_bim.reporting import avp_autocompute
 from audit_bim.reporting.avp_autocompute import CONTRACTS_SUBDIR, ensure_envelope_json
 
@@ -214,7 +215,6 @@ def test_force_recomputes_even_a_valid_cache(session, backend, tmp_path):
 
 def test_the_tool_exposes_force_recompute_envelope(session, backend, tmp_path, monkeypatch):
     """Le paramètre doit exister ET atteindre ``ensure_envelope_json``."""
-    from audit_bim.mcp import server as mcp_server
 
     sess, _ = session
     sess.snapshot = ModelSnapshot(
@@ -224,7 +224,7 @@ def test_the_tool_exposes_force_recompute_envelope(session, backend, tmp_path, m
     ).index()
     _poser_cache(tmp_path, _contrat())
 
-    mcp_server.generate_avp_i3f_pack(
+    tr_generate_avp_i3f_pack(
         project_name="Dieppe",
         project_code="7427L",
         phase="APD",

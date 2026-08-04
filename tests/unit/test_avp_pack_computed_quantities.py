@@ -21,8 +21,11 @@ import openpyxl
 import pytest
 
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack as tr_generate_avp_i3f_pack
+from audit_bim.profiles.i3f.tools_reporting import (
+    list_avp_i3f_xls_reports as tr_list_avp_i3f_xls_reports,
+)
 
 SOURCE_CALCULEE = "Calculée (IfcOpenShell)"
 
@@ -120,7 +123,7 @@ def _nombres(path) -> list[float]:
 def _generer(*, computed=None, auto=False, **kw):
     """Génération de test. ``auto=False`` par défaut : ces tests portent sur la
     QA gate elle-même, pas sur l'auto-résolution (fichier dédié)."""
-    return mcp_server.generate_avp_i3f_pack(
+    return tr_generate_avp_i3f_pack(
         auto_compute_quantities=auto,
         auto_compute_envelope=auto,
         project_name="Dieppe",
@@ -164,7 +167,7 @@ def test_availability_tool_signals_the_need_upfront(session):
     sess, _ = session
     sess.snapshot = _snapshot_sans_quantites()
 
-    res = mcp_server.list_avp_i3f_xls_reports()
+    res = tr_list_avp_i3f_xls_reports()
 
     assert res["needs_computed_quantities_json"] is True
     assert set(res["reports_without_quantities"]) == {

@@ -20,8 +20,8 @@ import openpyxl
 import pytest
 
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack as tr_generate_avp_i3f_pack
 
 EXEMPLE_MOA = ("Tarare", "0546L")
 
@@ -67,7 +67,7 @@ def test_missing_identity_asks_and_generates_nothing(session):
     sess, tmp_path = session
     sess.snapshot = ModelSnapshot(model={"name": "M.ifc"}).index()  # aucun nom projet
 
-    res = mcp_server.generate_avp_i3f_pack(auditor="AMO BIM", export_pdf=False)
+    res = tr_generate_avp_i3f_pack(auditor="AMO BIM", export_pdf=False)
 
     assert res["status"] == "needs_context"
     assert {"project_name", "project_code"} <= set(res["missing"])
@@ -83,7 +83,7 @@ def test_identity_cannot_be_bypassed_by_confirm_context(session):
     sess, tmp_path = session
     sess.snapshot = ModelSnapshot(model={"name": "M.ifc"}).index()
 
-    res = mcp_server.generate_avp_i3f_pack(confirm_context=True, export_pdf=False)
+    res = tr_generate_avp_i3f_pack(confirm_context=True, export_pdf=False)
 
     assert res["status"] == "needs_context"
     assert "project_code" in res["missing"]
@@ -97,7 +97,7 @@ def test_moa_template_identity_never_reaches_the_deliverables(session):
     _snapshot(sess)
     ctrl = _moa_template(tmp_path / "controle maquettes.xlsx")
 
-    res = mcp_server.generate_avp_i3f_pack(controle_xlsx=ctrl, auditor="AMO BIM", export_pdf=False)
+    res = tr_generate_avp_i3f_pack(controle_xlsx=ctrl, auditor="AMO BIM", export_pdf=False)
 
     assert res["status"] == "needs_context"  # le code ESI manque toujours
     assert not list(Path(tmp_path).glob("**/*Tarare*"))
@@ -112,7 +112,7 @@ def test_explicit_identity_names_every_deliverable(session):
     _snapshot(sess)
     ctrl = _moa_template(tmp_path / "controle maquettes.xlsx")
 
-    res = mcp_server.generate_avp_i3f_pack(
+    res = tr_generate_avp_i3f_pack(
         controle_xlsx=ctrl,
         project_name="Dieppe",
         project_code="7427L",
@@ -142,7 +142,7 @@ def test_no_example_identity_anywhere_in_the_generated_pack(session):
     _snapshot(sess)
     ctrl = _moa_template(tmp_path / "controle maquettes.xlsx")
 
-    res = mcp_server.generate_avp_i3f_pack(
+    res = tr_generate_avp_i3f_pack(
         controle_xlsx=ctrl,
         project_name="Dieppe",
         project_code="7427L",
@@ -182,7 +182,7 @@ def test_bimdata_project_name_never_supplies_the_identity(session):
     sess, tmp_path = session
     _snapshot(sess, project_name="Dieppe")
 
-    res = mcp_server.generate_avp_i3f_pack(
+    res = tr_generate_avp_i3f_pack(
         project_code="7427L", phase="AVP", auditor="CdP BIM 3F", export_pdf=False
     )
 
@@ -198,7 +198,7 @@ def test_missing_auditor_is_asked_not_defaulted(session):
     sess, tmp_path = session
     _snapshot(sess, project_name="Dieppe")
 
-    res = mcp_server.generate_avp_i3f_pack(project_code="7427L", phase="AVP", export_pdf=False)
+    res = tr_generate_avp_i3f_pack(project_code="7427L", phase="AVP", export_pdf=False)
 
     assert res["status"] == "needs_context"
     # Clé alignée sur le PARAMÈTRE du tool : une clé sans paramètre
@@ -230,7 +230,7 @@ def test_auditor_name_is_accepted_and_appears_in_the_pack(session):
     sess, tmp_path = session
     _snapshot(sess, project_name="Dieppe")
 
-    res = mcp_server.generate_avp_i3f_pack(
+    res = tr_generate_avp_i3f_pack(
         project_name="Dieppe",
         project_code="7427L",
         phase="AVP",
@@ -255,7 +255,7 @@ def test_every_documented_auditor_param_is_accepted(session, param):
     sess, tmp_path = session
     _snapshot(sess, project_name="Dieppe")
 
-    res = mcp_server.generate_avp_i3f_pack(
+    res = tr_generate_avp_i3f_pack(
         project_name="Dieppe",
         project_code="7427L",
         phase="AVP",
@@ -270,7 +270,7 @@ def test_auditor_name_wins_over_the_compat_aliases(session):
     sess, tmp_path = session
     _snapshot(sess, project_name="Dieppe")
 
-    res = mcp_server.generate_avp_i3f_pack(
+    res = tr_generate_avp_i3f_pack(
         project_name="Dieppe",
         project_code="7427L",
         phase="AVP",

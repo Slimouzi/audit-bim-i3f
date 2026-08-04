@@ -21,8 +21,8 @@ from __future__ import annotations
 import pytest
 
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack as tr_generate_avp_i3f_pack
 
 MODELE = "DIEPPE-7427L-BATA-ARCHI-APD (3).ifc"
 
@@ -69,7 +69,7 @@ def _generer(**kw):
         "export_pdf": False,
     }
     params.update(kw)
-    return mcp_server.generate_avp_i3f_pack(**params)
+    return tr_generate_avp_i3f_pack(**params)
 
 
 def _question(res, key):
@@ -249,7 +249,7 @@ def test_moa_header_phase_never_names_the_deliverables(tmp_path, monkeypatch):
     sess = _session_sans_phase(tmp_path, monkeypatch)
     token = current_session.set(sess)
     try:
-        res = mcp_server.generate_avp_i3f_pack(
+        res = tr_generate_avp_i3f_pack(
             project_name="Dieppe",
             project_code="7427L",
             auditor_name="Stanislas Limouzi",
@@ -273,7 +273,7 @@ def test_phase_is_not_bypassable_by_confirm_context(tmp_path, monkeypatch):
     sess = _session_sans_phase(tmp_path, monkeypatch)
     token = current_session.set(sess)
     try:
-        res = mcp_server.generate_avp_i3f_pack(
+        res = tr_generate_avp_i3f_pack(
             project_name="Dieppe",
             project_code="7427L",
             auditor_name="Stanislas Limouzi",
@@ -297,7 +297,7 @@ def test_confirmed_session_phase_is_still_a_valid_source(tmp_path, monkeypatch):
     sess.phase = BIMPhase.AVP
     token = current_session.set(sess)
     try:
-        res = mcp_server.generate_avp_i3f_pack(
+        res = tr_generate_avp_i3f_pack(
             project_name="Dieppe",
             project_code="7427L",
             auditor_name="Stanislas Limouzi",

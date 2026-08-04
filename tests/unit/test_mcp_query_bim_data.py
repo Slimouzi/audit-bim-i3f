@@ -10,6 +10,9 @@ import pytest
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_query import list_query_presets as tq_list_query_presets
+from audit_bim.profiles.i3f.tools_query import query_bim_data as tq_query_bim_data
+from audit_bim.profiles.i3f.tools_query import query_bim_preset as tq_query_bim_preset
 from audit_bim.safe_paths import UnsafePathError
 
 
@@ -115,12 +118,12 @@ class TestRegistered:
 class TestQueryBimData:
     def test_requires_snapshot(self, _isolated):
         with pytest.raises(RuntimeError, match="snapshot"):
-            mcp_server.query_bim_data(filter={"ifc_types": ["IfcDoor"]})
+            tq_query_bim_data(filter={"ifc_types": ["IfcDoor"]})
 
     def test_doors_with_semantic_fields(self, _isolated):
         sess, _ = _isolated
         _wire(sess)
-        res = mcp_server.query_bim_data(
+        res = tq_query_bim_data(
             filter={"ifc_types": ["IfcDoor"]},
             fields=[
                 "name",
@@ -148,14 +151,14 @@ class TestQueryBimData:
     def test_default_fields(self, _isolated):
         sess, _ = _isolated
         _wire(sess)
-        res = mcp_server.query_bim_data()
+        res = tq_query_bim_data()
         assert res["columns"] == ["uuid", "ifc_type", "name"]
         assert res["total"] >= 1
 
     def test_include_empty_false(self, _isolated):
         sess, _ = _isolated
         _wire(sess)
-        res = mcp_server.query_bim_data(
+        res = tq_query_bim_data(
             filter={"ifc_types": ["IfcWallStandardCase"]},
             fields=["name", "acoustic_performance"],  # absent
             include_empty=False,
@@ -166,7 +169,7 @@ class TestQueryBimData:
     def test_pagination(self, _isolated):
         sess, _ = _isolated
         _wire(sess)
-        res = mcp_server.query_bim_data(limit=1, offset=0)
+        res = tq_query_bim_data(limit=1, offset=0)
         assert res["total"] == 2  # DR1 + W1
         assert len(res["rows"]) == 1
         assert res["next_offset"] == 1
@@ -174,13 +177,13 @@ class TestQueryBimData:
     def test_unknown_field_warning(self, _isolated):
         sess, _ = _isolated
         _wire(sess)
-        res = mcp_server.query_bim_data(fields=["name", "totally_unknown_field"])
+        res = tq_query_bim_data(fields=["name", "totally_unknown_field"])
         assert any("totally_unknown_field" in w for w in res["warnings"])
 
     def test_output_path_dumps_full_to_disk(self, _isolated, tmp_path):
         sess, _ = _isolated
         _wire(sess)
-        res = mcp_server.query_bim_data(
+        res = tq_query_bim_data(
             filter={"ifc_types": ["IfcDoor"]},
             fields=["name", "materials", "acoustic_performance"],
             output_path="bim_data.json",
@@ -256,7 +259,7 @@ class TestQueryBimData:
             ).index()
             sess.snapshot = snap
 
-            res = mcp_server.query_bim_data(
+            res = tq_query_bim_data(
                 filter={"ifc_types": ["IfcDoor"]},
                 fields=[
                     "name",
@@ -302,14 +305,12 @@ class TestQueryBimData:
         sess, _ = _isolated
         _wire(sess)
         with pytest.raises(UnsafePathError):
-            mcp_server.query_bim_data(
-                filter={"ifc_types": ["IfcDoor"]}, output_path="../escape.json"
-            )
+            tq_query_bim_data(filter={"ifc_types": ["IfcDoor"]}, output_path="../escape.json")
 
     def test_include_cells_exposes_source(self, _isolated):
         sess, _ = _isolated
         _wire(sess)
-        res = mcp_server.query_bim_data(
+        res = tq_query_bim_data(
             filter={"ifc_types": ["IfcDoor"]},
             fields=["acoustic_performance", "height"],
             include_cells=True,
@@ -327,7 +328,7 @@ class TestQueryBimPreset:
     def test_doors_acoustic_dimensions(self, _isolated):
         sess, _ = _isolated
         _wire(sess)
-        res = mcp_server.query_bim_preset(preset="doors_acoustic_dimensions")
+        res = tq_query_bim_preset(preset="doors_acoustic_dimensions")
         assert res["preset"] == "doors_acoustic_dimensions"
         assert res["total"] == 1
         # Le row de DR1 doit avoir tous les champs du preset.
@@ -347,7 +348,7 @@ class TestQueryBimPreset:
     def test_walls_fire_acoustic(self, _isolated):
         sess, _ = _isolated
         _wire(sess)
-        res = mcp_server.query_bim_preset(preset="walls_fire_acoustic")
+        res = tq_query_bim_preset(preset="walls_fire_acoustic")
         assert res["total"] == 1
         row = res["rows"][0]
         assert row["fire_rating"] == "EI60"
@@ -357,7 +358,7 @@ class TestQueryBimPreset:
         sess, _ = _isolated
         _wire(sess)
         with pytest.raises(ValueError, match="preset inconnu"):
-            mcp_server.query_bim_preset(preset="not_a_preset")
+            tq_query_bim_preset(preset="not_a_preset")
 
     def test_preset_filter_merged_with_user_filter(self, _isolated):
         """Si l'utilisateur passe un filtre, il remplace ou complète celui
@@ -366,7 +367,7 @@ class TestQueryBimPreset:
         _wire(sess)
         # Override : on cherche les murs avec le preset doors → 0 doors,
         # mais le user filter remplace ifc_types par IfcWallStandardCase.
-        res = mcp_server.query_bim_preset(
+        res = tq_query_bim_preset(
             preset="doors_acoustic_dimensions",
             filter={"ifc_types": ["IfcWallStandardCase"]},
         )
@@ -379,7 +380,7 @@ class TestQueryBimPreset:
 
 class TestListQueryPresets:
     def test_returns_3_default_presets(self):
-        res = mcp_server.list_query_presets()
+        res = tq_list_query_presets()
         assert res["total"] >= 3
         names = {p["name"] for p in res["presets"]}
         assert {
@@ -389,7 +390,7 @@ class TestListQueryPresets:
         }.issubset(names)
 
     def test_each_preset_has_description_and_fields(self):
-        res = mcp_server.list_query_presets()
+        res = tq_list_query_presets()
         for p in res["presets"]:
             assert p.get("description"), f"preset sans description : {p.get('name')}"
             assert p.get("fields"), f"preset sans fields : {p.get('name')}"

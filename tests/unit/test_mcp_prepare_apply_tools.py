@@ -24,6 +24,29 @@ from audit_bim.domain.filters import ConfidenceBand, SuggestionStatus
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_actions import apply_bcf_topics as ta_apply_bcf_topics
+from audit_bim.profiles.i3f.tools_actions import (
+    apply_classification_update_plan as ta_apply_classification_update_plan,
+)
+from audit_bim.profiles.i3f.tools_actions import (
+    apply_classifications_from_xlsx as ta_apply_classifications_from_xlsx,
+)
+from audit_bim.profiles.i3f.tools_actions import (
+    apply_doe_enrichment_plan as ta_apply_doe_enrichment_plan,
+)
+from audit_bim.profiles.i3f.tools_actions import apply_smart_views_plan as ta_apply_smart_views_plan
+from audit_bim.profiles.i3f.tools_actions import audit_trail as ta_audit_trail
+from audit_bim.profiles.i3f.tools_actions import list_write_plans as ta_list_write_plans
+from audit_bim.profiles.i3f.tools_actions import prepare_bcf_topics as ta_prepare_bcf_topics
+from audit_bim.profiles.i3f.tools_actions import (
+    prepare_classification_update_plan as ta_prepare_classification_update_plan,
+)
+from audit_bim.profiles.i3f.tools_actions import (
+    prepare_smart_views_plan as ta_prepare_smart_views_plan,
+)
+from audit_bim.profiles.i3f.tools_actions import (
+    update_suggestion_status as ta_update_suggestion_status,
+)
 from audit_bim.requirements.models import BIMPhase, RequirementsCatalog
 from audit_bim.security import write_journal as journal_mod
 
@@ -140,7 +163,7 @@ class TestPrepareApplyBcf:
     def test_prepare_returns_plan_path(self, _isolated):
         sess, tmp = _isolated
         _wire_session(sess)
-        res = mcp_server.prepare_bcf_topics()
+        res = ta_prepare_bcf_topics()
         assert res["kind"] == "bcf_topics"
         assert res["requires_confirm"] is True
         assert res["plan_path"].endswith(".json")
@@ -149,8 +172,8 @@ class TestPrepareApplyBcf:
     def test_apply_refuses_without_confirm(self, _isolated):
         sess, _ = _isolated
         _wire_session(sess)
-        prep = mcp_server.prepare_bcf_topics()
-        res = mcp_server.apply_bcf_topics(plan_path=prep["plan_path"], confirm=False)
+        prep = ta_prepare_bcf_topics()
+        res = ta_apply_bcf_topics(plan_path=prep["plan_path"], confirm=False)
         assert res["refused"] is True
         # Aucun appel vers le client
         assert sess.client.create_bcf_full_topic.call_count == 0
@@ -158,15 +181,15 @@ class TestPrepareApplyBcf:
     def test_apply_with_confirm_executes(self, _isolated):
         sess, _ = _isolated
         _wire_session(sess)
-        prep = mcp_server.prepare_bcf_topics()
-        res = mcp_server.apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
+        prep = ta_prepare_bcf_topics()
+        res = ta_apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
         assert res.get("succeeded", 0) >= 1
         assert sess.client.create_bcf_full_topic.call_count >= 1
 
     def test_apply_rejects_tampered_plan(self, _isolated):
         sess, tmp = _isolated
         _wire_session(sess)
-        prep = mcp_server.prepare_bcf_topics()
+        prep = ta_prepare_bcf_topics()
         # Altère le plan sur disque
         from pathlib import Path
 
@@ -174,18 +197,18 @@ class TestPrepareApplyBcf:
         raw = path.read_text(encoding="utf-8").replace("I3F Audit", "MALICIOUS")
         path.write_text(raw, encoding="utf-8")
 
-        res = mcp_server.apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
+        res = ta_apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
         assert res.get("refused") is True
         assert "altéré" in res["reason"].lower() or "checksum" in res["reason"].lower()
 
     def test_apply_rejects_target_mismatch(self, _isolated):
         sess, _ = _isolated
         _wire_session(sess)
-        prep = mcp_server.prepare_bcf_topics()
+        prep = ta_prepare_bcf_topics()
         # Change la cible courante après prepare
         sess.model_id = "99"
         sess.client.model_id = "99"
-        res = mcp_server.apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
+        res = ta_apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
         assert res.get("refused") is True
         assert "model_id" in res["reason"]
 
@@ -223,7 +246,7 @@ class TestPrepareApplyClassification:
         )
         sess.suggestion_store = store
 
-        res = mcp_server.prepare_classification_update_plan()
+        res = ta_prepare_classification_update_plan()
         # Seul A est ACCEPTED → 1 item.
         assert res["summary"]["n_classifications"] == 1
 
@@ -245,7 +268,7 @@ class TestPrepareApplyClassification:
             )
         sess.suggestion_store = store
 
-        res = mcp_server.prepare_classification_update_plan(default_to_accepted_only=False)
+        res = ta_prepare_classification_update_plan(default_to_accepted_only=False)
         assert res["summary"]["n_classifications"] == 2
 
 
@@ -268,7 +291,7 @@ class TestUpdateSuggestionStatus:
         )
         sess.suggestion_store = store
 
-        res = mcp_server.update_suggestion_status(element_uuid="X", status="accepted")
+        res = ta_update_suggestion_status(element_uuid="X", status="accepted")
         assert res["status"] == "accepted"
 
     def test_unknown_uuid_raises(self, _isolated):
@@ -276,7 +299,7 @@ class TestUpdateSuggestionStatus:
         _wire_session(sess)
         sess.suggestion_store = ClassificationSuggestionStore()
         with pytest.raises(ValueError, match="UUID inconnu"):
-            mcp_server.update_suggestion_status(element_uuid="NOPE", status="accepted")
+            ta_update_suggestion_status(element_uuid="NOPE", status="accepted")
 
     def test_invalid_status_raises(self, _isolated):
         sess, _ = _isolated
@@ -293,7 +316,7 @@ class TestUpdateSuggestionStatus:
         )
         sess.suggestion_store = store
         with pytest.raises(ValueError, match="status invalide"):
-            mcp_server.update_suggestion_status(element_uuid="X", status="bogus")
+            ta_update_suggestion_status(element_uuid="X", status="bogus")
 
 
 # ── audit_trail ──────────────────────────────────────────────────────────
@@ -304,9 +327,9 @@ class TestAuditTrail:
         sess, _ = _isolated
         _wire_session(sess)
         # Trigger un apply pour journaliser
-        prep = mcp_server.prepare_bcf_topics()
-        mcp_server.apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
-        trail = mcp_server.audit_trail(limit=10)
+        prep = ta_prepare_bcf_topics()
+        ta_apply_bcf_topics(plan_path=prep["plan_path"], confirm=True)
+        trail = ta_audit_trail(limit=10)
         assert trail["total_returned"] >= 1
         assert any(e["action"] == "apply_bcf_topics" for e in trail["entries"])
 
@@ -319,15 +342,15 @@ class TestAuditTrail:
 
 class TestListWritePlans:
     def test_empty_when_no_plans(self, _isolated):
-        res = mcp_server.list_write_plans()
+        res = ta_list_write_plans()
         assert res["total"] == 0
 
     def test_lists_after_prepare(self, _isolated):
         sess, _ = _isolated
         _wire_session(sess)
-        mcp_server.prepare_bcf_topics()
-        mcp_server.prepare_smart_views_plan()
-        res = mcp_server.list_write_plans()
+        ta_prepare_bcf_topics()
+        ta_prepare_smart_views_plan()
+        res = ta_list_write_plans()
         kinds = {p["kind"] for p in res["plans"]}
         assert {"bcf_topics", "smart_views"}.issubset(kinds)
 
@@ -353,7 +376,7 @@ class TestApplyClassificationsFromXlsx:
         _wire_session(sess)
         n_before = len(get_journal().tail(50))
         with self._patched_xlsx():
-            res = mcp_server.apply_classifications_from_xlsx("audit.xlsx", confirm=False)
+            res = ta_apply_classifications_from_xlsx("audit.xlsx", confirm=False)
         assert res["refused"] is True
         assert res["plan"]["summary"]["n_classifications"] == 1
         assert res["n_items_read_from_xlsx"] == 1
@@ -372,7 +395,7 @@ class TestApplyClassificationsFromXlsx:
                 return_value={"linked_uuids": ["u1"], "failed_uuids": [], "errors": []},
             ),
         ):
-            res = mcp_server.apply_classifications_from_xlsx("audit.xlsx", confirm=True)
+            res = ta_apply_classifications_from_xlsx("audit.xlsx", confirm=True)
         assert res.get("succeeded") == 1
         assert res["n_items_read_from_xlsx"] == 1
         # Entrée journal écrite par apply_classification_update.
@@ -397,26 +420,26 @@ class TestApplySmartViewsPostConfirmC4:
     def test_apply_with_confirm_executes(self, _isolated):
         sess, _ = _isolated
         _wire_session(sess)
-        prep = mcp_server.prepare_smart_views_plan()
-        res = mcp_server.apply_smart_views_plan(plan_path=prep["plan_path"], confirm=True)
+        prep = ta_prepare_smart_views_plan()
+        res = ta_apply_smart_views_plan(plan_path=prep["plan_path"], confirm=True)
         assert res.get("succeeded", 0) >= 1
         assert sess.client.create_bcf_full_topic.call_count >= 1
 
     def test_apply_rejects_tampered_plan(self, _isolated):
         sess, _ = _isolated
         _wire_session(sess)
-        prep = mcp_server.prepare_smart_views_plan()
+        prep = ta_prepare_smart_views_plan()
         _tamper(prep["plan_path"])
-        res = mcp_server.apply_smart_views_plan(plan_path=prep["plan_path"], confirm=True)
+        res = ta_apply_smart_views_plan(plan_path=prep["plan_path"], confirm=True)
         assert res.get("refused") is True
 
     def test_apply_rejects_target_mismatch(self, _isolated):
         sess, _ = _isolated
         _wire_session(sess)
-        prep = mcp_server.prepare_smart_views_plan()
+        prep = ta_prepare_smart_views_plan()
         sess.model_id = "99"
         sess.client.model_id = "99"
-        res = mcp_server.apply_smart_views_plan(plan_path=prep["plan_path"], confirm=True)
+        res = ta_apply_smart_views_plan(plan_path=prep["plan_path"], confirm=True)
         assert res.get("refused") is True
         assert "model_id" in res["reason"]
 
@@ -445,8 +468,8 @@ class TestApplyClassificationPostConfirmC4:
         _wire_session(sess)
         sess.client.create_classification.return_value = {"id": 1}
         sess.suggestion_store = _store_accepted()
-        prep = mcp_server.prepare_classification_update_plan()
-        res = mcp_server.apply_classification_update_plan(plan_path=prep["plan_path"], confirm=True)
+        prep = ta_prepare_classification_update_plan()
+        res = ta_apply_classification_update_plan(plan_path=prep["plan_path"], confirm=True)
         assert res.get("succeeded", 0) >= 1
         assert sess.client.assign_classification_elements.call_count >= 1
 
@@ -454,19 +477,19 @@ class TestApplyClassificationPostConfirmC4:
         sess, _ = _isolated
         _wire_session(sess)
         sess.suggestion_store = _store_accepted()
-        prep = mcp_server.prepare_classification_update_plan()
+        prep = ta_prepare_classification_update_plan()
         _tamper(prep["plan_path"])
-        res = mcp_server.apply_classification_update_plan(plan_path=prep["plan_path"], confirm=True)
+        res = ta_apply_classification_update_plan(plan_path=prep["plan_path"], confirm=True)
         assert res.get("refused") is True
 
     def test_apply_rejects_target_mismatch(self, _isolated):
         sess, _ = _isolated
         _wire_session(sess)
         sess.suggestion_store = _store_accepted()
-        prep = mcp_server.prepare_classification_update_plan()
+        prep = ta_prepare_classification_update_plan()
         sess.model_id = "99"
         sess.client.model_id = "99"
-        res = mcp_server.apply_classification_update_plan(plan_path=prep["plan_path"], confirm=True)
+        res = ta_apply_classification_update_plan(plan_path=prep["plan_path"], confirm=True)
         assert res.get("refused") is True
         assert "model_id" in res["reason"]
 
@@ -507,7 +530,7 @@ class TestApplyDoePostConfirmC4:
         _wire_session(sess)
         sess.client.write_element_propertyset.return_value = {}
         path = _doe_plan_path(sess)
-        res = mcp_server.apply_doe_enrichment_plan(plan_path=path, confirm=True)
+        res = ta_apply_doe_enrichment_plan(plan_path=path, confirm=True)
         assert res.get("succeeded", 0) >= 1
         assert sess.client.write_element_propertyset.call_count >= 1
 
@@ -516,7 +539,7 @@ class TestApplyDoePostConfirmC4:
         _wire_session(sess)
         path = _doe_plan_path(sess)
         _tamper(path)
-        res = mcp_server.apply_doe_enrichment_plan(plan_path=path, confirm=True)
+        res = ta_apply_doe_enrichment_plan(plan_path=path, confirm=True)
         assert res.get("refused") is True
 
     def test_apply_rejects_target_mismatch(self, _isolated):
@@ -525,6 +548,6 @@ class TestApplyDoePostConfirmC4:
         path = _doe_plan_path(sess)
         sess.model_id = "99"
         sess.client.model_id = "99"
-        res = mcp_server.apply_doe_enrichment_plan(plan_path=path, confirm=True)
+        res = ta_apply_doe_enrichment_plan(plan_path=path, confirm=True)
         assert res.get("refused") is True
         assert "model_id" in res["reason"]

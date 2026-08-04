@@ -20,8 +20,8 @@ import pytest
 
 from audit_bim.extraction.geometry_backend import GeometryBackendUnavailable
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack as tr_generate_avp_i3f_pack
 from audit_bim.reporting import avp_autocompute
 
 
@@ -128,7 +128,7 @@ def backend(monkeypatch):
 
 
 def _generer(**kw):
-    return mcp_server.generate_avp_i3f_pack(
+    return tr_generate_avp_i3f_pack(
         project_name="Dieppe",
         project_code="7427L",
         phase="APD",

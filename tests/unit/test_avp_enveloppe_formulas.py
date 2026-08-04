@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 from openpyxl import load_workbook
 
+from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack as tr_generate_avp_i3f_pack
 from audit_bim.reporting.avp.models import AvpMeta
 from audit_bim.reporting.avp.xlsx_enveloppe import _build_enveloppe_xlsx
 from audit_bim.reporting.avp_sources import (
@@ -125,7 +126,6 @@ def _mur(uuid, ifc_type="IfcWall", *, layers=None):
 
 def _generer_avec(tmp_path, monkeypatch, elements):
     from audit_bim.extraction.model_data import ModelSnapshot
-    from audit_bim.mcp import server as mcp_server
     from audit_bim.mcp.session import _Session, current_session
     from audit_bim.reporting import avp_i3f
 
@@ -140,7 +140,7 @@ def _generer_avec(tmp_path, monkeypatch, elements):
     ).index()
     token = current_session.set(sess)
     try:
-        return mcp_server.generate_avp_i3f_pack(
+        return tr_generate_avp_i3f_pack(
             project_name="Dieppe",
             project_code="7427L",
             phase="APD",
