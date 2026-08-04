@@ -55,7 +55,7 @@ pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.
 pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
 pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
 pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
-pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.1.1"
+pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
 pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 ```
 
@@ -71,7 +71,7 @@ pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 > pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
 > pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
 > pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
-> pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.1.1"
+> pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
 > pip install <url-du-wheel-release>
 > ```
 
