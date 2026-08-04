@@ -52,7 +52,7 @@ jobs:
       - name: Install bim-audit-engine (tagged generic audit engine core)
         run: pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
       - name: Install bim-reporting (tagged generic deliverable rendering core)
-        run: pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.1.1"
+        run: pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
       - run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
@@ -81,7 +81,7 @@ jobs:
       - name: Install bim-audit-engine (tagged generic audit engine core)
         run: pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
       - name: Install bim-reporting (tagged generic deliverable rendering core)
-        run: pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.1.1"
+        run: pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
       - run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
@@ -172,7 +172,7 @@ jobs:
           pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
           pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
           pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
-          pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.1.1"
+          pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
           # Le WHEEL construit (pas -e, pas l'arbre source).
           pip install dist/*.whl
       - name: pip check (dependency consistency)
@@ -225,7 +225,7 @@ jobs:
             pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.4"
             pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
             pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
-            pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.1.1"
+            pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
             pip install <url-de-l-asset-wheel-ci-dessous>
             ```
           files: dist/*

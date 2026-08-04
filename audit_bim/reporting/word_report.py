@@ -44,11 +44,16 @@ from pathlib import Path
 
 import bim_reporting.charts as _bc
 import bim_reporting.word as _bw
+from bim_reporting.sections import (
+    BrandSpec,
+    cover_page,
+    data_table,
+    findings_table,
+)
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Pt, RGBColor
+from docx.shared import Cm, Pt
 
 from ..audit.engine import AuditResult
 from ..audit.findings import Finding, Severity, Theme
@@ -58,15 +63,10 @@ from ..profiles.models import ReportNarrativeSpec
 from .bimdata_brand import WORDMARK, find_logo
 from .context import ReportProjectContext, build_report_context
 from .theming import (
-    BIMDATA_BLUE_NEUTRAL_LIGHT,
     BIMDATA_FONT_FALLBACK,
     BIMDATA_FONT_PRIMARY,
     BIMDATA_GRANITE,
-    BIMDATA_GRANITE_LIGHT,
     BIMDATA_PRIMARY,
-    BIMDATA_SECONDARY,
-    BIMDATA_TERTIARY,
-    BIMDATA_WHITE,
     SEVERITY_COLORS,
     THEME_COLORS,
 )
@@ -191,67 +191,60 @@ def _bar_chart(values: dict[str, int], colors_map: dict[str, str], title: str) -
     return _bc.bar_chart(values, colors_map, title, y_label="Nb anomalies")
 
 
-def _header_row(tbl, headers: list[str]) -> None:
-    """Peint la ligne d'en-tête d'un tableau (fond I3F Blue, texte blanc)."""
-    cells = tbl.rows[0].cells
-    for i, txt in enumerate(headers):
-        cells[i].text = txt
-        _shade_cell(cells[i], BIMDATA_PRIMARY)
-        for p in cells[i].paragraphs:
-            for r in p.runs:
-                r.font.color.rgb = RGBColor(255, 255, 255)
-                r.bold = True
+# ── Page de garde ─────────────────────────────────────────────────────────
 
 
-def _findings_table(
+def _empty_note(doc: Document, text: str) -> None:
+    """Mention en italique quand une sous-section n'a rien à lister."""
+    run = doc.add_paragraph().add_run(text)
+    run.italic = True
+
+
+def _findings_block(
     doc: Document,
     items: Iterable[Finding],
     suggestions_map: dict | None = None,
-):
-    """Tableau Word des findings.
+) -> None:
+    """Projette des ``Finding`` I3F en tableau, rendu par le socle.
 
-    Si ``suggestions_map`` est fourni (typiquement pour le thème
-    *Classification IFC*), deux colonnes supplémentaires sont ajoutées :
-    *Suggestion* (code + label UniFormat) et *Conf.* (indice de confiance).
+    L'adaptateur reste ici : il connaît le modèle ``Finding``, le jeu de
+    colonnes du rapport I3F et les troncatures retenues. Le socle, lui, ne voit
+    que des lignes de chaînes et une table de couleurs — c'est ce qui lui permet
+    de servir un autre AMO sans hériter de ces choix.
     """
     items = list(items)
-    if not items:
-        doc.add_paragraph("Aucune anomalie pour ce thème.").italic = True
-        return
     with_sug = suggestions_map is not None
-    ncols = 7 if with_sug else 5
-    tbl = doc.add_table(rows=1, cols=ncols)
-    tbl.style = "Light Grid Accent 1"
     headers = ["Sév.", "Classe IFC", "Élément", "Attendu", "Réel"]
     if with_sug:
         headers += ["Suggestion", "Conf."]
-    _header_row(tbl, headers)
 
+    rows: list[list[str]] = []
     for f in items:
-        row = tbl.add_row().cells
-        row[0].text = f.severity.value
-        _shade_cell(row[0], SEVERITY_COLORS[f.severity.value])
-        for r in row[0].paragraphs[0].runs:
-            r.font.color.rgb = RGBColor(255, 255, 255)
-            r.bold = True
-        row[1].text = f.ifc_type or ""
-        row[2].text = (f.name or f.element_uuid or "")[:40]
         exp = f.expected
         if isinstance(exp, list):
             exp = ", ".join(map(str, exp[:5])) + ("…" if len(exp) > 5 else "")
-        row[3].text = str(exp or "")[:80]
-        row[4].text = str(f.actual or "")[:60]
+        row = [
+            f.severity.value,
+            f.ifc_type or "",
+            (f.name or f.element_uuid or "")[:40],
+            str(exp or "")[:80],
+            str(f.actual or "")[:60],
+        ]
         if with_sug:
             sug = suggestions_map.get(f.element_uuid) if f.element_uuid else None
-            if sug:
-                row[5].text = f"{sug['code']} — {sug['label']}"
-                row[6].text = f"{sug['confidence']:.2f}"
-            else:
-                row[5].text = ""
-                row[6].text = ""
+            row += (
+                [f"{sug['code']} — {sug['label']}", f"{sug['confidence']:.2f}"] if sug else ["", ""]
+            )
+        rows.append(row)
 
-
-# ── Page de garde ─────────────────────────────────────────────────────────
+    findings_table(
+        doc,
+        headers,
+        rows,
+        status_column=0,
+        status_colors={f.severity.value: SEVERITY_COLORS[f.severity.value] for f in items},
+        empty_text="Aucune anomalie pour ce thème.",
+    )
 
 
 def _narrative(profile_id: str | None = None) -> ReportNarrativeSpec | None:
@@ -281,135 +274,6 @@ def _framework_long_label(context: ReportProjectContext) -> str:
     if not base:
         return "référentiel —"
     return f"{base} V{fw.version}" if fw.version else base
-
-
-def _write_cover_page(
-    doc: Document,
-    *,
-    project_name: str,
-    model_name: str,
-    version_label: str,
-    framework_label: str | None,
-    cover_label: str,
-    auditor: str,
-) -> None:
-    """Rend la page de couverture brandée BIMData.
-
-    Structure :
-
-    - **Hero sombre** (BIMData Primary ``#2F374A``) : logo BIMData
-      (variante claire/inversée) centré, supertitle « AUDIT BIM » en
-      jaune accent, titre du rapport en blanc, sous-titre = programme.
-    - **Filet jaune** plein-largeur (BIMData Secondary ``#F9C72C``).
-    - **Bloc métadonnées** (Blue Neutral Light) : Projet, Maquette
-      auditée, Version, Date, Auteur, Référence du CCBIM utilisé.
-    """
-    # ── Hero sombre ───────────────────────────────────────────────────
-    hero = doc.add_table(rows=1, cols=1)
-    hero.autofit = False
-    hero_cell = hero.rows[0].cells[0]
-    hero_cell.width = Cm(17)
-    _shade_cell(hero_cell, BIMDATA_PRIMARY)
-    # Vider le paragraphe par défaut puis ajouter notre contenu.
-    hero_cell.text = ""
-
-    # Logo BIMData (variante claire/inversée pour fond sombre).
-    logo_path = find_logo("light")
-    logo_para = hero_cell.paragraphs[0]
-    logo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    logo_para.paragraph_format.space_before = Pt(36)
-    if logo_path is not None:
-        # Si le logo est introuvable on dégrade en wordmark texte.
-        run = logo_para.add_run()
-        try:
-            run.add_picture(str(logo_path), width=Cm(6.5))
-        except Exception:
-            # Fichier corrompu ou format inattendu : fallback texte.
-            run.text = WORDMARK
-            run.font.color.rgb = _hex_to_rgb(BIMDATA_WHITE)
-            run.font.size = Pt(22)
-            run.bold = True
-    else:
-        run = logo_para.add_run(WORDMARK)
-        run.font.color.rgb = _hex_to_rgb(BIMDATA_WHITE)
-        run.font.size = Pt(22)
-        run.bold = True
-
-    # Espacement.
-    spacer = hero_cell.add_paragraph()
-    spacer.paragraph_format.space_after = Pt(10)
-
-    # Supertitle jaune accent.
-    supertitle = hero_cell.add_paragraph()
-    supertitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = supertitle.add_run("AUDIT BIM")
-    run.bold = True
-    run.font.size = Pt(11)
-    run.font.color.rgb = _hex_to_rgb(BIMDATA_SECONDARY)
-
-    # Titre principal blanc = titre du rapport.
-    title = hero_cell.add_paragraph()
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run(REPORT_TITLE)
-    run.bold = True
-    run.font.size = Pt(24)
-    run.font.color.rgb = _hex_to_rgb(BIMDATA_WHITE)
-
-    # Sous-titre = programme audité (blanc cassé via tertiaire).
-    subtitle = hero_cell.add_paragraph()
-    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    subtitle.paragraph_format.space_after = Pt(48)
-    run = subtitle.add_run(project_name)
-    run.font.size = Pt(13)
-    run.font.color.rgb = _hex_to_rgb(BIMDATA_TERTIARY)
-
-    # ── Filet jaune ────────────────────────────────────────────────────
-    accent = doc.add_table(rows=1, cols=1)
-    accent_cell = accent.rows[0].cells[0]
-    accent_cell.width = Cm(17)
-    _shade_cell(accent_cell, BIMDATA_SECONDARY)
-    accent_para = accent_cell.paragraphs[0]
-    accent_para.paragraph_format.space_before = Pt(0)
-    accent_para.paragraph_format.space_after = Pt(0)
-    accent_run = accent_para.add_run(" ")
-    accent_run.font.size = Pt(2)
-
-    # ── Bloc métadonnées sur fond clair ───────────────────────────────
-    meta = doc.add_table(rows=1, cols=1)
-    meta_cell = meta.rows[0].cells[0]
-    meta_cell.width = Cm(17)
-    _shade_cell(meta_cell, BIMDATA_BLUE_NEUTRAL_LIGHT)
-    meta_cell.text = ""
-
-    def _meta_line(label: str, value: str) -> None:
-        para = meta_cell.add_paragraph()
-        para.paragraph_format.space_before = Pt(2)
-        para.paragraph_format.space_after = Pt(2)
-        lbl = para.add_run(f"{label} : ")
-        lbl.bold = True
-        lbl.font.size = Pt(11)
-        lbl.font.color.rgb = _hex_to_rgb(BIMDATA_PRIMARY)
-        val = para.add_run(value or "—")
-        val.font.size = Pt(11)
-        val.font.color.rgb = _hex_to_rgb(BIMDATA_GRANITE)
-
-    # Premier paragraphe : padding haut.
-    first = meta_cell.paragraphs[0]
-    first.paragraph_format.space_before = Pt(14)
-    first_run = first.add_run("Identification du livrable")
-    first_run.bold = True
-    first_run.font.size = Pt(10)
-    first_run.font.color.rgb = _hex_to_rgb(BIMDATA_GRANITE_LIGHT)
-
-    _meta_line("Projet", project_name)
-    _meta_line("Maquette auditée", model_name)
-    _meta_line("Version", version_label)
-    _meta_line("Date", date.today().isoformat())
-    _meta_line("Auteur", auditor)
-    _meta_line(cover_label, framework_label or "—")
-
-    closing = meta_cell.add_paragraph()
-    closing.paragraph_format.space_after = Pt(14)
 
 
 # ── Helpers de calcul (décision, statuts domaine, métadonnées modèle) ──────
@@ -509,14 +373,27 @@ def write_word_report(
         context = context.model_copy(update={"auditor_name": auditor, "field_sources": new_sources})
 
     # ── 1. Page de garde ────────────────────────────────────────────────
-    _write_cover_page(
+    # Les libellés sont assemblés ICI : le socle ne connaît ni « maquette
+    # auditée », ni « phase BIM », ni « référence du CCBIM ». Il reçoit des
+    # couples (intitulé, valeur) et les met en page.
+    cover_page(
         doc,
-        project_name=project_name,
-        model_name=model_name,
-        version_label=f"Phase BIM {result.phase.value}",
-        framework_label=context.reference_framework.label,
-        cover_label=_narrative_text(profile_id, "cover_reference_label", "Référentiel"),
-        auditor=display_auditor,
+        title=REPORT_TITLE,
+        subtitle=project_name,
+        supertitle="AUDIT BIM",
+        meta_title="Identification du livrable",
+        meta_rows=[
+            ("Projet", project_name),
+            ("Maquette auditée", model_name),
+            ("Version", f"Phase BIM {result.phase.value}"),
+            ("Date", date.today().isoformat()),
+            ("Auteur", display_auditor),
+            (
+                _narrative_text(profile_id, "cover_reference_label", "Référentiel"),
+                context.reference_framework.label or "—",
+            ),
+        ],
+        brand=BrandSpec(logo_path=find_logo("light"), wordmark=WORDMARK),
     )
     _section_break(doc)
 
@@ -788,15 +665,14 @@ def _write_section_methodology(doc: Document, context: ReportProjectContext) -> 
     if not context.controls_performed:
         doc.add_paragraph(NOT_AVAILABLE)
         return
-    tbl = doc.add_table(rows=1, cols=4)
-    tbl.style = "Light Grid Accent 1"
-    _header_row(tbl, ["Thème de contrôle", "Objectif", "Données contrôlées", "Source de la règle"])
-    for ctrl in context.controls_performed:
-        row = tbl.add_row().cells
-        row[0].text = ctrl.theme
-        row[1].text = ctrl.objective
-        row[2].text = ctrl.checked_items
-        row[3].text = ctrl.rule_source or "—"
+    data_table(
+        doc,
+        ["Thème de contrôle", "Objectif", "Données contrôlées", "Source de la règle"],
+        [
+            [c.theme, c.objective, c.checked_items, c.rule_source or "—"]
+            for c in context.controls_performed
+        ],
+    )
 
 
 def _write_section_global_results(doc: Document, result: AuditResult) -> None:
@@ -821,22 +697,28 @@ def _write_section_global_results(doc: Document, result: AuditResult) -> None:
         if label is not None:
             by_domain[label].append(f)
 
-    tbl = doc.add_table(rows=1, cols=4)
-    tbl.style = "Light Grid Accent 1"
-    _header_row(tbl, ["Domaine", "Statut", "Nb anomalies", "Dont critiques/majeures"])
-    for label, _themes in DOMAINS:
-        items = by_domain[label]
-        status = _domain_status(items)
-        n_severe = sum(1 for f in items if f.severity in (Severity.CRITICAL, Severity.HIGH))
-        row = tbl.add_row().cells
-        row[0].text = label
-        row[1].text = _STATUS_LABEL[status]
-        _shade_cell(row[1], _STATUS_COLOR[status])
-        for r in row[1].paragraphs[0].runs:
-            r.font.color.rgb = RGBColor(255, 255, 255)
-            r.bold = True
-        row[2].text = str(len(items))
-        row[3].text = str(n_severe)
+    statuses = [_domain_status(by_domain[label]) for label, _ in DOMAINS]
+    rows = [
+        [
+            label,
+            _STATUS_LABEL[status],
+            str(len(by_domain[label])),
+            str(
+                sum(1 for f in by_domain[label] if f.severity in (Severity.CRITICAL, Severity.HIGH))
+            ),
+        ]
+        for (label, _), status in zip(DOMAINS, statuses, strict=True)
+    ]
+    # La table de couleurs est indexée par le LIBELLÉ affiché : le socle ne
+    # connaît ni nos statuts ni notre échelle de gravité.
+    colors = {_STATUS_LABEL[s]: _STATUS_COLOR[s] for s in set(statuses)}
+    findings_table(
+        doc,
+        ["Domaine", "Statut", "Nb anomalies", "Dont critiques/majeures"],
+        rows,
+        status_column=1,
+        status_colors=colors,
+    )
 
 
 def _write_section_detailed_results(
@@ -865,7 +747,7 @@ def _write_section_detailed_results(
         order = {s: i for i, s in enumerate(Severity.ordered())}
         items.sort(key=lambda f: order.get(f.severity, 99))
         smap = _suggestions_map(result) if with_suggestions else None
-        _findings_table(doc, items[:MAX_FINDINGS_PER_THEME], suggestions_map=smap)
+        _findings_block(doc, items[:MAX_FINDINGS_PER_THEME], suggestions_map=smap)
 
     # 6.1 Structure de la maquette
     _add_heading(doc, "6.1 Structure de la maquette", level=2)
@@ -918,9 +800,11 @@ def _write_section_detailed_results(
     if quantity_items:
         order = {s: i for i, s in enumerate(Severity.ordered())}
         quantity_items = sorted(quantity_items, key=lambda f: order.get(f.severity, 99))
-        _findings_table(doc, quantity_items[:MAX_FINDINGS_PER_THEME])
+        _findings_block(doc, quantity_items[:MAX_FINDINGS_PER_THEME])
     else:
-        doc.add_paragraph("Aucune anomalie de quantité détectée.").italic = True
+        # Italique désormais réelle : `Paragraph.italic` était un no-op, python-docx
+        # ne l'écrivant jamais dans le XML. Correction d'une intention déjà là.
+        _empty_note(doc, "Aucune anomalie de quantité détectée.")
 
     # 6.6 Cohérence métier
     _add_heading(doc, "6.6 Cohérence métier", level=2)
@@ -964,25 +848,36 @@ def _write_section_nonconformities(doc: Document, result: AuditResult) -> None:
             style="Intense Quote",
         )
 
-    tbl = doc.add_table(rows=1, cols=6)
-    tbl.style = "Light Grid Accent 1"
-    _header_row(tbl, ["ID", "Règle", "Objet", "Gravité", "Commentaire", "Action"])
+    nc_rows: list[list[str]] = []
     for i, f in enumerate(ncs[:MAX_NONCONFORMITIES], start=1):
-        row = tbl.add_row().cells
-        row[0].text = f"NC-{i:03d}"
-        row[1].text = (f.ref_cch or f.error_type.value or "")[:40]
-        row[2].text = f.short_label()[:40]
-        row[3].text = GRAVITY_FR.get(f.severity, f.severity.value)
-        _shade_cell(row[3], SEVERITY_COLORS[f.severity.value])
-        for r in row[3].paragraphs[0].runs:
-            r.font.color.rgb = RGBColor(255, 255, 255)
-            r.bold = True
         exp = f.expected
         if isinstance(exp, list):
             exp = ", ".join(map(str, exp[:3])) + ("…" if len(exp) > 3 else "")
         comment = f"Attendu : {exp or '—'} / Réel : {f.actual or '—'}"
-        row[4].text = comment[:90]
-        row[5].text = (f.recommended_action or "—")[:90]
+        nc_rows.append(
+            [
+                f"NC-{i:03d}",
+                (f.ref_cch or f.error_type.value or "")[:40],
+                f.short_label()[:40],
+                GRAVITY_FR.get(f.severity, f.severity.value),
+                comment[:90],
+                (f.recommended_action or "—")[:90],
+            ]
+        )
+
+    # Couleurs indexées par le libellé de gravité FR affiché, pas par l'enum :
+    # le socle ne connaît pas notre échelle.
+    gravity_colors = {
+        GRAVITY_FR.get(sev, sev.value): SEVERITY_COLORS[sev.value]
+        for sev in {f.severity for f in ncs[:MAX_NONCONFORMITIES]}
+    }
+    findings_table(
+        doc,
+        ["ID", "Règle", "Objet", "Gravité", "Commentaire", "Action"],
+        nc_rows,
+        status_column=3,
+        status_colors=gravity_colors,
+    )
 
 
 def _write_section_recommendations(
