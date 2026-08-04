@@ -59,20 +59,31 @@ def test_module_lives_in_the_profile_package(name):
     assert not (MCP_DIR / f"{name}.py").exists(), f"{name}.py subsiste dans mcp/"
 
 
-def test_mcp_declares_no_profile_tool():
-    """Seuls le prompt du serveur et `list_mcp_profiles` restent côté mcp/.
+def test_mcp_declares_nothing_but_the_profile_listing_tool():
+    """`list_mcp_profiles` est la SEULE déclaration restante sous `audit_bim/mcp`.
 
-    Le prompt I3F est ré-exporté par `server.py` — c'est du câblage, pas une
-    déclaration : le texte vit dans le profil.
+    E2 tolérait encore `server` dans cette liste, le temps qu'il porte le
+    `@mcp.prompt()` I3F. E3-A l'a déplacé dans le profil : la tolérance tombe.
+    La garder aurait laissé passer un futur `@mcp.tool()` ajouté au serveur —
+    précisément la dérive que cette frontière existe pour empêcher.
+
+    `list_mcp_profiles` reste : il énumère les profils, il n'appartient donc à
+    aucun d'eux.
     """
     declaring = {
         path.stem: _registrations(path)
         for path in sorted(MCP_DIR.glob("*.py"))
         if _registrations(path)
     }
-    assert set(declaring) <= SERVER_OWNED_TOOLS | {"server"}, (
-        f"des outils sont encore déclarés côté serveur : {declaring}"
+    assert set(declaring) <= SERVER_OWNED_TOOLS, (
+        f"des outils ou prompts sont encore déclarés côté serveur : {declaring}"
     )
+
+
+def test_the_server_tolerance_is_really_gone():
+    """Preuve de non-vacuité : `server` n'est plus une exception admise."""
+    assert "server" not in SERVER_OWNED_TOOLS
+    assert _registrations(MCP_DIR / "server.py") == 0
 
 
 def test_profile_carries_the_tool_surface():
