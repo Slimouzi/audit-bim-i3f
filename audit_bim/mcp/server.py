@@ -20,9 +20,8 @@ flag). (Imports au niveau module : aucun cycle — tous ces modules importent
 
 from __future__ import annotations
 
-from .app import mcp
-from .prompts import AMO_BIM_I3F_PROMPT
-from .tools_actions import (  # noqa: F401  (ré-export compat)
+from ..profiles.i3f.prompts import AMO_BIM_I3F_PROMPT
+from ..profiles.i3f.tools_actions import (  # noqa: F401  (ré-export compat)
     apply_bcf_topics,
     apply_classification_update_plan,
     apply_classifications_from_xlsx,
@@ -39,7 +38,7 @@ from .tools_actions import (  # noqa: F401  (ré-export compat)
     prepare_smart_views_plan,
     update_suggestion_status,
 )
-from .tools_audit import (  # noqa: F401  (ré-export compat)
+from ..profiles.i3f.tools_audit import (  # noqa: F401  (ré-export compat)
     compare_with_previous_audit,
     doe_match_only,
     enrich_with_public_data,
@@ -48,8 +47,7 @@ from .tools_audit import (  # noqa: F401  (ré-export compat)
     query_findings,
     run_audit_tool,
 )
-from .tools_profiles import list_mcp_profiles  # noqa: F401  (ré-export compat)
-from .tools_query import (  # noqa: F401  (ré-export compat)
+from ..profiles.i3f.tools_query import (  # noqa: F401  (ré-export compat)
     filter_bim_objects,
     get_object_detail,
     list_audit_findings,
@@ -59,13 +57,13 @@ from .tools_query import (  # noqa: F401  (ré-export compat)
     query_bim_preset,
     show_filtered_objects_in_viewer,
 )
-from .tools_reporting import (  # noqa: F401  (ré-export compat)
+from ..profiles.i3f.tools_reporting import (  # noqa: F401  (ré-export compat)
     generate_avp_i3f_pack,
     generate_word_report,
     generate_xlsx_annex,
     list_avp_i3f_xls_reports,
 )
-from .tools_session import (  # noqa: F401  (ré-export compat)
+from ..profiles.i3f.tools_session import (  # noqa: F401  (ré-export compat)
     download_model_ifc,
     extract_model_snapshot,
     get_catalog_properties,
@@ -76,6 +74,8 @@ from .tools_session import (  # noqa: F401  (ré-export compat)
     set_owner_documents,
     verify_active_model,
 )
+from .app import mcp
+from .tools_profiles import list_mcp_profiles  # noqa: F401  (ré-export compat)
 
 # ── Ré-exports de compat LEGACY (aliases métier) — lazy ──────────────────────
 # Les aliases sont désormais **opt-in** (cf. ``app._legacy_aliases_enabled``). Pour
@@ -101,7 +101,7 @@ def __getattr__(name: str):
     """Ré-export compat lazy des aliases (PEP 562) — n'importe ``aliases`` qu'à la
     demande, pour ne pas enregistrer les tools LEGACY au simple import de ``server``."""
     if name in _LEGACY_ALIAS_REEXPORTS:
-        from . import aliases
+        from ..profiles.i3f import aliases
 
         return getattr(aliases, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

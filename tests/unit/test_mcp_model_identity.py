@@ -21,7 +21,6 @@ import requests
 from audit_bim.extraction.client import BIMDataAuthError
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp import server as mcp_server
-from audit_bim.mcp import tools_audit, tools_session
 from audit_bim.mcp.model_identity import (
     model_matches_expected,
     normalize_model_name,
@@ -29,6 +28,7 @@ from audit_bim.mcp.model_identity import (
     resolve_bimdata_target,
 )
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f import tools_audit, tools_session
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 

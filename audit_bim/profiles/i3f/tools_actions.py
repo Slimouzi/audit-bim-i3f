@@ -28,7 +28,7 @@ Tous les ``apply_*`` :
 
 from __future__ import annotations
 
-from ..actions import (
+from ...actions import (
     PlanIntegrityError,
     PlanTargetMismatchError,
     apply_bcf,
@@ -43,24 +43,24 @@ from ..actions import (
     prepare_smart_views,
     save_plan,
 )
-from ..actions import list_plans as _list_plans
-from ..classifier import read_classifications_from_xlsx
-from ..doe import match_doe_records, parse_doe, summarize_matches
-from ..domain.filters import FindingFilter, SuggestionFilter, SuggestionStatus
-from ..domain.write_plan import WritePlan, WritePlanKind
-from ..safe_paths import safe_input_path
-from ..security.redaction import redact_secrets
-from ..security.write_journal import get_journal
-from .app import mcp
-from .payloads import (
+from ...actions import list_plans as _list_plans
+from ...classifier import read_classifications_from_xlsx
+from ...doe import match_doe_records, parse_doe, summarize_matches
+from ...domain.filters import FindingFilter, SuggestionFilter, SuggestionStatus
+from ...domain.write_plan import WritePlan, WritePlanKind
+from ...mcp.app import mcp
+from ...mcp.payloads import (
     current_target,
     ensure_suggestion_store,
     plan_summary_response,
     refused_without_confirm,
 )
-from .security import ensure_writes_allowed
-from .selection import resolve_object_selection
-from .session import _State
+from ...mcp.security import ensure_writes_allowed
+from ...mcp.selection import resolve_object_selection
+from ...mcp.session import _State
+from ...safe_paths import safe_input_path
+from ...security.redaction import redact_secrets
+from ...security.write_journal import get_journal
 
 
 def _coerce_json_dict(value: dict | str | None) -> dict | None:

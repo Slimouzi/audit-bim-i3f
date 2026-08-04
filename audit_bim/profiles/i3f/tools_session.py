@@ -7,33 +7,33 @@ from pathlib import Path
 
 import requests
 
-from .. import config
-from ..extraction.client import BIMDataAuthError, BIMDataClient
-from ..extraction.computed_quantities import (
+from ... import config
+from ...extraction.client import BIMDataAuthError, BIMDataClient
+from ...extraction.computed_quantities import (
     json_digest,
     load_computed_quantities,
     merge_into_snapshot,
 )
-from ..extraction.ifc_download import download_model_ifc as download_ifc
-from ..extraction.model_data import extract_snapshot
-from ..extraction.snapshot_cache import cached_extract_snapshot
-from ..requirements.catalog import build_catalog, catalog_usable
-from ..requirements.models import BIMPhase
-from ..safe_paths import safe_export_dir, safe_input_path
-from ..security.redaction import redact_secrets
-from .app import mcp
-from .model_identity import (
+from ...extraction.ifc_download import download_model_ifc as download_ifc
+from ...extraction.model_data import extract_snapshot
+from ...extraction.snapshot_cache import cached_extract_snapshot
+from ...mcp.app import mcp
+from ...mcp.model_identity import (
     model_matches_expected,
     parse_bimdata_viewer_url,
     resolve_bimdata_target,
 )
-from .phase import (
+from ...mcp.phase import (
     _detect_snapshot_phase,
     _phase_question_dict,
 )
-from .security import ensure_access_token_param_allowed
-from .security import scrub as _scrub
-from .session import _State
+from ...mcp.security import ensure_access_token_param_allowed
+from ...mcp.security import scrub as _scrub
+from ...mcp.session import _State
+from ...requirements.catalog import build_catalog, catalog_usable
+from ...requirements.models import BIMPhase
+from ...safe_paths import safe_export_dir, safe_input_path
+from ...security.redaction import redact_secrets
 
 _server_logger = logging.getLogger("audit_bim.mcp.tools_session")
 
@@ -308,7 +308,7 @@ def set_active_model(
         classification_system: ``UniFormat II`` (défaut) | ``Omniclass`` | ``CCS`` | ``3F``.
         access_token: Bearer token (déconseillé, local/dev uniquement).
     """
-    from ..classifier import get_system
+    from ...classifier import get_system
 
     cloud_id, project_id, model_id = resolve_bimdata_target(
         cloud_id=cloud_id,
@@ -475,7 +475,7 @@ def check_bimdata_access() -> dict:
 @mcp.tool()
 def list_classification_systems() -> list[dict]:
     """Liste les référentiels de classification disponibles côté MCP."""
-    from ..classifier import SYSTEMS
+    from ...classifier import SYSTEMS
 
     return [
         {

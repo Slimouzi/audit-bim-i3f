@@ -154,6 +154,11 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     from audit_bim.mcp.security import set_runtime_transport
 
     set_runtime_transport("script")  # PR3 §3a — entrypoint local (writes/token permis)
+    from audit_bim.mcp.tools_actions import (  # confirm gate (early-return)
+        apply_bcf_topics,
+        apply_smart_views_plan,
+    )
+
     from audit_bim.actions.bcf_planner import apply_bcf, prepare_bcf
     from audit_bim.actions.plans import load_plan, save_plan
     from audit_bim.actions.smartview_planner import apply_smart_views, prepare_smart_views
@@ -161,10 +166,6 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     from audit_bim.domain.filters import FindingFilter
     from audit_bim.extraction.client import BIMDataClient
     from audit_bim.extraction.model_data import extract_snapshot
-    from audit_bim.mcp.tools_actions import (  # confirm gate (early-return)
-        apply_bcf_topics,
-        apply_smart_views_plan,
-    )
     from audit_bim.requirements.catalog import build_catalog
     from audit_bim.requirements.models import BIMPhase
     from audit_bim.security.write_journal import get_journal

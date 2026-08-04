@@ -11,14 +11,8 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
-from ..reporting.avp.pack import _qa_missing_quantities
-from ..reporting.avp_snapshot import count_envelope_walls
-from ..reporting.context import build_report_context, merge_user_context
-from ..reporting.word_report import NOT_AVAILABLE, write_word_report
-from ..reporting.xlsx_annex import write_xlsx_annex
-from ..safe_paths import safe_export_dir, safe_export_path, safe_input_path
-from .app import mcp
-from .phase import (
+from ...mcp.app import mcp
+from ...mcp.phase import (
     _VALID_PHASES,
     _detect_snapshot_phase,
     _phase_question_dict,
@@ -26,7 +20,13 @@ from .phase import (
     _snapshot_description,
     _validate_audit_context,
 )
-from .session import _State
+from ...mcp.session import _State
+from ...reporting.avp.pack import _qa_missing_quantities
+from ...reporting.avp_snapshot import count_envelope_walls
+from ...reporting.context import build_report_context, merge_user_context
+from ...reporting.word_report import NOT_AVAILABLE, write_word_report
+from ...reporting.xlsx_annex import write_xlsx_annex
+from ...safe_paths import safe_export_dir, safe_export_path, safe_input_path
 
 _server_logger = logging.getLogger("audit_bim.mcp.tools_reporting")
 
@@ -148,7 +148,7 @@ def _contract_doc(path: str | Path) -> dict | None:
 
 def _contract_source_ifc_file(path: str | Path) -> str | None:
     """``source.ifc_file`` d'un contrat, pour la traçabilité du pack."""
-    from ..reporting.avp_autocompute import contract_source_ifc
+    from ...reporting.avp_autocompute import contract_source_ifc
 
     return contract_source_ifc(_contract_doc(path))
 
@@ -162,7 +162,7 @@ def _guard_contract_provenance(path: str | Path, *, parametre: str) -> str | Non
     nommé d'après le projet courant. Renvoie la provenance déclarée pour la
     traçabilité du pack.
     """
-    from ..reporting.avp_autocompute import assert_contract_matches_model, contract_source_ifc
+    from ...reporting.avp_autocompute import assert_contract_matches_model, contract_source_ifc
 
     doc = _contract_doc(path)
     if doc is None:
@@ -397,7 +397,7 @@ def list_avp_i3f_xls_reports(
     Returns:
         ``{status, project, reports: [...]}`` — ``reports`` dans l'ordre CTO.
     """
-    from ..reporting.avp_availability import inspect_avp_report_availability
+    from ...reporting.avp_availability import inspect_avp_report_availability
 
     snap = _State.snapshot
     availabilities = inspect_avp_report_availability(
@@ -583,8 +583,8 @@ def generate_avp_i3f_pack(
         ``{output_dir, paths, analyse_docx, analyse_pdf, pdf_available}`` ou
         ``{status: needs_context, missing, questions}``.
     """
-    from ..reporting.avp_i3f import write_avp_i3f_report_pack
-    from ..reporting.avp_sources import AvpSourcePaths, load_sources, read_envelope_json
+    from ...reporting.avp_i3f import write_avp_i3f_report_pack
+    from ...reporting.avp_sources import AvpSourcePaths, load_sources, read_envelope_json
 
     if _State.snapshot is None and _State.result is None:
         return {
@@ -792,8 +792,8 @@ def generate_avp_i3f_pack(
         motifs_explicites or count_envelope_walls(_State.snapshot) > 0
     )
     if envelope_json_used is None and auto_compute_envelope and envelope_attendue:
-        from ..extraction.geometry_backend import GeometryBackendUnavailable
-        from ..reporting.avp_autocompute import GeometryInputMissing, ensure_envelope_json
+        from ...extraction.geometry_backend import GeometryBackendUnavailable
+        from ...reporting.avp_autocompute import GeometryInputMissing, ensure_envelope_json
 
         try:
             auto_envelope = ensure_envelope_json(
@@ -840,7 +840,7 @@ def generate_avp_i3f_pack(
         # fichier illisible doit se dire illisible, pas « d'un autre modèle ».
         sources.enveloppe = read_envelope_json(safe_env)
         if envelope_json_explicite:
-            from ..reporting.avp_autocompute import ContractModelMismatch
+            from ...reporting.avp_autocompute import ContractModelMismatch
 
             try:
                 envelope_source_ifc_file = _guard_contract_provenance(
@@ -869,8 +869,8 @@ def generate_avp_i3f_pack(
         and _State.snapshot is not None
         and _qa_missing_quantities(_State.snapshot)
     ):
-        from ..extraction.geometry_backend import GeometryBackendUnavailable
-        from ..reporting.avp_autocompute import (
+        from ...extraction.geometry_backend import GeometryBackendUnavailable
+        from ...reporting.avp_autocompute import (
             GeometryInputMissing,
             ensure_computed_quantities_json,
         )
@@ -899,7 +899,7 @@ def generate_avp_i3f_pack(
         computed_quantities_json = auto_quantities["json_path"]
 
     if computed_quantities_json:
-        from ..extraction.computed_quantities import (
+        from ...extraction.computed_quantities import (
             load_computed_quantities,
             merge_into_snapshot,
         )
@@ -924,7 +924,7 @@ def generate_avp_i3f_pack(
         doc = load_computed_quantities(safe_cq)  # valide le contrat (sinon ValueError)
         # Provenance après le schéma, même raison que pour l'enveloppe.
         if auto_quantities is None:
-            from ..reporting.avp_autocompute import ContractModelMismatch
+            from ...reporting.avp_autocompute import ContractModelMismatch
 
             try:
                 computed_source_ifc_file = _guard_contract_provenance(
@@ -946,7 +946,7 @@ def generate_avp_i3f_pack(
         working_snapshot.computed_coverage = dict(computed_coverage)
         computed_json_used = str(safe_cq)
 
-    from ..reporting.avp_i3f import AvpQaError
+    from ...reporting.avp_i3f import AvpQaError
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = safe_export_dir(output_dir or f"avp_pack_{ts}")

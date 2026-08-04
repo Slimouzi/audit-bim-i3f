@@ -16,7 +16,7 @@ import bim_query.property_aliases as bq_aliases
 import bim_query.table_query as bq_table
 import bim_query.views as bq_views
 
-from audit_bim.mcp import tools_query
+from audit_bim.profiles.i3f import tools_query
 from audit_bim.query import filtering, property_aliases, table_query, views
 
 

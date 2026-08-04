@@ -13,8 +13,8 @@ import inspect
 
 import pytest
 
-import audit_bim.mcp.aliases as al
-import audit_bim.mcp.tools_actions as ta
+import audit_bim.profiles.i3f.aliases as al
+import audit_bim.profiles.i3f.tools_actions as ta
 
 # (module, nom du tool, paramètre de filtre)
 _FILTER_TOOLS = [

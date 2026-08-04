@@ -213,7 +213,7 @@ def test_word_report_has_no_hardcoded_auditor_name():
     """``generate_word_report`` ne porte plus de nom d'auteur codé en dur."""
     import inspect
 
-    from audit_bim.mcp import tools_reporting
+    from audit_bim.profiles.i3f import tools_reporting
 
     sig = inspect.signature(tools_reporting.generate_word_report)
     assert sig.parameters["auditor"].default is None
@@ -303,7 +303,7 @@ def test_prompt_only_names_parameters_the_tool_exposes():
     import inspect
     import re
 
-    from audit_bim.mcp import prompts, tools_reporting
+    from audit_bim.profiles.i3f import prompts, tools_reporting
 
     texte = prompts.AMO_BIM_I3F_PROMPT
     debut = texte.index("## Identité projet et auteur du contrôle")

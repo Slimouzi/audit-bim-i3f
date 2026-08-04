@@ -17,7 +17,7 @@ import re
 import subprocess
 import sys
 
-# Les 8 aliases métier (``audit_bim.mcp.aliases``).
+# Les 8 aliases métier (``audit_bim.profiles.i3f.aliases``).
 LEGACY_ALIASES = {
     "prepare_bcf_from_findings",
     "apply_bcf_plan",
@@ -108,7 +108,7 @@ def test_prompt_recommends_no_legacy_alias():
     ``apply_doe_enrichment_plan`` (``_`` est un caractère de mot → pas de frontière),
     donc le tool canonique n'est pas confondu avec l'alias.
     """
-    from audit_bim.mcp.prompts import AMO_BIM_I3F_PROMPT
+    from audit_bim.profiles.i3f.prompts import AMO_BIM_I3F_PROMPT
 
     leaked = [
         alias

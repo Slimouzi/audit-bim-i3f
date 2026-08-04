@@ -25,8 +25,8 @@ import pytest
 
 from audit_bim import config as _config
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import tools_audit as mcp_server
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f import tools_audit as mcp_server
 from audit_bim.requirements.models import BIMPhase
 
 # ── Fixtures ───────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ from audit_bim.actions.plans import (
     validate_target,
 )
 from audit_bim.domain.write_plan import WritePlan, WritePlanKind
-from audit_bim.mcp.tools_actions import apply_bcf_topics
+from audit_bim.profiles.i3f.tools_actions import apply_bcf_topics
 
 _RUNNER_PATH = Path(__file__).resolve().parents[2] / "scripts" / "a1_replay" / "run_replay.py"
 _spec = importlib.util.spec_from_file_location("a1_replay_runner", _RUNNER_PATH)

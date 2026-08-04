@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from audit_bim.mcp import tools_audit, tools_session
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f import tools_audit, tools_session
 from audit_bim.requirements.catalog import catalog_usable
 from audit_bim.requirements.models import NamingRule, PropertySpec, RequirementsCatalog
 

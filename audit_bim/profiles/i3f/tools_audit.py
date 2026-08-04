@@ -7,28 +7,28 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..audit.comparator import compare_audits_from_files
-from ..audit.engine import run_audit
-from ..doe import match_doe_records, parse_doe, summarize_matches
-from ..enrichment import enrich_with_public_data as _enrich_with_public_data
-from ..extraction.model_data import extract_snapshot
-from ..reporting.context import build_report_context, merge_user_context
-from ..reporting.word_report import write_word_report
-from ..reporting.xlsx_annex import write_xlsx_annex
-from ..requirements.catalog import build_catalog, catalog_usable
-from ..requirements.models import BIMPhase
-from ..safe_paths import safe_export_path, safe_input_path
-from .app import mcp
-from .model_identity import model_matches_expected
-from .phase import (
+from ...audit.comparator import compare_audits_from_files
+from ...audit.engine import run_audit
+from ...doe import match_doe_records, parse_doe, summarize_matches
+from ...enrichment import enrich_with_public_data as _enrich_with_public_data
+from ...extraction.model_data import extract_snapshot
+from ...mcp.app import mcp
+from ...mcp.model_identity import model_matches_expected
+from ...mcp.phase import (
     _VALID_PHASES,
     _detect_snapshot_phase,
     _snapshot_address_suggestion,
     _snapshot_description,
     _validate_audit_context,
 )
-from .security import ensure_access_token_param_allowed
-from .session import _State
+from ...mcp.security import ensure_access_token_param_allowed
+from ...mcp.session import _State
+from ...reporting.context import build_report_context, merge_user_context
+from ...reporting.word_report import write_word_report
+from ...reporting.xlsx_annex import write_xlsx_annex
+from ...requirements.catalog import build_catalog, catalog_usable
+from ...requirements.models import BIMPhase
+from ...safe_paths import safe_export_path, safe_input_path
 
 # Orchestration inter-modules : full_audit ré-utilise des tools/aides voisins.
 from .tools_actions import prepare_bcf_topics, prepare_smart_views_plan
@@ -479,8 +479,8 @@ def import_preliminary_findings(
     Returns:
         Nombre de findings importés par source + nouveau résumé de l'audit.
     """
-    from ..audit.findings import Severity
-    from ..audit.rules import load_preliminary_findings
+    from ...audit.findings import Severity
+    from ...audit.rules import load_preliminary_findings
 
     _State.ensure_result()
     if not any(

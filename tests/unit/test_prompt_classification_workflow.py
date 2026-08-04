@@ -9,7 +9,7 @@ et interdit la réapparition des tools dépréciés.
 
 from __future__ import annotations
 
-from audit_bim.mcp.prompts import AMO_BIM_I3F_PROMPT
+from audit_bim.profiles.i3f.prompts import AMO_BIM_I3F_PROMPT
 
 PROMPT = AMO_BIM_I3F_PROMPT
 

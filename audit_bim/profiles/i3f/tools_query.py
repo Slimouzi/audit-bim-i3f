@@ -28,15 +28,15 @@ from typing import Literal
 
 from bim_query.presets import QUERY_PRESETS
 
-from ..classifier.suggestion_store import ClassificationSuggestionStore
-from ..domain.filters import FindingFilter, ObjectFilter, SuggestionFilter
-from ..query.filtering import apply_finding_filter, apply_suggestion_filter
-from ..query.table_query import BimQuery, query_bim_table
-from ..query.views import bim_object_from_element
-from .app import mcp
-from .payloads import ensure_suggestion_store, maybe_dump_to_disk
-from .selection import resolve_object_selection
-from .session import _State
+from ...classifier.suggestion_store import ClassificationSuggestionStore
+from ...domain.filters import FindingFilter, ObjectFilter, SuggestionFilter
+from ...mcp.app import mcp
+from ...mcp.payloads import ensure_suggestion_store, maybe_dump_to_disk
+from ...mcp.selection import resolve_object_selection
+from ...mcp.session import _State
+from ...query.filtering import apply_finding_filter, apply_suggestion_filter
+from ...query.table_query import BimQuery, query_bim_table
+from ...query.views import bim_object_from_element
 
 
 @mcp.tool()

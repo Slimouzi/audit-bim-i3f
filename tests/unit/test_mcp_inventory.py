@@ -33,7 +33,7 @@ REPLACEMENTS = {
     "apply_doe_enrichment_plan",
 }
 
-# Les 8 aliases métier (``audit_bim.mcp.aliases``) sont désormais **opt-in LEGACY**
+# Les 8 aliases métier (``audit_bim.profiles.i3f.aliases``) sont désormais **opt-in LEGACY**
 # (``AUDIT_BIM_ENABLE_LEGACY_ALIASES``) : absents du registre par défaut. Leur
 # présence/absence selon le flag est attestée en **sous-processus** dans
 # ``test_mcp_aliases_optin.py`` (le registre in-process est pollué à la collecte).

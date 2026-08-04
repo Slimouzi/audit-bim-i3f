@@ -619,7 +619,7 @@ def test_stale_session_ifc_is_not_used_after_model_change(session, tmp_path, bac
 
 def test_set_active_model_clears_the_memorised_ifc(session, monkeypatch):
     """``set_active_model`` invalide le chemin mémorisé, comme les autres caches."""
-    from audit_bim.mcp import tools_session
+    from audit_bim.profiles.i3f import tools_session
 
     sess, _ = session
     sess.ifc_path = "/chemin/vers/250613_MN_BAT.ifc"
