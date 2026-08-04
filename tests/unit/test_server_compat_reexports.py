@@ -12,7 +12,11 @@ n'en dépend — sans quoi « déprécié » resterait une intention, pas un ét
 from __future__ import annotations
 
 import ast
+import json
 import re
+import subprocess
+import sys
+from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -46,14 +50,38 @@ LAZY_ALIASES = (
 
 
 def _reexported_names() -> list[str]:
-    """Noms importés par ``server.py`` depuis le profil."""
-    tree = ast.parse(Path(server.__file__).read_text(encoding="utf-8"))
-    return [
-        alias.asname or alias.name
-        for node in tree.body
-        if isinstance(node, ast.ImportFrom) and node.module and "profiles.i3f" in node.module
-        for alias in node.names
-    ]
+    """Noms que ``server.py`` ré-exporte depuis le profil.
+
+    Lus dans la carte ``_REEXPORTS``, et non plus dans les ``import`` du module :
+    depuis E4 il n'y en a plus un seul au niveau module, précisément pour que
+    charger ``server`` n'enregistre rien. Une lecture des imports renverrait
+    donc une liste vide — et rendrait vacants tous les contrôles qui la
+    parcourent, sans rien signaler.
+    """
+    return sorted(server._REEXPORTS)
+
+
+def test_the_reexport_inventory_is_not_empty():
+    """Sentinelle : la liste alimente des boucles, un vide passerait partout."""
+    assert len(_reexported_names()) == 43
+
+
+def test_every_reexport_points_at_a_module_of_the_profile():
+    """La carte nom → module doit rester alignée sur le profil.
+
+    Elle a été **dérivée** des anciens imports, pas retapée ; ce test empêche
+    qu'elle diverge ensuite du module qui déclare réellement l'outil.
+    """
+    from audit_bim.profiles.registry import get_profile
+
+    declared = set(get_profile("i3f").tool_modules)
+    stray = {m for m in server._REEXPORTS.values() if m not in declared}
+    assert not stray, f"modules hors profil dans la carte de compat : {stray}"
+
+    for name, module_path in server._REEXPORTS.items():
+        assert getattr(import_module(module_path), name, None) is not None, (
+            f"{module_path} ne fournit pas {name}"
+        )
 
 
 # ── 1. La compat fonctionne toujours ──────────────────────────────────
@@ -223,14 +251,40 @@ def test_the_dependency_guard_resolves_a_relative_import(tmp_path):
 # ── 3. Les ré-exports ne portent plus l'enregistrement ────────────────
 
 
-def test_registration_does_not_depend_on_the_reexports():
-    """Depuis E3-A, ``register_all()`` importe elle-même les modules du profil.
+def test_registration_never_imports_the_compat_module():
+    """``register_all()`` n'a plus besoin de ``server`` du tout.
 
-    Les ré-exports sont donc un pur choix de compatibilité : les retirer serait
-    sans effet sur la surface MCP. C'est ce qui rendra leur suppression sûre
-    quand on la décidera.
+    Le contrôle portait d'abord sur la présence d'une ligne d'import littérale
+    dans ``app.py``. E4 a rendu ces imports dynamiques (pilotés par le profil),
+    et la formulation textuelle est devenue fausse alors que la propriété, elle,
+    est plus vraie qu'avant. On mesure donc le fait plutôt que sa graphie : dans
+    un interpréteur neuf, ``audit_bim.mcp.server`` reste **absent** de
+    ``sys.modules`` après enregistrement complet.
+
+    C'est aussi ce qui rendra la suppression des ré-exports sûre : rien du
+    chemin de démarrage ne les traverse.
     """
-    source = Path(Path(server.__file__).parent / "app.py").read_text(encoding="utf-8")
-    assert "from ..profiles.i3f import" in source
-    for module in ("tools_session", "tools_audit", "tools_reporting", "tools_actions"):
-        assert module in source, f"register_all() n'importe pas {module}"
+    repo = REPO
+    probe = (
+        "import sys, json\n"
+        "from audit_bim.mcp.app import register_all\n"
+        "register_all()\n"
+        "print(json.dumps({\n"
+        "    'server': 'audit_bim.mcp.server' in sys.modules,\n"
+        "    'tools': 'audit_bim.profiles.i3f.tools_audit' in sys.modules,\n"
+        "}))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=repo,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(repo)},
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stderr[-3000:]
+    seen = json.loads(result.stdout.strip().splitlines()[-1])
+
+    # Non-vacuité : la sonde doit voir les modules réellement chargés.
+    assert seen["tools"], "la sonde ne mesure pas sys.modules — le reste ne prouve rien"
+    assert not seen["server"], "le démarrage traverse encore le module de compat"

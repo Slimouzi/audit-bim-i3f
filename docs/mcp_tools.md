@@ -149,13 +149,41 @@ La publication via `full_audit(push_mode=…)` **ne pousse plus** : elle **prép
 des plans BCF/Smart Views et renvoie leur chemin ; l'écriture passe ensuite par
 `apply_*`.
 
+## Profil actif — `AUDIT_BIM_PROFILE`
+
+Le serveur enregistre les outils du **profil** déclaré au démarrage. Par défaut,
+et sans aucune variable, c'est **`i3f`** : la surface MCP est exactement celle
+décrite dans ce document.
+
+- `AUDIT_BIM_PROFILE=i3f` (défaut) — les 45 outils I3F, plus `list_mcp_profiles`,
+  plus le prompt `amo_bim_i3f`.
+- `AUDIT_BIM_PROFILE=bim_in_motion` — profil préparatoire : **aucun outil client**
+  n'est enregistré, et les modules du profil I3F ne sont même pas importés. Le
+  serveur n'expose que ses outils transverses. C'est l'état attendu tant que ce
+  profil n'a pas les siens.
+- Casse, tirets et espaces sont normalisés (`BIM-IN-MOTION` fonctionne).
+
+Un identifiant inconnu **empêche le démarrage**, en nommant la valeur fautive et
+les profils connus. C'est délibéré : un repli silencieux sur `i3f` donnerait un
+serveur qui répond normalement tout en imprimant « CCH BIM I3F » dans le rapport
+d'un autre AMO — une erreur invisible en exploitation.
+
+Le profil ne se change **pas** en cours de session : il n'existe aucun outil MCP
+pour le basculer. Changer de profil, c'est relancer le serveur.
+
+La sélection tient **quel que soit l'ordre d'import** : les ré-exports de compat
+`audit_bim.mcp.server.<tool>` sont résolus paresseusement et refusent de servir
+un outil I3F si le profil actif n'est pas `i3f`. Sans cela, un simple
+`import audit_bim.mcp.server` chez un appelant aurait enregistré les 45 outils
+I3F avant même que le profil ne soit lu.
+
 ## Aliases métier — compat LEGACY opt-in
 
 Les **8 aliases** ci-dessous donnent un vocabulaire AMO plus parlant mais
 **re-dispatchent à 100 %** vers un tool canonique (même signature, même
 comportement). Depuis la réduction de surface MCP, ils sont **opt-in** :
 
-- **Par défaut, ils ne sont pas enregistrés** — `audit_bim/mcp/aliases.py` n'est
+- **Par défaut, ils ne sont pas enregistrés** — `audit_bim/profiles/i3f/aliases.py` n'est
   même pas importé (moins de bruit côté Claude/harness).
 - Pour les réexposer : lancer le serveur avec
   **`AUDIT_BIM_ENABLE_LEGACY_ALIASES=true`** (valeurs acceptées : `1`/`true`/`yes`/`on`).
