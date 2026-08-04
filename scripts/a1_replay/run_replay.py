@@ -161,7 +161,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 (séquence linéaire lisible)
     from audit_bim.domain.filters import FindingFilter
     from audit_bim.extraction.client import BIMDataClient
     from audit_bim.extraction.model_data import extract_snapshot
-    from audit_bim.mcp.tools_actions import (  # confirm gate (early-return)
+    from audit_bim.profiles.i3f.tools_actions import (  # confirm gate (early-return)
         apply_bcf_topics,
         apply_smart_views_plan,
     )

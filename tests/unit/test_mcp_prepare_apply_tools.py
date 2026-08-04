@@ -341,7 +341,7 @@ class TestApplyClassificationsFromXlsx:
     def _patched_xlsx(self):
         # Évite un vrai fichier : sandbox + lecture xlsx simulées.
         return patch.multiple(
-            "audit_bim.mcp.tools_actions",
+            "audit_bim.profiles.i3f.tools_actions",
             safe_input_path=MagicMock(return_value="/tmp/audit.xlsx"),
             read_classifications_from_xlsx=MagicMock(return_value=self._ITEMS),
         )

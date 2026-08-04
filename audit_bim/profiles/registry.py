@@ -208,9 +208,19 @@ _I3F_PROFILE = McpProfile(
             responsibility="Produire les six annexes XLSX et le rapport Word selon le modèle I3F.",
         ),
         ClientSpecialization(
+            key="tools_i3f",
+            label="Surface d'outils MCP I3F",
+            current_location="audit_bim/profiles/i3f",
+            status="ready",
+            responsibility=(
+                "Exposer les 45 outils du profil I3F : session, audit, "
+                "reporting, actions, requêtes, plus les aliases LEGACY."
+            ),
+        ),
+        ClientSpecialization(
             key="prompt_i3f",
             label="Prompt AMO BIM I3F",
-            current_location="audit_bim/mcp/prompts.py",
+            current_location="audit_bim/profiles/i3f/prompts.py",
             status="ready",
             responsibility="Cadrer Claude sur le référentiel et le vocabulaire I3F.",
         ),

@@ -12,8 +12,8 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import tools_session as ts
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f import tools_session as ts
 
 
 def _with_session(fn):

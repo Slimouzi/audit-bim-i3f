@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 import pytest
 
-from audit_bim.mcp import tools_audit as ta
 from audit_bim.mcp.session import _Session, current_session
+from audit_bim.profiles.i3f import tools_audit as ta
 
 
 @pytest.fixture

@@ -136,7 +136,7 @@ def test_moa_template_header_can_never_name_the_deliverables(session, tmp_path, 
     """
     import openpyxl
 
-    from audit_bim.mcp import tools_reporting
+    from audit_bim.profiles.i3f import tools_reporting
 
     modele = tmp_path / "controle.xlsx"
     wb = openpyxl.Workbook()
@@ -165,7 +165,7 @@ def test_moa_header_never_even_suggests_an_identity(tmp_path, monkeypatch):
     """
     import openpyxl
 
-    from audit_bim.mcp import tools_reporting
+    from audit_bim.profiles.i3f import tools_reporting
 
     monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path))
     monkeypatch.setattr(tools_reporting, "_auto_controle_xlsx", lambda: None)
@@ -243,7 +243,7 @@ def test_moa_header_phase_never_names_the_deliverables(tmp_path, monkeypatch):
     toujours plausible, donc rien ne signale l'erreur à la relecture. Le pack
     sortirait « <Projet> <Code> AVP - … » sur une opération en APD.
     """
-    from audit_bim.mcp import tools_reporting
+    from audit_bim.profiles.i3f import tools_reporting
 
     monkeypatch.setattr(tools_reporting, "_auto_controle_xlsx", lambda: None)
     sess = _session_sans_phase(tmp_path, monkeypatch)
@@ -267,7 +267,7 @@ def test_moa_header_phase_never_names_the_deliverables(tmp_path, monkeypatch):
 
 def test_phase_is_not_bypassable_by_confirm_context(tmp_path, monkeypatch):
     """Elle nomme le fichier : même statut que ``project_name`` / ``project_code``."""
-    from audit_bim.mcp import tools_reporting
+    from audit_bim.profiles.i3f import tools_reporting
 
     monkeypatch.setattr(tools_reporting, "_auto_controle_xlsx", lambda: None)
     sess = _session_sans_phase(tmp_path, monkeypatch)

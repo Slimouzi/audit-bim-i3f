@@ -31,7 +31,7 @@ logique, juste re-dispatcher.
 
 from __future__ import annotations
 
-from .app import mcp
+from ...mcp.app import mcp
 from .tools_actions import (
     apply_bcf_topics,
     apply_classification_update_plan,
