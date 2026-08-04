@@ -236,3 +236,40 @@ def test_that_purity_script_can_fail(tmp_path):
     )
     assert proc.returncode != 0
     assert "MOTEUR IMPORTE LE SERVEUR" in (proc.stdout + proc.stderr)
+
+
+# ── 4. Les bornes du magasin réel sont relues, pas figées ─────────────
+
+
+def test_real_store_reflects_environment_set_after_import(monkeypatch):
+    """Le magasin du serveur doit voir une borne posée APRÈS l'import.
+
+    `_store` est construit au chargement du module. Une résolution figée y
+    rendrait toute configuration ultérieure inopérante — sans erreur, le serveur
+    appliquant simplement ses défauts. Le cas est passé deux fois entre les
+    mailles : `RuntimeConfig` lisait paresseusement, mais `SessionStore` capturait
+    son résultat. Corriger un seul des deux niveaux ne corrigeait rien.
+
+    Ce test interroge le magasin RÉEL du serveur, pas la config — c'est le seul
+    niveau qui gouverne l'éviction.
+    """
+    assert session_mod._store.ttl_s == 3600
+    assert session_mod._store.max_sessions == 64
+
+    monkeypatch.setenv("AUDIT_BIM_SESSION_TTL_S", "120")
+    monkeypatch.setenv("AUDIT_BIM_MAX_SESSIONS", "7")
+
+    assert session_mod._store.ttl_s == 120
+    assert session_mod._store.max_sessions == 7
+
+
+def test_real_store_bounds_govern_eviction(monkeypatch):
+    """La borne relue doit gouverner, pas seulement s'afficher."""
+    store = SessionStore(session_mod._Session, config=session_mod._runtime_config)
+    for key in ("a", "b", "c"):
+        store.get(key)
+    assert len(store) == 3
+
+    monkeypatch.setenv("AUDIT_BIM_MAX_SESSIONS", "2")
+    store.get("d")
+    assert len(store) <= 2, "le plafond abaissé ne s'applique pas à l'éviction"

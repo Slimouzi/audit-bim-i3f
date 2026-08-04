@@ -49,7 +49,7 @@ jobs:
           pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
           pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
           pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
-          pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.1"
+          pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
           pip install "git+https://github.com/Slimouzi/ifc-geometry-mcp.git@ifc-geometry-mcp-v0.5.1"
           pip install -e ".[test]"
       # ``--strict-installed`` : un paquet first-party ABSENT devient une erreur.
@@ -117,7 +117,7 @@ jobs:
       - name: Install bim-reporting (tagged generic deliverable rendering core)
         run: pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
       - name: Install bim-mcp-runtime (tagged MCP execution core)
-        run: pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.1"
+        run: pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
       - name: Install package + test deps
         run: |
           python -m pip install --upgrade pip
@@ -166,7 +166,7 @@ jobs:
           pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.4"
           pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
           pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
-          pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.1"
+          pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
       - name: Install package + OCR + test deps
         run: |
           python -m pip install --upgrade pip
@@ -263,7 +263,7 @@ jobs:
       - name: Install bim-reporting (tagged generic deliverable rendering core)
         run: pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
       - name: Install bim-mcp-runtime (tagged MCP execution core)
-        run: pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.1"
+        run: pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
       - name: Install package + test deps
         run: |
           python -m pip install --upgrade pip
