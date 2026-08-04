@@ -46,6 +46,7 @@ FIRST_PARTY = (
     "bim-publication",
     "bim-audit-engine",
     "bim-reporting",
+    "bim-mcp-runtime",
     "ifc-geometry-mcp",
 )
 

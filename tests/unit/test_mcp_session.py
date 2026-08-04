@@ -1,18 +1,34 @@
-"""Tests du :class:`_SessionStore` et de l'isolation par session."""
+"""Isolation par session — mécanique fournie par ``bim-mcp-runtime``.
+
+Le magasin vient désormais du moteur ; ce module ne garde que ``_Session``,
+dont les champs sont métier. Ces tests vérifient donc deux choses distinctes :
+que le câblage est correct (préfixe d'environnement, fabrique), et que le
+comportement observé côté serveur n'a pas bougé.
+"""
 
 from __future__ import annotations
 
 import time
 
 import pytest
+from bim_mcp_runtime import SessionStore
 
 from audit_bim.mcp import session as session_mod
 from audit_bim.mcp.session import (
     _Session,
-    _SessionStore,
     _State,
     current_session,
 )
+
+
+def _store(**kwargs) -> SessionStore[_Session]:
+    """Magasin du moteur, câblé comme celui du serveur.
+
+    Le ``config`` porte le préfixe ``AUDIT_BIM`` : c'est lui qui garantit que
+    les variables d'environnement historiques restent lues.
+    """
+    kwargs.setdefault("config", session_mod._runtime_config)
+    return SessionStore(_Session, **kwargs)
 
 
 class TestSession:
@@ -34,17 +50,17 @@ class TestSession:
 
 class TestSessionStore:
     def test_get_creates_and_memoizes(self):
-        store = _SessionStore(ttl_s=60, max_sessions=10)
+        store = _store(ttl_s=60, max_sessions=10)
         s1 = store.get("alice")
         s2 = store.get("alice")
         assert s1 is s2
 
     def test_isolated_keys(self):
-        store = _SessionStore(ttl_s=60, max_sessions=10)
+        store = _store(ttl_s=60, max_sessions=10)
         assert store.get("alice") is not store.get("bob")
 
     def test_ttl_eviction(self):
-        store = _SessionStore(ttl_s=60, max_sessions=10)
+        store = _store(ttl_s=60, max_sessions=10)
         store.get("alice")
         # Force expiration
         store._touched["alice"] = time.monotonic() - 120
@@ -52,7 +68,7 @@ class TestSessionStore:
         assert "alice" not in store.keys()
 
     def test_lru_eviction(self):
-        store = _SessionStore(ttl_s=3600, max_sessions=2)
+        store = _store(ttl_s=3600, max_sessions=2)
         store.get("a")
         store.get("b")
         store.get("a")  # rend "a" plus récent que "b"
@@ -60,7 +76,7 @@ class TestSessionStore:
         assert set(store.keys()) == {"a", "c"}
 
     def test_clear(self):
-        store = _SessionStore()
+        store = _store()
         store.get("alice")
         assert store.clear("alice") is True
         assert store.clear("alice") is False
@@ -107,17 +123,24 @@ class TestStateProxy:
 
 
 class TestEnvOverrides:
+    """Le préfixe du serveur reste lu : aucune migration de déploiement."""
+
     def test_ttl_env_override(self, monkeypatch):
         monkeypatch.setenv("AUDIT_BIM_SESSION_TTL_S", "120")
-        store = _SessionStore()
-        assert store._ttl_s == 120
+        assert _store().ttl_s == 120
 
     def test_invalid_ttl_falls_back(self, monkeypatch):
         monkeypatch.setenv("AUDIT_BIM_SESSION_TTL_S", "not-a-number")
-        store = _SessionStore()
-        assert store._ttl_s == session_mod.DEFAULT_SESSION_TTL_S
+        assert _store().ttl_s == session_mod.DEFAULT_SESSION_TTL_S
 
     def test_max_sessions_env_override(self, monkeypatch):
         monkeypatch.setenv("AUDIT_BIM_MAX_SESSIONS", "4")
-        store = _SessionStore()
-        assert store._max == 4
+        assert _store().max_sessions == 4
+
+    def test_env_names_are_unchanged(self):
+        """Contrat public du serveur : les noms de variables ne bougent pas."""
+        assert session_mod.SESSION_TTL_ENV == "AUDIT_BIM_SESSION_TTL_S"
+        assert session_mod.MAX_SESSIONS_ENV == "AUDIT_BIM_MAX_SESSIONS"
+        assert session_mod._runtime_config.env_name("SESSION_TTL_S") == (
+            session_mod.SESSION_TTL_ENV
+        )
