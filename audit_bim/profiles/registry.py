@@ -185,6 +185,18 @@ _I3F_PROFILE = McpProfile(
     report_structure=_I3F_REPORT_STRUCTURE,
     enabled_generic_modules=_ALL_GENERIC_KEYS,
     report_packs=("avp_i3f",),
+    # Ordre historique de l'enregistrement : domaine (session/audit/reporting)
+    # puis lecture/écriture. Il est repris tel quel — la surface MCP doit rester
+    # identique au tri près, et le golden le vérifie.
+    tool_modules=(
+        "audit_bim.profiles.i3f.tools_session",
+        "audit_bim.profiles.i3f.tools_audit",
+        "audit_bim.profiles.i3f.tools_reporting",
+        "audit_bim.profiles.i3f.tools_actions",
+        "audit_bim.profiles.i3f.tools_query",
+    ),
+    prompt_module="audit_bim.profiles.i3f.prompts",
+    legacy_alias_module="audit_bim.profiles.i3f.aliases",
     specializations=(
         ClientSpecialization(
             key="requirements_i3f",
@@ -251,6 +263,13 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
     report_structure=None,
     enabled_generic_modules=_ALL_GENERIC_KEYS,
     report_packs=(),
+    # Aucun module d'outils : activer ce profil aujourd'hui donne un serveur qui
+    # n'expose que les outils du serveur lui-même. C'est l'état honnête tant que
+    # BIM in Motion n'a pas ses propres outils — pas une raison d'hériter de ceux
+    # d'I3F, qui répondraient sur un référentiel qui n'est pas le sien.
+    tool_modules=(),
+    prompt_module=None,
+    legacy_alias_module=None,
     specializations=(
         ClientSpecialization(
             key="requirements_bim_in_motion",

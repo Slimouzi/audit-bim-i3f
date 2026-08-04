@@ -199,6 +199,17 @@ class McpProfile:
     enabled_generic_modules: tuple[str, ...]
     specializations: tuple[ClientSpecialization, ...]
     report_packs: tuple[str, ...]
+    #: Modules à importer pour enregistrer les outils du profil, **dans cet
+    #: ordre**. Ce sont des chemins pointés, pas des objets : le registre est
+    #: chargé au démarrage pour tous les profils, et importer les modules d'I3F
+    #: pour lire la fiche de BIM in Motion enregistrerait les outils d'I3F.
+    #: Un chemin faux ne peut pas passer inaperçu — cf. les tests qui vérifient
+    #: que chaque module déclaré existe *et* déclare au moins un outil.
+    tool_modules: tuple[str, ...] = ()
+    #: Module exposant ``register_prompts(mcp)``. ``None`` = profil sans prompt.
+    prompt_module: str | None = None
+    #: Module des aliases LEGACY, importé seulement si l'opt-in est actif.
+    legacy_alias_module: str | None = None
     notes: tuple[str, ...] = ()
     is_default: bool = False
 
@@ -224,6 +235,8 @@ class McpProfile:
                 self.report_structure.to_dict() if self.report_structure else None
             ),
             "enabled_generic_modules": list(self.enabled_generic_modules),
+            "tool_modules": list(self.tool_modules),
+            "prompt_module": self.prompt_module,
             "specializations": [s.to_dict() for s in self.specializations],
             "report_packs": list(self.report_packs),
             "notes": list(self.notes),
