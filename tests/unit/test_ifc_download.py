@@ -142,11 +142,16 @@ def test_midstream_error_cleans_part_and_raises(tmp_path):
     assert list(ifc_dir.glob("*.ifc")) == []
 
 
-def test_tool_registered_and_reexported():
-    from audit_bim.mcp import server
+def test_tool_registered():
+    """Le tool est bien exposé par le registre MCP.
+
+    Le ré-export ``server.download_model_ifc`` n'est plus vérifié ici : depuis
+    E3-B, la compat est exercée au seul endroit qui la revendique
+    (``test_server_compat_reexports.py``). La laisser ici en ferait à nouveau
+    un chemin que personne ne peut retirer.
+    """
     from audit_bim.mcp.app import register_all
 
-    assert hasattr(server, "download_model_ifc")
     mcp = register_all()
     names = [t.name for t in asyncio.run(mcp.list_tools())]
     assert "download_model_ifc" in names

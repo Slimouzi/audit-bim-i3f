@@ -83,14 +83,14 @@ class TestServerToolsCallGate:
     garde quand ``access_token`` est fourni."""
 
     def test_set_active_model_refuses_token_on_http(self, monkeypatch):
-        from audit_bim.mcp import server as srv
+        from audit_bim.profiles.i3f.tools_session import set_active_model
 
         set_runtime_transport("http")
         # On veut juste vérifier que la garde déclenche AVANT
         # l'instanciation BIMDataClient — pas de mocking BIMData
         # nécessaire.
         with pytest.raises(AccessTokenParamDisabledError):
-            srv.set_active_model(
+            set_active_model(
                 cloud_id="c",
                 project_id="p",
                 model_id="m",
@@ -101,8 +101,8 @@ class TestServerToolsCallGate:
         # Sans access_token, la garde n'est pas appelée — la suite peut
         # échouer pour d'autres raisons (BIMData unreachable), on n'en
         # teste que l'absence de levée d'AccessTokenParamDisabledError.
-        from audit_bim.mcp import server as srv
         from audit_bim.mcp.session import _Session, current_session
+        from audit_bim.profiles.i3f.tools_session import set_active_model
 
         set_runtime_transport("http")
         sess = _Session()
@@ -112,7 +112,7 @@ class TestServerToolsCallGate:
             # ValueError sur config manquante…), tant que ce n'est pas
             # AccessTokenParamDisabledError.
             try:
-                srv.set_active_model(cloud_id="c", project_id="p", model_id="m")
+                set_active_model(cloud_id="c", project_id="p", model_id="m")
             except AccessTokenParamDisabledError:
                 pytest.fail("La garde ne devrait pas se déclencher sans token")
             except Exception:
@@ -121,13 +121,13 @@ class TestServerToolsCallGate:
             current_session.reset(token)
 
     def test_full_audit_refuses_token_on_http(self):
-        from audit_bim.mcp import server as srv
+        from audit_bim.profiles.i3f.tools_audit import full_audit
 
         set_runtime_transport("http")
         # ``push_mode`` arbitraire — la garde doit casser avant la
         # vérification de push_mode.
         with pytest.raises(AccessTokenParamDisabledError):
-            srv.full_audit(
+            full_audit(
                 cloud_id="c",
                 project_id="p",
                 model_id="m",
