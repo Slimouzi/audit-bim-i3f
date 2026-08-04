@@ -59,12 +59,26 @@ SET_ACTIVE_MODEL_PARAMS = {
 }
 
 
+def _registered_server():
+    """Instance MCP **après enregistrement explicite** du profil actif.
+
+    Ces helpers lisaient l'instance partagée sans appeler ``register_all()`` :
+    ils dépendaient de l'effet de bord d'import de ``server``, supprimé en E3-A
+    puis rendu impossible en E4. Depuis, ils ne passaient que si un autre
+    fichier de la suite avait appelé ``register_all()`` avant — un test dont le
+    résultat dépend de l'ordre d'exécution ne mesure pas ce qu'il annonce.
+    """
+    from audit_bim.mcp.app import register_all
+
+    return register_all()
+
+
 def _tools() -> list[str]:
-    return sorted(t.name for t in anyio.run(mcp_server.mcp.list_tools))
+    return sorted(t.name for t in anyio.run(_registered_server().list_tools))
 
 
 def _prompts() -> list[str]:
-    return sorted(p.name for p in anyio.run(mcp_server.mcp.list_prompts))
+    return sorted(p.name for p in anyio.run(_registered_server().list_prompts))
 
 
 # ── 1. La surface MCP ne bouge pas ────────────────────────────────────

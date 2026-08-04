@@ -31,7 +31,17 @@ from pathlib import Path
 
 import pytest
 
-GOLDEN = Path(__file__).parent / "golden" / "mcp_surface.json"
+#: Une référence **par profil**. Depuis E5, la surface MCP dépend du profil
+#: actif : la figer pour I3F seul laisserait un second profil dériver librement.
+GOLDEN_BY_PROFILE = {
+    "i3f": Path(__file__).parent / "golden" / "mcp_surface.json",
+    "bim_in_motion": Path(__file__).parent / "golden" / "mcp_surface_bim_in_motion.json",
+}
+PROFILES = sorted(GOLDEN_BY_PROFILE)
+
+#: Nom historique conservé : le fichier d'I3F ne doit pas bouger, y compris de
+#: chemin — c'est la référence que tous les lots précédents ont vérifiée.
+GOLDEN = GOLDEN_BY_PROFILE["i3f"]
 
 #: Aliases LEGACY, opt-in par variable d'environnement. Un autre test de la
 #: suite les active sur le registre partagé : la surface canonique s'entend
@@ -70,7 +80,7 @@ _DUMP_SCRIPT = textwrap.dedent(
 )
 
 
-def _current_surface() -> dict:
+def _current_surface(profile: str = "i3f") -> dict:
     """Surface produite par ``register_all()``, dans un interpréteur NEUF.
 
     C'est ce qu'appelle ``main()`` avant de démarrer. Le sous-processus n'est
@@ -84,32 +94,59 @@ def _current_surface() -> dict:
         capture_output=True,
         text=True,
         cwd=str(repo),
+        env={"PATH": "/usr/bin:/bin", "HOME": str(repo), "AUDIT_BIM_PROFILE": profile},
     )
     assert proc.returncode == 0, f"dump de surface échoué :\n{proc.stderr}"
     return json.loads(proc.stdout)
 
 
-def _golden_surface() -> dict:
-    return json.loads(GOLDEN.read_text(encoding="utf-8"))
+def _golden_surface(profile: str = "i3f") -> dict:
+    return json.loads(GOLDEN_BY_PROFILE[profile].read_text(encoding="utf-8"))
 
 
 def test_golden_file_exists_and_is_populated():
-    surface = _golden_surface()
+    surface = _golden_surface("i3f")
     assert len(surface["tools"]) == 46
     assert surface["prompts"] == ["amo_bim_i3f"]
 
 
-def test_tool_names_match_the_reference():
-    current, golden = _current_surface(), _golden_surface()
+def test_the_third_party_profile_surface_is_explicit():
+    """La surface de BIM in Motion est petite : elle doit être énumérée, pas comptée.
+
+    Un simple cardinal laisserait un outil se faire remplacer par un autre sans
+    bruit. À cette taille, l'inventaire exact est lisible — et c'est justement
+    quand une surface est petite qu'une dérive y passe inaperçue.
+    """
+    surface = _golden_surface("bim_in_motion")
+    assert sorted(surface["tools"]) == [
+        "extract_model_snapshot",
+        "list_mcp_profiles",
+        "set_active_target",
+        "verify_active_target",
+    ]
+    assert surface["prompts"] == ["amo_bim_in_motion"]
+
+
+def test_the_two_profiles_do_not_expose_the_same_surface():
+    """Sentinelle : deux références identiques rendraient la comparaison vaine."""
+    i3f, other = _golden_surface("i3f"), _golden_surface("bim_in_motion")
+    assert i3f != other
+    assert not (set(i3f["prompts"]) & set(other["prompts"]))
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_tool_names_match_the_reference(profile):
+    current, golden = _current_surface(profile), _golden_surface(profile)
     added = sorted(set(current["tools"]) - set(golden["tools"]))
     removed = sorted(set(golden["tools"]) - set(current["tools"]))
     assert not added, f"outils AJOUTÉS sans mise à jour de la référence : {added}"
     assert not removed, f"outils DISPARUS : {removed}"
 
 
-def test_every_tool_signature_matches_the_reference():
+@pytest.mark.parametrize("profile", PROFILES)
+def test_every_tool_signature_matches_the_reference(profile):
     """Chaque outil, pas un échantillon."""
-    current, golden = _current_surface(), _golden_surface()
+    current, golden = _current_surface(profile), _golden_surface(profile)
     drifted = {
         name: {"référence": golden["tools"][name], "actuel": params}
         for name, params in current["tools"].items()
@@ -118,13 +155,15 @@ def test_every_tool_signature_matches_the_reference():
     assert not drifted, f"signatures modifiées : {drifted}"
 
 
-def test_prompts_match_the_reference():
-    assert _current_surface()["prompts"] == _golden_surface()["prompts"]
+@pytest.mark.parametrize("profile", PROFILES)
+def test_prompts_match_the_reference(profile):
+    assert _current_surface(profile)["prompts"] == _golden_surface(profile)["prompts"]
 
 
-def test_whole_surface_is_byte_identical():
+@pytest.mark.parametrize("profile", PROFILES)
+def test_whole_surface_is_byte_identical(profile):
     """Comparaison globale — la même que celle menée à la main contre master."""
-    assert _current_surface() == _golden_surface()
+    assert _current_surface(profile) == _golden_surface(profile)
 
 
 def test_the_comparison_is_not_vacuous():

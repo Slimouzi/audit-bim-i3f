@@ -263,12 +263,12 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
     report_structure=None,
     enabled_generic_modules=_ALL_GENERIC_KEYS,
     report_packs=(),
-    # Aucun module d'outils : activer ce profil aujourd'hui donne un serveur qui
-    # n'expose que les outils du serveur lui-même. C'est l'état honnête tant que
-    # BIM in Motion n'a pas ses propres outils — pas une raison d'hériter de ceux
-    # d'I3F, qui répondraient sur un référentiel qui n'est pas le sien.
-    tool_modules=(),
-    prompt_module=None,
+    # Trois outils écrits pour ce profil, jamais copiés d'I3F : les équivalents
+    # I3F portent phase BIM, système de classification et catalogue d'exigences,
+    # qui appartiennent au référentiel d'I3F et non à un socle.
+    tool_modules=("audit_bim.profiles.bim_in_motion.tools_session",),
+    prompt_module="audit_bim.profiles.bim_in_motion.prompts",
+    # Les aliases LEGACY sont une dette d'I3F : un profil neuf n'en hérite pas.
     legacy_alias_module=None,
     specializations=(
         ClientSpecialization(
@@ -288,13 +288,25 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
         ClientSpecialization(
             key="prompt_bim_in_motion",
             label="Prompt AMO BIM in Motion",
-            current_location=None,
-            status="planned",
+            current_location="audit_bim/profiles/bim_in_motion/prompts.py",
+            status="ready",
             responsibility="Décrire la posture AMO BIM in Motion et les questions de cadrage client.",
+        ),
+        ClientSpecialization(
+            key="tools_bim_in_motion",
+            label="Surface d'outils MCP BIM in Motion",
+            current_location="audit_bim/profiles/bim_in_motion",
+            status="ready",
+            responsibility=(
+                "Exposer les 3 outils du profil : cible, contrôle d'identité, "
+                "instantané. Aucun import du profil I3F."
+            ),
         ),
     ),
     notes=(
-        "Profil préparatoire : il ne doit pas activer le pack AVP I3F.",
+        "Profil minimal : il ne doit pas activer le pack AVP I3F.",
+        "Second consommateur réel des briques neutres — c'est ce qui rend "
+        "mesurable ce qui est vraiment générique.",
         "Le nouveau MCP doit dépendre des briques génériques, pas de audit-bim-i3f.",
     ),
 )

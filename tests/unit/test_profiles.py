@@ -28,7 +28,13 @@ def test_bim_in_motion_profile_is_available_without_i3f_pack():
     assert profile.id == "bim_in_motion"
     assert profile.owner_name == "BIM in Motion"
     assert "avp_i3f" not in profile.report_packs
-    assert all(s.status == "planned" for s in profile.specializations)
+
+    # Depuis E5, le prompt et les outils du profil existent réellement ; le
+    # référentiel et les packs restent à faire. Un « tout planned » décrirait
+    # un profil vide, ce que le registre ne doit plus prétendre.
+    ready = {s.key for s in profile.specializations if s.status == "ready"}
+    assert ready == {"prompt_bim_in_motion", "tools_bim_in_motion"}
+    assert any(s.status == "planned" for s in profile.specializations)
 
 
 def test_profiles_compose_the_same_generic_module_keys():

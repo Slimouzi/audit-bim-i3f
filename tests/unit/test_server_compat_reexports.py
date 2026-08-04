@@ -155,6 +155,20 @@ def _server_aliases(tree: ast.Module, path: Path) -> set[str]:
     return found
 
 
+def _resolves_to_server(node: ast.ImportFrom, path: Path) -> bool:
+    """``from audit_bim.mcp.server import …``, y compris en import relatif."""
+    module = node.module or ""
+    if node.level:
+        try:
+            package = ".".join(path.relative_to(REPO).parts[:-1])
+        except ValueError:
+            package = ""
+        parts = package.split(".")
+        base = parts[: len(parts) - node.level + 1]
+        module = ".".join([*base, module] if module else base)
+    return module == _SERVER_MODULE
+
+
 def _dotted(node: ast.AST) -> str | None:
     """``a.b.c`` sous forme de chaîne, ou ``None`` si la base n'est pas un nom."""
     parts: list[str] = []
@@ -177,7 +191,17 @@ def _reexport_accesses(source: str, path: Path, names: set[str]) -> list[str]:
     aliases = _server_aliases(tree, path)
     hits: list[str] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute):
+        if isinstance(node, ast.ImportFrom) and _resolves_to_server(node, path):
+            # ``from audit_bim.mcp.server import full_audit`` : le nom devient
+            # local, donc plus aucun ``server.`` n'apparaît à l'appel. C'est
+            # l'angle mort relevé en revue d'E3-B — la dépendance est ici, à
+            # l'import, pas au point d'usage.
+            hits += [
+                f"{node.lineno} -> from {_SERVER_MODULE} import {a.name}"
+                for a in node.names
+                if a.name in names
+            ]
+        elif isinstance(node, ast.Attribute):
             dotted = _dotted(node)
             if dotted and dotted.rsplit(".", 1)[0] in aliases and node.attr in names:
                 hits.append(f"{node.lineno} -> {dotted}")
@@ -229,10 +253,15 @@ def test_the_dependency_guard_sees_through_an_arbitrary_alias(tmp_path):
         "srv.full_audit(cloud_id='c')\n"
         "value = getattr(srv, 'set_active_model')\n"
     )
+    # Forme sans aucun `server.` au point d'appel — l'angle mort relevé en revue.
+    from_import = "from audit_bim.mcp.server import full_audit\nfull_audit()\n"
     probe = tmp_path / "probe.py"
 
     hits = _reexport_accesses(sample, probe, names)
     assert len(hits) == 2, hits
+    assert _reexport_accesses(from_import, probe, names), (
+        "l'import direct depuis server reste une dépendance aux ré-exports"
+    )
 
     guessed = re.compile(rf"\b(?:{'|'.join(_GUESSED_ALIASES)})\.([a-z_][a-z0-9_]*)\b")
     assert not [h for h in guessed.findall(sample) if h in names], (
