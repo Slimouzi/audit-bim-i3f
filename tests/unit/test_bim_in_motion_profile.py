@@ -409,3 +409,92 @@ def test_mixing_url_and_explicit_ids_is_refused():
     out = _in_profile_process(f"print(json.dumps(attempt(bimdata_url={url!r}, cloud_id='9')))")
     assert out["ok"] is False
     assert "ambiguë" in out["message"]
+
+
+# ── 5. Aucune description ne cite un outil absent du serveur ──────────
+
+GOLDEN_DIR = REPO / "tests" / "unit" / "golden"
+
+
+def _tool_universe() -> set[str]:
+    """Tous les noms d'outils connus du dépôt, tous profils confondus."""
+    names: set[str] = set()
+    for path in GOLDEN_DIR.glob("mcp_surface*.json"):
+        names |= set(json.loads(path.read_text(encoding="utf-8"))["tools"])
+    return names
+
+
+def test_no_tool_description_names_a_tool_absent_from_the_active_profile():
+    """Les descriptions MCP sont des instructions, et sont lues comme telles.
+
+    Le socle partagé nommait ``set_active_model`` dans trois docstrings. Sous
+    BIM in Motion, le modèle recevait donc la consigne d'appeler un outil que
+    son serveur n'expose pas — plausible, et sans issue. Le contrôle ne vise pas
+    trois noms connus : il rejette **tout** nom d'outil du dépôt qui ne serait
+    pas dans la surface du profil actif, pour que la prochaine fuite échoue
+    aussi.
+    """
+    probe = (
+        "import anyio, json\n"
+        "from audit_bim.mcp.app import register_all\n"
+        "mcp = register_all()\n"
+        "tools = anyio.run(mcp.list_tools)\n"
+        "print(json.dumps({t.name: (t.description or '') for t in tools}))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(REPO), ACTIVE_PROFILE_ENV: "bim_in_motion"},
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    descriptions = json.loads(result.stdout.strip().splitlines()[-1])
+
+    universe = _tool_universe()
+    assert len(universe) > len(descriptions), "prémisse : d'autres outils existent ailleurs"
+    forbidden = universe - set(descriptions)
+    assert {"set_active_model", "full_audit", "generate_avp_i3f_pack"} <= forbidden
+
+    offenders = [
+        f"{tool} cite {name}"
+        for tool, text in descriptions.items()
+        for name in forbidden
+        if re.search(rf"\b{re.escape(name)}\b", text)
+    ]
+    assert not offenders, f"descriptions renvoyant vers un outil absent : {offenders}"
+
+
+def test_the_mismatch_message_names_the_targeting_tool_of_the_active_profile():
+    """Le conseil donné après une maquette inattendue doit être applicable.
+
+    Le message disait « set_active_model + verify_active_model ». Sous BIM in
+    Motion, la moitié de cette consigne désigne un outil inexistant — et c'est
+    le moment où l'auditeur a le plus besoin d'une instruction juste, puisqu'il
+    vient d'apprendre qu'il travaillait peut-être sur la mauvaise maquette.
+    """
+    probe = (
+        "from unittest.mock import patch\n"
+        "from audit_bim.extraction.model_data import ModelSnapshot\n"
+        "from audit_bim.mcp.session import _State\n"
+        "from audit_bim.tools_shared import session as shared\n"
+        "_State.client = object()\n"
+        "snap = ModelSnapshot(model={'name': 'AUTRE MAQUETTE', 'id': 7}, project={})\n"
+        "with patch.object(shared, 'extract_snapshot', return_value=snap):\n"
+        "    out = shared.verify_active_model('ATTENDU', refresh_snapshot=True, use_cache=False)\n"
+        "print(out['message'])\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(REPO), ACTIVE_PROFILE_ENV: "bim_in_motion"},
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stderr[-2500:]
+    message = result.stdout.strip()
+
+    assert "set_active_target" in message, message
+    assert "set_active_model" not in message, message

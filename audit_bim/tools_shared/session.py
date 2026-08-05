@@ -12,9 +12,12 @@ cercle de l'inventaire dont l'extraction ne repose sur aucune hypothèse.
 Le code est déplacé **verbatim**. La surface MCP d'I3F ne change pas d'un nom ni
 d'un paramètre : c'est la condition de ce lot, et le golden la vérifie.
 
-Ce module ne connaît aucun profil. Le seul endroit où le profil transparaît est
-le message d'absence de cible, qui doit nommer un outil que le serveur expose
-réellement — cf. `_State.ensure_client`.
+Ce module ne nomme **aucun outil d'un profil**, ni dans son code, ni dans les
+docstrings — qui sont servies au modèle comme descriptions MCP. Le ciblage se
+désigne par sa fonction, et quand un message doit citer l'outil, il le lit dans
+le profil actif (`_target_tool_name`). Une description qui nomme un outil absent
+du serveur est une instruction plausible et inapplicable : elle coûte plus cher
+qu'une absence de conseil.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ from ..extraction.snapshot_cache import cached_extract_snapshot
 from ..extraction.snapshot_health import snapshot_diagnostics
 from ..mcp.app import mcp
 from ..mcp.model_identity import model_matches_expected, parse_bimdata_viewer_url
-from ..mcp.session import _State
+from ..mcp.session import _State, _target_tool_name
 from ..safe_paths import safe_export_dir, safe_input_path
 from ..security.redaction import redact_secrets
 
@@ -123,7 +126,8 @@ def _merge_computed_quantities(computed_quantities_json: str | None) -> dict:
 def parse_bimdata_target(url: str) -> dict:
     """Extrait ``cloud_id`` / ``project_id`` / ``model_id`` d'une **URL viewer** BIMData.
 
-    À appeler **avant** ``set_active_model`` quand l'utilisateur fournit une URL
+    À appeler **avant** l'outil de ciblage du profil actif, quand l'utilisateur
+    fournit une URL
     (``https://platform.bimdata.io/spaces/<cloud>/projects/<project>/viewer/<model>``) :
     le runtime cible toujours BIMData par IDs explicites, jamais par URL. Ne touche
     à aucun état de session — c'est un simple parseur.
@@ -136,9 +140,9 @@ def parse_bimdata_target(url: str) -> dict:
 def check_bimdata_access() -> dict:
     """Smoke test **cible + auth** : prouve l'accès BIMData réel (sans cache).
 
-    ``set_active_model`` ne fait que *configurer* l'auth ; ce tool la **prouve** en
-    lisant ``get_project`` puis ``get_model`` en direct. À lancer juste après
-    ``set_active_model``, avant l'extraction. Rapporte aussi le **mode d'auth
+    L'outil de ciblage du profil actif ne fait que *configurer* l'auth ; ce tool
+    la **prouve** en lisant ``get_project`` puis ``get_model`` en direct. À
+    lancer juste après le ciblage, avant l'extraction. Rapporte aussi le **mode d'auth
     effectif** (``auth_source`` / ``auth_scheme``) — sans jamais divulguer la
     valeur des secrets — pour la sonde de vérification de déploiement (ex. attendu
     ``auth_source: BIMDATA_API_KEY``, ``auth_scheme: ApiKey``).
@@ -209,7 +213,7 @@ def verify_active_model(
     bien celle attendue **avant** de lancer l'audit ou la génération des
     livrables.
 
-    Pourquoi : ``set_active_model`` invalide bien ``_State.snapshot`` et
+    Pourquoi : le ciblage invalide bien ``_State.snapshot`` et
     le cache disque est keyé par ``model_id`` — il n'y a donc *pas* de
     risque de contamination entre maquettes côté infrastructure. Le
     risque résiduel est **humain** : l'auditeur copie-colle un mauvais
@@ -288,7 +292,8 @@ def verify_active_model(
         message = (
             f"Modèle actif inattendu : attendu '{expected}', "
             f"reçu '{model_name}' (model_id={model_id}). "
-            "N'enchaînez PAS l'audit avant correction (set_active_model + verify_active_model)."
+            "N'enchaînez PAS l'audit avant correction : reciblez avec "
+            f"`{_target_tool_name()}` puis relancez ce contrôle."
         )
     return {
         "ok": ok,
