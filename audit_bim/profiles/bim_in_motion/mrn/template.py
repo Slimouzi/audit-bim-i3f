@@ -230,7 +230,7 @@ def parse_mrn_template(path: str | Path) -> MRNTemplate:
         for row in range(2, cat_sheet.max_row + 1):
             values = [_text(cat_sheet.cell(row, c).value) for c in range(1, len(headers) + 1)]
             if any(values):
-                categories.append(dict(zip(headers, values)))
+                categories.append(dict(zip(headers, values, strict=False)))
 
     workbook.close()
     return MRNTemplate(
