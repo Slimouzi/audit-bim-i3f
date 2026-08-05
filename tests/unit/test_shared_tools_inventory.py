@@ -276,3 +276,34 @@ def test_an_unknown_state_field_would_be_caught():
 
     # Et la mutation ne laisse pas de trace : l'inventaire réel reste propre.
     assert not [t for t in inv.analyse()["tools"] if t["category"] == "inconnu"]
+
+
+@pytest.mark.parametrize("argv", [[], ["--json"]])
+def test_every_output_mode_fails_closed_on_an_unknown_field(monkeypatch, capsys, argv):
+    """Le code de retour ne doit pas dépendre du format d'affichage.
+
+    Le contrôle vivait après le branchement de sortie : ``--json`` imprimait et
+    rendait 0. Or c'est le mode qu'un script ou une CI consomme — donc celui où
+    le silence coûte le plus cher. Les deux modes sont vérifiés ensemble pour
+    que la protection ne puisse pas se perdre d'un seul côté.
+    """
+    import inventory_shared_tools as inv
+
+    monkeypatch.setattr(inv, "NEUTRAL_STATE_FIELDS", inv.NEUTRAL_STATE_FIELDS - {"snapshot"})
+    monkeypatch.setattr(sys, "argv", ["inventory_shared_tools.py", *argv])
+
+    assert inv.main() == 1, "un champ inconnu doit faire échouer l'inventaire"
+
+    # Et la sortie reste exploitable : on doit pouvoir voir *qui* lit *quoi*.
+    out = capsys.readouterr().out
+    assert "extract_model_snapshot" in out
+
+
+@pytest.mark.parametrize("argv", [[], ["--json"]])
+def test_every_output_mode_succeeds_on_the_real_inventory(monkeypatch, capsys, argv):
+    """Non-vacuité : sans champ inconnu, les deux modes rendent 0."""
+    import inventory_shared_tools as inv
+
+    monkeypatch.setattr(sys, "argv", ["inventory_shared_tools.py", *argv])
+    assert inv.main() == 0
+    assert capsys.readouterr().out

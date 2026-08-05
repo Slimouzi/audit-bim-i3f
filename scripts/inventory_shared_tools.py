@@ -279,9 +279,18 @@ def main() -> int:
     args = parser.parse_args()
 
     report = analyse()
+
+    # Calculé AVANT le branchement de sortie. Placé après, le fail-closed ne
+    # protégeait que le mode lisible : ``--json`` — le mode qu'un test ou un
+    # script consomme, donc celui qui compte — imprimait et rendait 0. Un
+    # garde-fou qui dépend du format d'affichage n'en est pas un.
+    unclassified = sorted({f for e in report["tools"] for f in e["unclassified_state_fields"]})
+
     if args.json:
+        # On imprime quand même : c'est ce qui permet de voir quel outil lit
+        # quel champ. Mais le code de retour reste non nul.
         print(json.dumps(report, indent=2, ensure_ascii=False))
-        return 0
+        return 1 if unclassified else 0
 
     by_category: dict[str, list[dict]] = defaultdict(list)
     for entry in report["tools"]:
@@ -300,7 +309,6 @@ def main() -> int:
             print(f"   {entry['tool']:38} {entry['module']:16}{flag}{detail}")
         print()
 
-    unclassified = sorted({f for e in report["tools"] for f in e["unclassified_state_fields"]})
     if unclassified:
         print(
             "ERREUR — champs de session non classés : "
