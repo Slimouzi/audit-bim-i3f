@@ -12,16 +12,24 @@ Depuis E5, `bim_in_motion` existe et tourne. Son inventaire d'imports est donc
 la première liste de ce dossier qui ne soit pas un jugement — elle est lue sur
 disque, dans un profil qui fonctionne.
 
-**Dix modules sont ainsi prouvés neutres**, au sens fort de « deux profils
-indépendants les utilisent » :
+**Treize modules sont ainsi prouvés neutres**, au sens fort de « du code que
+deux profils déclarent les utilise » :
 
 ```
-audit_bim.extraction.client          audit_bim.mcp.app
-audit_bim.extraction.model_data      audit_bim.mcp.model_identity
-audit_bim.extraction.snapshot_cache  audit_bim.mcp.security
-audit_bim.extraction.snapshot_health audit_bim.mcp.session
-audit_bim.safe_paths                 audit_bim (config)
+audit_bim.extraction.client               audit_bim.mcp.app
+audit_bim.extraction.computed_quantities  audit_bim.mcp.model_identity
+audit_bim.extraction.ifc_download         audit_bim.mcp.security
+audit_bim.extraction.model_data           audit_bim.mcp.session
+audit_bim.extraction.snapshot_cache       audit_bim.safe_paths
+audit_bim.extraction.snapshot_health      audit_bim.security.redaction
+audit_bim (config)
 ```
+
+Le compte est passé de dix à treize avec E7 : le socle partagé, déclaré par les
+deux profils, tire trois modules de plus. Il faut d'ailleurs compter le socle
+comme du code à deux consommateurs, sinon la mutualisation *détruirait* la
+preuve qu'elle établit — `bim_in_motion` n'importe plus l'extraction lui-même,
+il passe par `tools_shared`.
 
 `extraction.snapshot_health` est le seul qui ait déjà franchi le pas : il vivait
 dans le profil I3F faute d'un second appelant, il en a eu un, il a été déplacé
@@ -128,18 +136,27 @@ sans référentiel peut faire seul**. Trois cercles, du plus sûr au plus coûte
 1. **Cible, identité, lecture** — `parse_bimdata_target`, `check_bimdata_access`,
    `verify_active_model`, `extract_model_snapshot`, `download_model_ifc`. Cinq
    outils, tous appuyés sur des modules déjà prouvés par deux consommateurs, et
-   dont trois ont déjà un équivalent écrit dans `bim_in_motion`. **C'est le seul
+   dont trois avaient un équivalent réécrit dans `bim_in_motion`. **C'est le seul
    cercle où l'extraction ne repose sur aucune hypothèse.**
+   **➜ Extrait en E7** vers `audit_bim/tools_shared/session.py`, déclaré par les
+   deux profils. `bim_in_motion` a perdu ses deux réimplémentations ; il ne garde
+   que `set_active_target`, son équivalent I3F portant une phase BIM.
 2. **Requêtes sur snapshot** — 5 outils, neutres mais reposant sur
    `audit_bim.query` et `audit_bim.mcp.selection`, qu'aucun second consommateur
    n'a exercés.
 3. **Écritures et DOE** — 13 outils, cercle le plus large et le moins prouvé.
 
-Le premier cercle est le prolongement direct d'E5 : `bim_in_motion` a
-réimplémenté `set_active_target`, `verify_active_target` et
-`extract_model_snapshot` parce qu'aucun socle ne les portait. C'est la
-duplication que E7 doit supprimer — et la seule dont on ait la preuve qu'elle
-gêne réellement un second AMO.
+Le premier cercle était le prolongement direct d'E5 : `bim_in_motion` avait
+réimplémenté `verify_active_target` et `extract_model_snapshot` parce qu'aucun
+socle ne les portait. C'était la seule duplication dont on ait eu la preuve
+qu'elle gênait un second AMO — et E7 l'a supprimée.
+
+L'extraction a révélé une dépendance que l'analyse statique ne pouvait pas
+voir : `_State.ensure_client()` écrivait « appelez `set_active_model` » en dur.
+Servi depuis le socle, ce message renvoyait les utilisateurs de BIM in Motion
+vers un outil que leur serveur n'expose pas. Le nom vient désormais du profil
+actif (`McpProfile.target_tool_name`). Un inventaire de dépendances mesure les
+imports et les champs lus ; il ne voit pas ce qu'un texte promet.
 
 Les cercles 2 et 3 devraient attendre qu'un profil les demande. Extraire un
 outil que personne d'autre n'appelle, c'est déplacer du code en pariant sur son

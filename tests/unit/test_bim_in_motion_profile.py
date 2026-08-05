@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from audit_bim.profiles.active import ACTIVE_PROFILE_ENV
+
 REPO = Path(__file__).resolve().parents[2]
 PROFILE_DIR = REPO / "audit_bim" / "profiles" / "bim_in_motion"
 SOURCES = sorted(PROFILE_DIR.rglob("*.py"))
@@ -194,7 +196,11 @@ def test_the_registry_entry_matches_what_is_on_disk():
     from audit_bim.profiles.registry import get_profile
 
     profile = get_profile("bim_in_motion")
-    assert profile.tool_modules == ("audit_bim.profiles.bim_in_motion.tools_session",)
+    assert profile.tool_modules == (
+        "audit_bim.tools_shared.session",
+        "audit_bim.profiles.bim_in_motion.tools_session",
+    )
+    assert profile.target_tool_name == "set_active_target"
     assert profile.prompt_module == "audit_bim.profiles.bim_in_motion.prompts"
     assert profile.legacy_alias_module is None, "les aliases LEGACY sont une dette d'I3F"
 
@@ -215,11 +221,12 @@ def test_the_tools_answer_without_any_i3f_module_loaded():
         "import json, sys\n"
         "from audit_bim.mcp.app import register_all\n"
         "register_all()\n"
-        "from audit_bim.profiles.bim_in_motion.tools_session import (\n"
-        "    set_active_target, verify_active_target, extract_model_snapshot)\n"
+        "from audit_bim.profiles.bim_in_motion.tools_session import set_active_target\n"
+        "from audit_bim.tools_shared.session import (\n"
+        "    verify_active_model, extract_model_snapshot)\n"
         "out = set_active_target(cloud_id='1', project_id='2', model_id='3')\n"
         "outcomes = []\n"
-        "for fn, kwargs in ((verify_active_target, {'expected_model_name': 'X'}),\n"
+        "for fn, kwargs in ((verify_active_model, {'expected_model_name': 'X'}),\n"
         "                   (extract_model_snapshot, {'use_cache': False})):\n"
         "    try:\n"
         "        res = fn(**kwargs)\n"
@@ -285,26 +292,43 @@ def test_the_tools_answer_without_any_i3f_module_loaded():
     assert identity["snapshot_health"] in {"empty_model", "partial", "empty_elements"}
 
 
-def test_missing_target_names_a_tool_of_this_profile():
+@pytest.mark.parametrize(
+    ("profile_id", "expected"),
+    [("bim_in_motion", "set_active_target"), ("i3f", "set_active_model")],
+)
+def test_missing_target_names_a_tool_of_the_active_profile(profile_id, expected):
     """Le message d'erreur ne doit pas renvoyer vers un outil d'un autre profil.
 
-    ``_State.ensure_client()`` nomme ``set_active_model``, qui n'existe pas ici.
-    Envoyer un utilisateur vers un outil absent de son serveur est une impasse
-    d'autant plus coûteuse qu'elle a l'air d'une instruction valide.
+    ``_State.ensure_client()`` écrivait ``set_active_model`` en dur. Tant que ce
+    texte vivait dans le profil I3F, il ne pouvait viser que le bon outil. Servi
+    depuis le socle partagé (E7), il renvoyait les utilisateurs de BIM in Motion
+    vers un outil que leur serveur n'expose pas — une instruction qui a l'air
+    valide et ne mène nulle part. Le nom vient désormais du profil actif.
+
+    Mesuré en sous-processus : la résolution dépend de l'environnement, et le
+    profil de l'interpréteur de test n'est pas celui qu'on veut éprouver.
     """
-    # Lu par AST, sans importer le module : l'importer déclencherait ses
-    # ``@mcp.tool`` sur l'instance partagée du processus de test, et fausserait
-    # la surface mesurée par tous les fichiers exécutés ensuite.
-    tree = ast.parse((PROFILE_DIR / "tools_session.py").read_text(encoding="utf-8"))
-    message = next(
-        node.value.value
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and getattr(node.targets[0], "id", None) == "_NO_TARGET"
-        and isinstance(node.value, ast.Constant)
+    probe = (
+        "from audit_bim.mcp.session import _Session\n"
+        "try:\n"
+        "    _Session().ensure_client()\n"
+        "except RuntimeError as exc:\n"
+        "    print(str(exc))\n"
     )
-    assert "set_active_target" in message
-    assert "set_active_model" not in message
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(REPO), ACTIVE_PROFILE_ENV: profile_id},
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    message = result.stdout.strip()
+
+    assert expected in message, message
+    other = "set_active_model" if expected == "set_active_target" else "set_active_target"
+    assert other not in message, message
 
 
 def _in_profile_process(body: str) -> dict:

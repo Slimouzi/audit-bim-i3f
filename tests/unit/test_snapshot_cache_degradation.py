@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp.session import _Session, current_session
-from audit_bim.profiles.i3f import tools_session as ts
+from audit_bim.tools_shared import session as shared_session
 
 
 def _with_session(fn):
@@ -40,11 +40,13 @@ def _partial_snap() -> ModelSnapshot:
 def test_extract_model_snapshot_degrades_on_readonly_root():
     def body(_sess):
         with (
-            patch.object(ts, "safe_export_dir", side_effect=OSError(30, "Read-only file system")),
-            patch.object(ts, "extract_snapshot", return_value=_snap()) as m_extract,
-            patch.object(ts, "cached_extract_snapshot") as m_cached,
+            patch.object(
+                shared_session, "safe_export_dir", side_effect=OSError(30, "Read-only file system")
+            ),
+            patch.object(shared_session, "extract_snapshot", return_value=_snap()) as m_extract,
+            patch.object(shared_session, "cached_extract_snapshot") as m_cached,
         ):
-            out = ts.extract_model_snapshot(use_cache=True)
+            out = shared_session.extract_model_snapshot(use_cache=True)
         assert out["from_cache"] is False
         m_cached.assert_not_called()  # cache court-circuité, pas de crash
         m_extract.assert_called_once()
@@ -54,8 +56,8 @@ def test_extract_model_snapshot_degrades_on_readonly_root():
 
 def test_extract_model_snapshot_exposes_non_blocking_diagnostics():
     def body(_sess):
-        with patch.object(ts, "extract_snapshot", return_value=_partial_snap()):
-            out = ts.extract_model_snapshot(use_cache=False)
+        with patch.object(shared_session, "extract_snapshot", return_value=_partial_snap()):
+            out = shared_session.extract_model_snapshot(use_cache=False)
         assert out["model_status"] == "P"
         assert out["model_status_label"] == "Pending"
         assert out["snapshot_health"] == "model_not_completed"
@@ -72,10 +74,10 @@ def test_use_cache_false_never_touches_export_root():
     # de mkdir sur une racine read-only).
     def body(_sess):
         with (
-            patch.object(ts, "safe_export_dir") as m_safe,
-            patch.object(ts, "extract_snapshot", return_value=_snap()),
+            patch.object(shared_session, "safe_export_dir") as m_safe,
+            patch.object(shared_session, "extract_snapshot", return_value=_snap()),
         ):
-            out = ts.extract_model_snapshot(use_cache=False)
+            out = shared_session.extract_model_snapshot(use_cache=False)
         assert out["from_cache"] is False
         m_safe.assert_not_called()
 

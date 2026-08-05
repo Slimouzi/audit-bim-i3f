@@ -88,15 +88,15 @@ _REEXPORTS: dict[str, str] = {
     "generate_word_report": "audit_bim.profiles.i3f.tools_reporting",
     "generate_xlsx_annex": "audit_bim.profiles.i3f.tools_reporting",
     "list_avp_i3f_xls_reports": "audit_bim.profiles.i3f.tools_reporting",
-    "download_model_ifc": "audit_bim.profiles.i3f.tools_session",
-    "extract_model_snapshot": "audit_bim.profiles.i3f.tools_session",
+    "download_model_ifc": "audit_bim.tools_shared.session",
+    "extract_model_snapshot": "audit_bim.tools_shared.session",
     "get_catalog_properties": "audit_bim.profiles.i3f.tools_session",
     "list_classification_systems": "audit_bim.profiles.i3f.tools_session",
     "parse_owner_requirements": "audit_bim.profiles.i3f.tools_session",
     "project_context_questions": "audit_bim.profiles.i3f.tools_session",
     "set_active_model": "audit_bim.profiles.i3f.tools_session",
     "set_owner_documents": "audit_bim.profiles.i3f.tools_session",
-    "verify_active_model": "audit_bim.profiles.i3f.tools_session",
+    "verify_active_model": "audit_bim.tools_shared.session",
 }
 
 #: Aliases métier LEGACY (opt-in) — même traitement, même module.

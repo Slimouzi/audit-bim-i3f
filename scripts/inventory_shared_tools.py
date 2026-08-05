@@ -46,6 +46,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 I3F_DIR = REPO / "audit_bim" / "profiles" / "i3f"
 BIM_IN_MOTION_DIR = REPO / "audit_bim" / "profiles" / "bim_in_motion"
+SHARED_DIR = REPO / "audit_bim" / "tools_shared"
 
 # ── Classement des origines ──────────────────────────────────────────────────
 
@@ -174,13 +175,19 @@ def _origin_kind(origin: str) -> str:
 
 
 def _proven_neutral_modules() -> set[str]:
-    """Modules réellement consommés par le **second** profil.
+    """Modules consommés par du code que **deux profils** déclarent.
 
     C'est la seule liste de ce fichier qui ne soit pas un jugement : elle est
-    lue sur disque, dans un profil qui tourne.
+    lue sur disque, dans des profils qui tournent.
+
+    Le socle compte au même titre que le profil tiers, et il le faut : depuis
+    E7, ``bim_in_motion`` n'importe plus l'extraction directement, il passe par
+    ``tools_shared``. Ne regarder que ses fichiers propres ferait *retomber* le
+    nombre de modules prouvés au moment précis où la mutualisation a lieu — la
+    preuve serait détruite par son propre aboutissement.
     """
     proven: set[str] = set()
-    for path in sorted(BIM_IN_MOTION_DIR.rglob("*.py")):
+    for path in sorted(BIM_IN_MOTION_DIR.rglob("*.py")) + sorted(SHARED_DIR.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for origin in _module_import_map(tree, path).values():
             if origin.startswith("audit_bim."):
@@ -192,7 +199,13 @@ def analyse() -> dict:
     proven = _proven_neutral_modules()
     tools: list[dict] = []
 
-    for path in sorted(I3F_DIR.glob("tools_*.py")):
+    # Le socle partagé est analysé avec le profil : E7 en a sorti cinq outils,
+    # et les cesser de compter ferait « disparaître » un tiers du premier cercle
+    # de l'inventaire au lieu de montrer qu'il a été extrait.
+    sources = sorted(I3F_DIR.glob("tools_*.py")) + sorted(SHARED_DIR.glob("*.py"))
+    for path in sources:
+        if path.stem == "__init__":
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         module_map = _module_import_map(tree, path)
         helpers = {
@@ -247,6 +260,7 @@ def analyse() -> dict:
                 {
                     "tool": func.name,
                     "module": path.stem,
+                    "extracted": SHARED_DIR in path.parents,
                     "helpers_followed": sorted(visited),
                     "category": category,
                     "i3f_origins": sorted(o for o in origins if _origin_kind(o) == "i3f"),
@@ -306,6 +320,7 @@ def main() -> int:
             )
             detail = f"  ← {', '.join(cause[:3])}" if cause else ""
             flag = "  [amont requis]" if entry["requires_upstream"] else ""
+            flag = ("  [socle]" + flag) if entry["extracted"] else flag
             print(f"   {entry['tool']:38} {entry['module']:16}{flag}{detail}")
         print()
 

@@ -3,12 +3,22 @@
     "amo_bim_in_motion"
   ],
   "tools": {
+    "check_bimdata_access": [],
+    "download_model_ifc": [
+      "cache_dir",
+      "overwrite"
+    ],
     "extract_model_snapshot": [
       "cache_dir",
+      "compute_missing_quantities",
+      "computed_quantities_json",
       "use_cache"
     ],
     "list_mcp_profiles": [
       "profile_id"
+    ],
+    "parse_bimdata_target": [
+      "url"
     ],
     "set_active_target": [
       "access_token",
@@ -17,8 +27,9 @@
       "model_id",
       "project_id"
     ],
-    "verify_active_target": [
+    "verify_active_model": [
       "expected_model_name",
+      "refresh_snapshot",
       "use_cache"
     ]
   }

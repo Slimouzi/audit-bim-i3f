@@ -13,7 +13,8 @@ from audit_bim.extraction.computed_quantities import (
 )
 from audit_bim.extraction.model_data import ModelSnapshot
 from audit_bim.mcp.session import _Session, current_session
-from audit_bim.profiles.i3f import tools_query, tools_session
+from audit_bim.profiles.i3f import tools_query
+from audit_bim.tools_shared import session as shared_session
 
 
 def _qty(gid, quantity, value, *, status="computed", qto="Qto_SpaceBaseQuantities", cls="IfcSpace"):
@@ -131,7 +132,7 @@ def _session(monkeypatch, tmp_path):
     sess.client = object()  # ensure_client passe (client non-None)
     token = current_session.set(sess)
     # extract_snapshot renvoie un snapshot synthétique frais à chaque appel.
-    monkeypatch.setattr(tools_session, "extract_snapshot", lambda client: _snapshot())
+    monkeypatch.setattr(shared_session, "extract_snapshot", lambda client: _snapshot())
     try:
         yield sess, tmp_path
     finally:
@@ -146,19 +147,19 @@ def _write_json(tmp_path, name, quantities):
 
 def test_compute_false_leaves_history_unchanged(_session):
     _sess, _tmp = _session
-    out = tools_session.extract_model_snapshot(use_cache=False)
+    out = shared_session.extract_model_snapshot(use_cache=False)
     assert "computed_quantities" not in out
 
 
 def test_compute_true_requires_json(_session):
     with pytest.raises(ValueError, match="exige `computed_quantities_json`"):
-        tools_session.extract_model_snapshot(use_cache=False, compute_missing_quantities=True)
+        shared_session.extract_model_snapshot(use_cache=False, compute_missing_quantities=True)
 
 
 def test_compute_merges_and_exposes_cache_key(_session):
     _sess, tmp = _session
     jp = _write_json(tmp, "c.json", [_qty("S1", "NetFloorArea", 12.3)])
-    out = tools_session.extract_model_snapshot(
+    out = shared_session.extract_model_snapshot(
         use_cache=False, compute_missing_quantities=True, computed_quantities_json=jp
     )
     cq = out["computed_quantities"]
@@ -170,10 +171,10 @@ def test_cache_key_invalidated_when_json_changes(_session):
     _sess, tmp = _session
     j1 = _write_json(tmp, "c1.json", [_qty("S1", "NetFloorArea", 12.3)])
     j2 = _write_json(tmp, "c2.json", [_qty("S1", "NetFloorArea", 55.5)])
-    o1 = tools_session.extract_model_snapshot(
+    o1 = shared_session.extract_model_snapshot(
         use_cache=False, compute_missing_quantities=True, computed_quantities_json=j1
     )
-    o2 = tools_session.extract_model_snapshot(
+    o2 = shared_session.extract_model_snapshot(
         use_cache=False, compute_missing_quantities=True, computed_quantities_json=j2
     )
     assert o1["computed_quantities"]["cache_key"] != o2["computed_quantities"]["cache_key"]
@@ -186,7 +187,7 @@ def test_cache_key_invalidated_when_json_changes(_session):
 def test_get_object_detail_exposes_value_and_provenance(_session):
     _sess, tmp = _session
     jp = _write_json(tmp, "c.json", [_qty("S1", "NetFloorArea", 12.3)])
-    tools_session.extract_model_snapshot(
+    shared_session.extract_model_snapshot(
         use_cache=False, compute_missing_quantities=True, computed_quantities_json=jp
     )
     obj = tools_query.get_object_detail("S1")["object"]

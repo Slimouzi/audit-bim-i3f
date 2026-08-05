@@ -61,6 +61,22 @@ DEFAULT_MAX_SESSIONS = _RUNTIME_DEFAULT_MAX_SESSIONS
 # ── Session ──────────────────────────────────────────────────────────────
 
 
+def _target_tool_name() -> str:
+    """Nom de l'outil qui configure la cible, **dans le profil actif**.
+
+    Le message citait ``set_active_model`` en dur. Depuis que les outils de
+    lecture sont partagés (E7), ce texte est servi aussi aux profils qui ne
+    l'exposent pas : le lecteur reçoit alors une instruction plausible et
+    inapplicable. Import différé — la session est chargée très tôt.
+    """
+    from ..profiles.active import UnknownProfileError, resolve_active_profile
+
+    try:
+        return resolve_active_profile().target_tool_name
+    except (UnknownProfileError, ImportError):  # pragma: no cover - repli défensif
+        return "set_active_model"
+
+
 class _Session:
     """État d'une session MCP isolée.
 
@@ -126,7 +142,9 @@ class _Session:
 
     def ensure_client(self) -> None:
         if self.client is None:
-            raise RuntimeError("Aucune cible BIMData configurée — appelez `set_active_model`.")
+            raise RuntimeError(
+                f"Aucune cible BIMData configurée — appelez `{_target_tool_name()}`."
+            )
 
     def ensure_snapshot(self) -> None:
         if self.snapshot is None:
