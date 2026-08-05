@@ -154,10 +154,17 @@ def test_the_section_parsing_is_not_vacuous(report, doc, known_tools):
     assert _tools_cited(modules, known_tools) == set()
 
 
-def test_the_ten_proven_neutral_modules_come_from_the_second_profile(report):
-    """La seule liste du dossier qui ne soit pas un jugement."""
+def test_the_proven_neutral_modules_come_from_two_declaring_profiles(report):
+    """La seule liste du dossier qui ne soit pas un jugement.
+
+    Le socle compte comme code à deux consommateurs : depuis E7,
+    ``bim_in_motion`` n'importe plus l'extraction directement. Ne regarder que
+    ses fichiers propres ferait retomber ce nombre au moment même où la
+    mutualisation aboutit.
+    """
     proven = set(report["proven_neutral_modules"])
-    assert len(proven) == 10, sorted(proven)
+    assert len(proven) == 13, sorted(proven)
+    assert "Treize modules" in DOC.read_text(encoding="utf-8")
     for module in (
         "audit_bim.extraction.snapshot_health",
         "audit_bim.mcp.model_identity",
@@ -307,3 +314,52 @@ def test_every_output_mode_succeeds_on_the_real_inventory(monkeypatch, capsys, a
     monkeypatch.setattr(sys, "argv", ["inventory_shared_tools.py", *argv])
     assert inv.main() == 0
     assert capsys.readouterr().out
+
+
+def test_the_first_circle_is_the_one_actually_extracted(report):
+    """Le socle contient exactement le cercle qu'E6 avait recommandé.
+
+    Ni plus — un outil de plus serait une extraction décidée sans preuve — ni
+    moins. Le total reste 45 : les outils déplacés sont analysés avec le profil,
+    faute de quoi l'extraction ressemblerait à une disparition.
+    """
+    extracted = {t["tool"] for t in report["tools"] if t["extracted"]}
+    assert extracted == {
+        "parse_bimdata_target",
+        "check_bimdata_access",
+        "verify_active_model",
+        "extract_model_snapshot",
+        "download_model_ifc",
+    }
+    assert extracted <= _measured(report, "extractible", upstream=False)
+    assert len(report["tools"]) == 45
+
+
+def test_the_shared_module_carries_no_client_reference():
+    """Le socle ne doit nommer aucun profil, ni dans le code ni dans les textes."""
+    source = (REPO / "audit_bim" / "tools_shared" / "session.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    imports = [n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+    assert not [m for m in imports if "profiles" in m], imports
+
+    # Même règle qu'en E5 : ce qui part chez l'utilisateur doit être neutre ;
+    # une docstring de module qui raconte d'où vient ce code décrit la
+    # frontière, et l'interdire reviendrait à interdire de l'expliquer.
+    shipped = [
+        text
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        for text in [node.value]
+    ]
+    module_doc = ast.get_docstring(tree, clean=False)
+    shipped = [t for t in shipped if t != module_doc]
+
+    offenders = [
+        (term, t[:60])
+        for t in shipped
+        for term in ("i3f", "cch", "avp")
+        if re.search(rf"\b{term}\b", t, re.I)
+    ]
+    assert not offenders, f"vocabulaire client servi par le socle : {offenders}"
+    assert len(shipped) >= 5, "prémisse : le module doit exposer des textes à contrôler"

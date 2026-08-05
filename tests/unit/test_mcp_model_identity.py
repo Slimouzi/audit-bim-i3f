@@ -29,7 +29,8 @@ from audit_bim.mcp.model_identity import (
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.profiles.i3f import tools_audit, tools_session
 from audit_bim.profiles.i3f.tools_audit import full_audit as tau_full_audit
-from audit_bim.profiles.i3f.tools_session import verify_active_model as ts_verify_active_model
+from audit_bim.tools_shared import session as shared_session
+from audit_bim.tools_shared.session import verify_active_model as ts_verify_active_model
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -119,7 +120,7 @@ class TestParseBimdataTargetTool:
     """Nouveau tool : URL viewer → IDs, à appeler AVANT set_active_model."""
 
     def test_extracts_ids(self):
-        assert tools_session.parse_bimdata_target(URL) == {
+        assert shared_session.parse_bimdata_target(URL) == {
             "cloud_id": "33617",
             "project_id": "2698917",
             "model_id": "1674450",
@@ -127,7 +128,7 @@ class TestParseBimdataTargetTool:
 
     def test_rejects_non_viewer_url(self):
         with pytest.raises(ValueError, match="URL BIMData invalide"):
-            tools_session.parse_bimdata_target("https://example.com/nope")
+            shared_session.parse_bimdata_target("https://example.com/nope")
 
 
 class TestSetActiveModelExplicitIds:
@@ -158,7 +159,7 @@ class TestSetActiveModelExplicitIds:
                 tools_session.set_active_model(model_id=URL, phase="AVP")
 
     def test_parse_then_set_active_model_flow(self, _isolated_session):
-        ids = tools_session.parse_bimdata_target(URL)
+        ids = shared_session.parse_bimdata_target(URL)
         with patch.object(tools_session, "BIMDataClient", _FakeClient):
             result = tools_session.set_active_model(phase="AVP", **ids)
         assert result["model_id"] == "1674450"
@@ -179,7 +180,7 @@ class TestCheckBimdataAccess:
         client.get_project.return_value = {"name": "Projet X"}
         client.get_model.return_value = {"name": "M.ifc"}
         _wire_client(_isolated_session, client)
-        out = tools_session.check_bimdata_access()
+        out = shared_session.check_bimdata_access()
         assert out["ok"] is True
         assert (out["cloud_id"], out["project_id"], out["model_id"]) == ("1", "2", "3")
         assert out["project_name"] == "Projet X"
@@ -193,7 +194,7 @@ class TestCheckBimdataAccess:
             "BIMData 401 on /cloud/34140/project/3281472"
         )
         _wire_client(_isolated_session, client)
-        out = tools_session.check_bimdata_access()  # ne doit PAS lever
+        out = shared_session.check_bimdata_access()  # ne doit PAS lever
         assert out["ok"] is False
         assert "rejeté" in out["error"] and "401" in out["error"]
         # Diagnostic honnête : la source/le schéma d'auth sont remontés.
@@ -205,7 +206,7 @@ class TestCheckBimdataAccess:
             "BIMData 403 on /cloud/34140/project/3281472"
         )
         _wire_client(_isolated_session, client)
-        out = tools_session.check_bimdata_access()
+        out = shared_session.check_bimdata_access()
         assert out["ok"] is False
         assert "403" in out["error"] and "droits" in out["error"]
 
@@ -216,13 +217,13 @@ class TestCheckBimdataAccess:
         resp.status_code = 404
         client.get_project.side_effect = requests.HTTPError(response=resp)
         _wire_client(_isolated_session, client)
-        out = tools_session.check_bimdata_access()
+        out = shared_session.check_bimdata_access()
         assert out["ok"] is False
         assert "404" in out["error"]
 
     def test_no_client_raises(self, _isolated_session):
         with pytest.raises(RuntimeError):
-            tools_session.check_bimdata_access()
+            shared_session.check_bimdata_access()
 
     def test_reports_api_key_auth_on_success(self, _isolated_session, monkeypatch):
         # Déploiement clé serveur : seul BIMDATA_API_KEY configuré → ApiKey.
@@ -231,7 +232,7 @@ class TestCheckBimdataAccess:
         client.get_project.return_value = {"name": "Projet X"}
         client.get_model.return_value = {"name": "M.ifc"}
         _wire_client(_isolated_session, client)
-        out = tools_session.check_bimdata_access()
+        out = shared_session.check_bimdata_access()
         assert out["ok"] is True
         assert out["auth_source"] == "BIMDATA_API_KEY"
         assert out["auth_scheme"] == "ApiKey"
@@ -243,7 +244,7 @@ class TestCheckBimdataAccess:
         client = MagicMock()
         client.get_project.side_effect = BIMDataAuthError("BIMData 401 on /cloud/1/project/2")
         _wire_client(_isolated_session, client)
-        out = tools_session.check_bimdata_access()
+        out = shared_session.check_bimdata_access()
         assert out["ok"] is False
         assert out["auth_source"] == "BIMDATA_API_KEY"
         assert out["auth_scheme"] == "ApiKey"
@@ -259,10 +260,10 @@ def _set_config_auth(
     """Fixe la provenance d'auth au niveau de ``config`` (source immuable lue par
     ``_active_auth`` — l'instance client ne fait PAS foi, l'OAuth2 mute son
     access_token dès la construction)."""
-    monkeypatch.setattr(tools_session.config, "ACCESS_TOKEN", access_token)
-    monkeypatch.setattr(tools_session.config, "API_KEY", api_key)
-    monkeypatch.setattr(tools_session.config, "CLIENT_ID", client_id)
-    monkeypatch.setattr(tools_session.config, "CLIENT_SECRET", client_secret)
+    monkeypatch.setattr(shared_session.config, "ACCESS_TOKEN", access_token)
+    monkeypatch.setattr(shared_session.config, "API_KEY", api_key)
+    monkeypatch.setattr(shared_session.config, "CLIENT_ID", client_id)
+    monkeypatch.setattr(shared_session.config, "CLIENT_SECRET", client_secret)
 
 
 class TestActiveAuth:
@@ -273,34 +274,34 @@ class TestActiveAuth:
 
     def test_access_token_wins(self, monkeypatch):
         _set_config_auth(monkeypatch, access_token="t", api_key="k")
-        assert tools_session._active_auth() == {
+        assert shared_session._active_auth() == {
             "auth_source": "BIMDATA_ACCESS_TOKEN",
             "auth_scheme": "Bearer",
         }
 
     def test_api_key_when_no_token(self, monkeypatch):
         _set_config_auth(monkeypatch, api_key="k")
-        assert tools_session._active_auth() == {
+        assert shared_session._active_auth() == {
             "auth_source": "BIMDATA_API_KEY",
             "auth_scheme": "ApiKey",
         }
 
     def test_oauth2_when_only_client_creds(self, monkeypatch):
         _set_config_auth(monkeypatch, client_id="i", client_secret="s")
-        out = tools_session._active_auth()
+        out = shared_session._active_auth()
         assert out["auth_source"] == "BIMDATA_CLIENT_ID+SECRET"
         assert out["auth_scheme"].startswith("Bearer")
 
     def test_none_when_no_credential(self, monkeypatch):
         _set_config_auth(monkeypatch)
-        assert tools_session._active_auth() == {"auth_source": None, "auth_scheme": None}
+        assert shared_session._active_auth() == {"auth_source": None, "auth_scheme": None}
 
     def test_reads_config_not_mutated_client_attr(self, monkeypatch):
         # Régression P1 : un client OAuth2 a access_token déjà peuplé (mutation à
         # la construction). La provenance doit rester OAuth2, pas BIMDATA_ACCESS_TOKEN.
         _set_config_auth(monkeypatch, client_id="i", client_secret="s")
         # même si un client traînait avec un token dérivé, on ne le lit pas :
-        out = tools_session._active_auth()
+        out = shared_session._active_auth()
         assert out["auth_source"] == "BIMDATA_CLIENT_ID+SECRET"
 
 
@@ -352,7 +353,7 @@ class TestVerifyActiveModel:
     def test_ok_when_match(self, _isolated_session):
         _isolated_session.client = _FakeClient(model_id="abc")
         snap = _snapshot_with_model("Maquette BIM - LIFFRÉ - DOE.ifc", model_id="abc")
-        with patch.object(tools_session, "extract_snapshot", return_value=snap):
+        with patch.object(shared_session, "extract_snapshot", return_value=snap):
             res = ts_verify_active_model(expected_model_name="LIFFRE")
         assert res["ok"] is True
         assert res["model_name"] == "Maquette BIM - LIFFRÉ - DOE.ifc"
@@ -368,7 +369,7 @@ class TestVerifyActiveModel:
     def test_ok_identity_still_reports_non_completed_status(self, _isolated_session):
         _isolated_session.client = _FakeClient(model_id="abc")
         snap = _snapshot_with_model("Maquette BIM - LIFFRÉ - DOE.ifc", model_id="abc", status="I")
-        with patch.object(tools_session, "extract_snapshot", return_value=snap):
+        with patch.object(shared_session, "extract_snapshot", return_value=snap):
             res = ts_verify_active_model(expected_model_name="LIFFRE")
         assert res["ok"] is True
         assert res["model_status"] == "I"
@@ -380,7 +381,7 @@ class TestVerifyActiveModel:
     def test_ko_when_mismatch_does_not_touch_result(self, _isolated_session):
         _isolated_session.client = _FakeClient(model_id="zzz")
         snap = _snapshot_with_model("Autre projet.ifc", model_id="zzz")
-        with patch.object(tools_session, "extract_snapshot", return_value=snap):
+        with patch.object(shared_session, "extract_snapshot", return_value=snap):
             res = ts_verify_active_model(expected_model_name="LIFFRE")
         assert res["ok"] is False
         assert "inattendu" in res["message"].lower()
@@ -411,7 +412,7 @@ class TestVerifyActiveModel:
         _isolated_session.client = _FakeClient()
         snap = _snapshot_with_model("Maquette LIFFRE DOE.ifc")
         _isolated_session.snapshot = snap
-        with patch.object(tools_session, "extract_snapshot") as m_extract:
+        with patch.object(shared_session, "extract_snapshot") as m_extract:
             res = ts_verify_active_model(
                 expected_model_name="LIFFRE",
                 refresh_snapshot=False,
@@ -425,9 +426,9 @@ class TestVerifyActiveModel:
         snap = _snapshot_with_model("Maquette LIFFRE DOE.ifc")
         with (
             patch.object(
-                tools_session, "cached_extract_snapshot", return_value=(snap, True)
+                shared_session, "cached_extract_snapshot", return_value=(snap, True)
             ) as m_cached,
-            patch.object(tools_session, "extract_snapshot") as m_direct,
+            patch.object(shared_session, "extract_snapshot") as m_direct,
         ):
             res = ts_verify_active_model(
                 expected_model_name="LIFFRE",

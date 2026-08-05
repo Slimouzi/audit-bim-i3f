@@ -189,6 +189,10 @@ _I3F_PROFILE = McpProfile(
     # puis lecture/écriture. Il est repris tel quel — la surface MCP doit rester
     # identique au tri près, et le golden le vérifie.
     tool_modules=(
+        # Socle partagé : cible, identité, lecture. Extrait du profil en E7,
+        # une fois BIM in Motion là pour prouver que ces outils servent à un
+        # autre AMO — et pas seulement à celui qui les a écrits.
+        "audit_bim.tools_shared.session",
         "audit_bim.profiles.i3f.tools_session",
         "audit_bim.profiles.i3f.tools_audit",
         "audit_bim.profiles.i3f.tools_reporting",
@@ -266,10 +270,14 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
     # Trois outils écrits pour ce profil, jamais copiés d'I3F : les équivalents
     # I3F portent phase BIM, système de classification et catalogue d'exigences,
     # qui appartiennent au référentiel d'I3F et non à un socle.
-    tool_modules=("audit_bim.profiles.bim_in_motion.tools_session",),
+    tool_modules=(
+        "audit_bim.tools_shared.session",
+        "audit_bim.profiles.bim_in_motion.tools_session",
+    ),
     prompt_module="audit_bim.profiles.bim_in_motion.prompts",
     # Les aliases LEGACY sont une dette d'I3F : un profil neuf n'en hérite pas.
     legacy_alias_module=None,
+    target_tool_name="set_active_target",
     specializations=(
         ClientSpecialization(
             key="requirements_bim_in_motion",

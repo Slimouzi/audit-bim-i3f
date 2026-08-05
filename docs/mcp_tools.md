@@ -157,9 +157,11 @@ décrite dans ce document.
 
 - `AUDIT_BIM_PROFILE=i3f` (défaut) — les 45 outils I3F, plus `list_mcp_profiles`,
   plus le prompt `amo_bim_i3f`.
-- `AUDIT_BIM_PROFILE=bim_in_motion` — profil minimal : **3 outils** propres
-  (`set_active_target`, `verify_active_target`, `extract_model_snapshot`), le
-  prompt `amo_bim_in_motion`, plus `list_mcp_profiles`. Les modules du profil
+- `AUDIT_BIM_PROFILE=bim_in_motion` — profil minimal : `set_active_target`, les
+  **cinq outils du socle partagé** (`parse_bimdata_target`,
+  `check_bimdata_access`, `verify_active_model`, `extract_model_snapshot`,
+  `download_model_ifc`), le prompt `amo_bim_in_motion`, plus
+  `list_mcp_profiles`. Les modules du profil
   I3F ne sont pas importés du tout. Ce profil ne produit ni audit, ni notation,
   ni livrable : il établit une cible, la vérifie, et décrit le modèle. Les deux
   outils de lecture renvoient les diagnostics d'extraction (`snapshot_health`,

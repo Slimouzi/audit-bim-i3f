@@ -119,10 +119,13 @@ def test_the_third_party_profile_surface_is_explicit():
     """
     surface = _golden_surface("bim_in_motion")
     assert sorted(surface["tools"]) == [
+        "check_bimdata_access",
+        "download_model_ifc",
         "extract_model_snapshot",
         "list_mcp_profiles",
+        "parse_bimdata_target",
         "set_active_target",
-        "verify_active_target",
+        "verify_active_model",
     ]
     assert surface["prompts"] == ["amo_bim_in_motion"]
 

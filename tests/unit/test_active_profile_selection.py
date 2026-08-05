@@ -136,8 +136,19 @@ def test_another_profile_neither_registers_nor_imports_i3f():
     # C'est un signal pour l'inventaire du socle partagé, pas une fuite — les
     # deux profils ne coexistent jamais dans un processus. Ce qui serait une
     # fuite, ce sont les outils porteurs du référentiel I3F.
+    # Depuis E7, le recouvrement n'est plus un doublon mais un **partage** : les
+    # cinq outils du socle sont les mêmes objets, déclarés une seule fois. Seul
+    # `set_active_target` reste propre au profil tiers, son équivalent I3F
+    # portant une phase BIM qui n'appartient pas au socle.
     shared_names = set(other["tools"]) & set(i3f["tools"])
-    assert shared_names == {"list_mcp_profiles", "extract_model_snapshot"}, shared_names
+    assert shared_names == {
+        "list_mcp_profiles",
+        "parse_bimdata_target",
+        "check_bimdata_access",
+        "verify_active_model",
+        "extract_model_snapshot",
+        "download_model_ifc",
+    }, shared_names
     assert "full_audit" not in other["tools"]
     assert "generate_avp_i3f_pack" not in other["tools"]
 
@@ -145,12 +156,16 @@ def test_another_profile_neither_registers_nor_imports_i3f():
 #: Ce qu'un appelant peut charger **avant** ``register_all()``. La sélection de
 #: profil doit tenir quel que soit l'ordre — sinon elle n'est pas une garantie,
 #: seulement l'espoir que personne n'importe le mauvais module en premier.
-#: Surface attendue du profil tiers depuis E5 : ses 3 outils + le transverse.
+#: Surface attendue du profil tiers depuis E7 : son outil de cible, les cinq
+#: outils du socle partagé, et le transverse du serveur.
 THIRD_PARTY_TOOLS = [
+    "check_bimdata_access",
+    "download_model_ifc",
     "extract_model_snapshot",
     "list_mcp_profiles",
+    "parse_bimdata_target",
     "set_active_target",
-    "verify_active_target",
+    "verify_active_model",
 ]
 
 PRELUDES = [

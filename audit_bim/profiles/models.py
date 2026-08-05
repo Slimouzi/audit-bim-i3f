@@ -210,6 +210,12 @@ class McpProfile:
     prompt_module: str | None = None
     #: Module des aliases LEGACY, importé seulement si l'opt-in est actif.
     legacy_alias_module: str | None = None
+    #: Nom de l'outil par lequel ce profil configure la cible BIMData. Cité par
+    #: les messages du socle : un outil partagé ne peut pas écrire ce nom en
+    #: dur, sinon il renvoie les utilisateurs d'un profil vers un outil que
+    #: leur serveur n'expose pas — une instruction qui a l'air valide et ne mène
+    #: nulle part.
+    target_tool_name: str = "set_active_model"
     notes: tuple[str, ...] = ()
     is_default: bool = False
 
@@ -238,6 +244,7 @@ class McpProfile:
             "tool_modules": list(self.tool_modules),
             "prompt_module": self.prompt_module,
             "legacy_alias_module": self.legacy_alias_module,
+            "target_tool_name": self.target_tool_name,
             "specializations": [s.to_dict() for s in self.specializations],
             "report_packs": list(self.report_packs),
             "notes": list(self.notes),
