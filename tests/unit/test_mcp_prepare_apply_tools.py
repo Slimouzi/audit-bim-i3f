@@ -22,7 +22,7 @@ from audit_bim.classifier.suggestion_store import (
 )
 from audit_bim.domain.filters import ConfidenceBand, SuggestionStatus
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp import app as mcp_app
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.profiles.i3f.tools_actions import apply_bcf_topics as ta_apply_bcf_topics
 from audit_bim.profiles.i3f.tools_actions import (
@@ -140,7 +140,7 @@ class TestNewToolsRegistered:
         # éviter pytest-asyncio.
         import anyio
 
-        tools = anyio.run(mcp_server.mcp.list_tools)
+        tools = anyio.run(mcp_app.mcp.list_tools)
         names = {t.name for t in tools}
         for name in (
             "prepare_bcf_topics",

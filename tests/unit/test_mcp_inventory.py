@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import anyio
 
-from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp import app as mcp_app
 
 REMOVED_LEGACY_TOOLS = {
     "suggest_classifications",
@@ -40,7 +40,7 @@ REPLACEMENTS = {
 
 
 def _registered_tool_names() -> set[str]:
-    tools = anyio.run(mcp_server.mcp.list_tools)
+    tools = anyio.run(mcp_app.mcp.list_tools)
     return {t.name for t in tools}
 
 

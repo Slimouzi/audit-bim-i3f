@@ -8,7 +8,7 @@ import json
 import pytest
 
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp import app as mcp_app
 from audit_bim.mcp.session import _Session, current_session
 from audit_bim.profiles.i3f.tools_query import list_query_presets as tq_list_query_presets
 from audit_bim.profiles.i3f.tools_query import query_bim_data as tq_query_bim_data
@@ -105,7 +105,7 @@ class TestRegistered:
     def test_tools_registered(self):
         import anyio
 
-        tools = anyio.run(mcp_server.mcp.list_tools)
+        tools = anyio.run(mcp_app.mcp.list_tools)
         names = {t.name for t in tools}
         assert "query_bim_data" in names
         assert "query_bim_preset" in names
