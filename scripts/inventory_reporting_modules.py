@@ -10,7 +10,9 @@ l'orchestration I3F qu'aucun socle ne doit absorber ».
 Trois axes mesurés par module :
 
 ``delegation``
-    Ce qu'il emprunte à ``bim-reporting`` — le socle déjà externalisé.
+    Ce qu'il emprunte à ``bim-reporting`` — le socle déjà externalisé. Emprunter
+    ne suffit pas à faire une façade : un module qui **définit** quoi que ce soit
+    autour de ses ré-exports ajoute du comportement, et le supprimer le perdrait.
 ``attaches``
     Ce qui le lie au référentiel I3F : catalogue d'exigences, phase BIM, règles
     d'audit, pack AVP, profil.
@@ -128,6 +130,40 @@ def _shipped_texts(tree: ast.Module) -> list[str]:
     ]
 
 
+def _is_pure_reexport(tree: ast.Module) -> bool:
+    """Vrai si le module ne fait que ré-exporter : ni définition, ni contenu.
+
+    Le critère de taille ne suffisait pas, et il a produit une erreur coûteuse :
+    ``bimdata_brand`` définit deux fonctions qui **figent** l'origine de la
+    recherche d'assets sur ce fichier. Le supprimer ferait pointer la recherche
+    dans ``site-packages`` et le logo disparaîtrait des livrables *sans erreur*.
+    ``theming`` porte de son côté une palette indexée sur les thèmes d'audit et
+    des alias au vocabulaire client, volontairement tenus hors du socle.
+
+    Une façade, c'est : des imports, un ``__all__``, et éventuellement des alias
+    de noms. Rien qui se définisse, rien qui se compose.
+    """
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            continue  # docstring
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return False
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names = [getattr(t, "id", "") for t in targets]
+            if names == ["__all__"]:
+                continue
+            # Alias simple (``X = Y``) : toléré. Toute valeur composée est du
+            # contenu, donc le module n'est pas une façade.
+            if not isinstance(node.value, ast.Name):
+                return False
+            continue
+        return False
+    return True
+
+
 def _reverse_dependencies() -> dict[str, list[str]]:
     """``module de reporting -> modules d'audit_bim qui l'importent``.
 
@@ -181,7 +217,7 @@ def analyse() -> dict:
             c.startswith(DELIVERABLE_CONSUMERS) for c in callers
         )
 
-        if delegation and not attaches and len(source.splitlines()) < 120:
+        if delegation and not attaches and _is_pure_reexport(tree):
             kind = "façade"
         elif attaches or client_hits:
             kind = "orchestration_i3f"

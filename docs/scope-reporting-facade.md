@@ -6,15 +6,15 @@ Ce document existe pour qu'on ne nettoie pas `reporting` au jugé.
 ## Le constat qui change la nature du lot
 
 `audit_bim/query` était une façade : 152 lignes de pur passe-plat, supprimées
-sans conséquence. **`reporting` n'en est pas une.** 24 modules, **8 231 lignes**,
+sans conséquence. **`reporting` n'en est pas une.** 23 modules, **8 216 lignes**,
 dont **4 973 dans dix modules qui écrivent un fichier**.
 
 | Nature | Modules | Lignes |
 |---|---:|---:|
-| Façade vers `bim-reporting` | 3 | **153** |
+| Façade pure vers `bim-reporting` | 0 | — |
 | Sans attache directe mesurée | 2 | 7 |
-| Lié au livrable I3F par ses appelants | 7 | 2 091 |
-| Orchestration I3F | 12 | **5 980** |
+| Lié au livrable I3F par ses appelants | 9 | 2 228 |
+| Orchestration I3F | 12 | **5 981** |
 
 **Aucune catégorie ne s'appelle « neutre »**, et c'est délibéré. Le mot serait lu
 comme « extractible » par le lot suivant, alors que la mesure ne dit que « aucune
@@ -27,18 +27,34 @@ de livrables. Poser la question en termes de « suppression de façade » condui
 à supprimer 153 lignes et à déclarer le sujet clos, alors que les 8 000 autres
 sont précisément ce qu'un second AMO ne peut pas réutiliser aujourd'hui.
 
-## Ce qui est déjà façade
+## Ce qui était façade — et ce qui n'en était pas
 
-Trois modules délèguent à `bim-reporting` sans rien y ajouter :
+**Une première version de cet inventaire en annonçait trois.** Elle classait
+« façade » tout module qui déléguait au socle, sans attache mesurée, et faisait
+moins de 120 lignes. Le critère de taille était un raccourci ; deux des trois
+ne survivaient pas à la lecture.
 
-| Module | Lignes | Emprunts au socle | Appelants |
-|---|---:|---:|---:|
-| `theming.py` | 86 | 16 | 3 |
-| `bimdata_brand.py` | 51 | 3 | 1 |
-| `pdf_export.py` | 16 | 1 | 1 |
+| Module | Verdict | Pourquoi |
+|---|---|---|
+| `pdf_export.py` (16 l) | **façade, retirée** | imports + `__all__`, rien d'autre |
+| `bimdata_brand.py` (51 l) | **à conserver** | fige `search_from` sur son propre fichier |
+| `theming.py` (86 l) | **à conserver** | `THEME_COLORS`, `SEVERITY_COLORS`, alias client |
 
-Ce sont les seuls candidats à un traitement analogue à `query`. Leur suppression
-est peu risquée mais **peu rentable** : elle ne libère rien et touche 5 appelants.
+`bimdata_brand` est le cas instructif. Il ne ré-exporte pas `find_logo` : il
+l'appelle en figeant l'origine de la recherche sur **ce fichier-ci**. Une fois le
+socle installé en dépendance, `bim_reporting.brand.__file__` pointe dans
+`site-packages` et la remontée « sibling » ne trouve plus rien — **le logo
+disparaîtrait des livrables sans la moindre erreur**, puisque son absence dégrade
+proprement vers le wordmark texte. Le supprimer aurait produit un livrable
+silencieusement dégradé.
+
+`theming` porte une palette indexée sur les thèmes d'audit et des alias au
+vocabulaire client, tenus hors du socle de façon délibérée — sa docstring
+l'explique déjà.
+
+Le critère porte désormais sur ce qu'un module **définit** : une façade a des
+imports, un `__all__`, éventuellement des alias de noms. Rien qui se définisse,
+rien qui se compose.
 
 ## Ce qui est de l'orchestration I3F
 
@@ -99,17 +115,18 @@ l'ouverture du fichier produit, pas par une comparaison de texte.**
 
 Du moins risqué au plus engageant. Chacun a son critère de parité.
 
-### Lot R1 — retirer les trois façades de rendu
+### Lot R1 — retirer la façade de rendu — **fait**
 
-`theming.py`, `bimdata_brand.py`, `pdf_export.py` → imports directs de
-`bim_reporting`. Analogue exact au lot `query`.
+`pdf_export.py` supprimé ; son unique appelant (`avp/pack.py`) importe
+`bim_reporting.pdf` directement. `theming.py` et `bimdata_brand.py` **restent** :
+ce ne sont pas des façades, cf. plus haut.
 
 *Parité* : goldens MCP inchangés, suite verte, garde-fou statique interdisant la
-réapparition d'une couche locale. **Aucun fichier produit ne change** — c'est
-vérifiable par revue du diff, ces modules ne composent rien.
+réapparition d'une couche locale de pur ré-export. **Aucun fichier produit ne
+change** — le module ne composait rien.
 
-*Gain* : 153 lignes, et surtout la cohérence — `reporting` cesserait d'avoir deux
-manières d'atteindre le socle.
+*Gain réel* : 16 lignes. Le gain annoncé de 153 lignes reposait sur un critère
+de classification faux, et deux de ces modules auraient dégradé les livrables.
 
 ### Lot R2 — sortir le vocabulaire client des classeurs AVP
 
@@ -144,8 +161,10 @@ consommateur a dû réimplémenter, pas ce qui semble générique.
 
 ## Recommandation
 
-**R1 seul, maintenant.** Il est petit, sans effet sur les fichiers produits, et
-il supprime la dernière incohérence d'accès au socle.
+**R1 est fait, et il est minuscule** : une façade, seize lignes. Le lot méritait
+d'exister pour ce qu'il a révélé, pas pour ce qu'il a supprimé — deux modules
+sur trois auraient dégradé les livrables s'ils avaient été traités comme
+annoncé, dont un silencieusement.
 
 R2 et R3 devraient attendre que `bim_in_motion` ait un besoin de livrable réel.
 Aujourd'hui, ils paramétreraient des textes pour un lecteur qui n'existe pas —

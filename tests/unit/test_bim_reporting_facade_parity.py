@@ -23,14 +23,13 @@ from pathlib import Path
 
 import bim_reporting.charts as bcharts
 import bim_reporting.excel as bexcel
-import bim_reporting.pdf as bpdf
 import bim_reporting.theming as btheming
 import bim_reporting.word as bword
 import pytest
 import xlsxwriter
 from docx import Document
 
-from audit_bim.reporting import bimdata_brand, pdf_export, theming, word_report, xlsx_annex
+from audit_bim.reporting import bimdata_brand, theming, word_report, xlsx_annex
 
 # ── 1. Identité : ré-exports directs, pas des copies ──────────────────
 
@@ -49,7 +48,6 @@ from audit_bim.reporting import bimdata_brand, pdf_export, theming, word_report,
         (xlsx_annex._neutralize_formula, bexcel.neutralize_formula),
         (xlsx_annex._fmt_cell, bexcel.fmt_cell),
         (xlsx_annex.write_safe, bexcel.write_safe),
-        (pdf_export.docx_to_pdf, bpdf.docx_to_pdf),
     ],
 )
 def test_primitive_is_the_socle_object(local, socle):
