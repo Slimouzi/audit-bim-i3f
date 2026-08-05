@@ -44,8 +44,10 @@ désormais la surface, outil par outil et paramètre par paramètre.
 
 - **`audit_bim/tools_shared/session.py`** — `parse_bimdata_target`,
   `check_bimdata_access`, `verify_active_model`, `extract_model_snapshot`,
-  `download_model_ifc`, déclarés par les deux profils. Code déplacé verbatim
-  depuis le profil I3F.
+  `download_model_ifc`, déclarés par les deux profils. **Logique extraite depuis
+  I3F, textes neutralisés côté socle** : les docstrings sont servies au modèle
+  comme descriptions MCP, et nommer un outil absent du profil actif y produirait
+  une instruction plausible et inapplicable.
 - **`audit_bim/extraction/snapshot_health.py`** — diagnostics de lecture
   (`snapshot_health`, `snapshot_warning`, `n_extraction_errors`,
   `extraction_errors`), partagés eux aussi.
@@ -103,7 +105,7 @@ désormais la surface, outil par outil et paramètre par paramètre.
   `docs/scope-multi-amo-mcp.md` — inventaires mesurés qui ont servi de base de
   décision aux extractions.
 
-### Added (profils MCP multi-AMO — déclaratif)
+### Added (registre des profils MCP multi-AMO)
 
 - **`audit_bim.profiles`** : registre versionnable des briques génériques
   (extraction, geometry, audit_engine, query, bcf, smartview, classifier, doe,
@@ -112,13 +114,15 @@ désormais la surface, outil par outil et paramètre par paramètre.
   déclare ce qui lui est propre (référentiel, règles, packs, prompt).
 - **Tool `list_mcp_profiles(profile_id=None)`** — lecture seule, expose cette
   carte aux agents et aux développeurs.
-- **Aucun changement de comportement I3F.** `i3f` reste le profil par défaut et
-  le seul opérationnel, avec `avp_i3f`. `bim_in_motion` est **préparatoire** :
-  mêmes briques génériques, aucun pack de rapport — il ne doit surtout pas
-  hériter du pack AVP I3F par accident.
-- Rien ne sélectionne encore de profil à l'exécution : cette étape est
-  volontairement déclarative, pour figer la frontière socle / spécialisation
-  avant d'extraire `bim-reporting`. Cf. `docs/scope-multi-amo-mcp.md`.
+- **Aucun changement de comportement I3F.** `i3f` reste le profil par défaut,
+  avec `avp_i3f`. `bim_in_motion` ne doit surtout pas hériter du pack AVP I3F
+  par accident — aucun pack ne lui est déclaré.
+- Le registre a d'abord été **purement déclaratif**, pour figer la frontière
+  socle / spécialisation avant toute extraction. La sélection à l'exécution est
+  arrivée ensuite, dans cette même version : cf. « profil actif configurable »
+  et « profil `bim_in_motion` » plus haut. Ce registre en est le socle — il
+  déclare désormais aussi les modules d'outils et le prompt de chaque profil.
+  Cf. `docs/scope-multi-amo-mcp.md`.
 
 ### Added (CI — garde-fou de cohérence des versions first-party)
 
