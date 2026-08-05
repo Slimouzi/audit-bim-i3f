@@ -190,8 +190,15 @@ def _proven_neutral_modules() -> set[str]:
     for path in sorted(BIM_IN_MOTION_DIR.rglob("*.py")) + sorted(SHARED_DIR.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for origin in _module_import_map(tree, path).values():
-            if origin.startswith("audit_bim."):
-                proven.add(origin.rsplit(".", 1)[0])
+            if not origin.startswith("audit_bim."):
+                continue
+            module = origin.rsplit(".", 1)[0]
+            # Un module interne au profil n'est pas une brique partagee : un
+            # profil qui s'importe lui-meme gonflerait la preuve « deux
+            # consommateurs » avec ses propres sous-paquets.
+            if module.startswith(("audit_bim.profiles.bim_in_motion", "audit_bim.profiles.i3f")):
+                continue
+            proven.add(module)
     return proven
 
 
