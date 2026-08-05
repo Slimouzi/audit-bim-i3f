@@ -33,19 +33,18 @@ def test_the_document_figures_match_the_measurement(report):
     for m in report["modules"]:
         lines[m["kind"]] += m["lines"]
 
-    assert len(report["modules"]) == 24
-    assert sum(m["lines"] for m in report["modules"]) == 8231
-    assert counts["façade"] == 3 and lines["façade"] == 153
-    assert counts["orchestration_i3f"] == 12 and lines["orchestration_i3f"] == 5980
-    assert counts["lié_livrable_i3f"] == 7 and lines["lié_livrable_i3f"] == 2091
+    assert len(report["modules"]) == 23
+    assert sum(m["lines"] for m in report["modules"]) == 8216
+    assert counts["façade"] == 0
+    assert counts["orchestration_i3f"] == 12 and lines["orchestration_i3f"] == 5981
+    assert counts["lié_livrable_i3f"] == 9 and lines["lié_livrable_i3f"] == 2228
     assert counts["sans_attache_directe"] == 2 and lines["sans_attache_directe"] == 7
 
     text = DOC.read_text(encoding="utf-8")
     for claim in (
-        "**8 231 lignes**",
-        "| Façade vers `bim-reporting` | 3 | **153** |",
-        "| Lié au livrable I3F par ses appelants | 7 | 2 091 |",
-        "**1,9 %**",
+        "**8 216 lignes**",
+        "| Façade pure vers `bim-reporting` | 0 | — |",
+        "| Lié au livrable I3F par ses appelants | 9 | 2 228 |",
     ):
         assert claim in text, f"le document ne porte plus : {claim}"
 
@@ -67,14 +66,36 @@ def test_no_category_is_named_neutral(report):
     assert {m["module"] for m in residual} == {"__init__.py", "avp/__init__.py"}
 
 
-def test_the_three_facades_are_the_ones_named(report):
-    """La liste du lot R1, nommément — un compte laisserait un module s'y glisser."""
-    facades = {m["module"] for m in report["modules"] if m["kind"] == "façade"}
-    assert facades == {"theming.py", "bimdata_brand.py", "pdf_export.py"}
+def test_no_pure_facade_remains(report):
+    """R1 a retiré la seule façade pure ; les deux autres n'en étaient pas.
 
-    text = DOC.read_text(encoding="utf-8")
-    for module in facades:
-        assert f"`{module}`" in text
+    ``bimdata_brand`` fige l'origine de recherche des assets sur son propre
+    fichier — le supprimer ferait chercher dans ``site-packages`` et le logo
+    disparaîtrait des livrables *sans erreur*. ``theming`` porte une palette
+    indexée sur les thèmes d'audit et des alias au vocabulaire client. Un
+    critère de taille les avait classés « façade » ; le critère porte désormais
+    sur ce qu'un module **définit**.
+    """
+    assert not [m for m in report["modules"] if m["kind"] == "façade"]
+
+    for name in ("theming.py", "bimdata_brand.py"):
+        entry = next(m for m in report["modules"] if m["module"] == name)
+        assert entry["kind"] != "façade", name
+
+    text = " ".join(DOC.read_text(encoding="utf-8").split())
+    assert "le logo disparaîtrait des livrables" in text
+
+
+def test_the_facade_criterion_rejects_a_module_that_defines_something():
+    """Non-vacuité du critère corrigé, sur les deux formes qui l'avaient trompé."""
+    import ast
+
+    from inventory_reporting_modules import _is_pure_reexport
+
+    assert _is_pure_reexport(ast.parse('"""Doc."""\nfrom x import y\n__all__ = ["y"]\n'))
+    assert _is_pure_reexport(ast.parse("from x import y\nZ = y\n"))
+    assert not _is_pure_reexport(ast.parse("from x import y\ndef f():\n    return y()\n"))
+    assert not _is_pure_reexport(ast.parse('from x import y\nCOLORS = {"a": "b"}\n'))
 
 
 def test_writing_modules_are_counted_as_claimed(report):

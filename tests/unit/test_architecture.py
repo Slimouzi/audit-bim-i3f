@@ -230,3 +230,40 @@ def test_the_public_api_of_bim_query_is_not_flagged():
         "from bim_query.views import SPATIAL_CLASSES, iter_bim_objects\n"
     )
     assert not _query_offenders(sample, "audit_bim.mcp")
+
+
+def test_no_pure_reexport_layer_over_bim_reporting():
+    """Aucune couche locale de pur ré-export sur ``bim-reporting``.
+
+    ``pdf_export.py`` en était une : imports, ``__all__``, rien d'autre. Elle a
+    été retirée (R1). Une nouvelle « pour ne pas réécrire les appelants »
+    rendrait de nouveau invisible ce que le dépôt emprunte au socle.
+
+    Le contrôle vise **le pur ré-export**, pas la délégation : ``theming.py`` et
+    ``bimdata_brand.py`` empruntent au socle et doivent rester — ils définissent
+    du comportement, et l'un d'eux fige l'origine de recherche des assets sur son
+    propre fichier.
+    """
+    import sys
+
+    repo = pathlib.Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(repo / "scripts"))
+    from inventory_reporting_modules import _is_pure_reexport
+
+    offenders = []
+    for path in sorted((repo / "audit_bim").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if "bim_reporting" not in source:
+            continue
+        tree = ast.parse(source)
+        if _is_pure_reexport(tree):
+            offenders.append(str(path.relative_to(repo)))
+    assert not offenders, f"couche locale de pur ré-export sur le socle : {offenders}"
+
+    # Non-vacuité : les deux modules conservés doivent être vus comme NON-façades.
+    for name in ("theming.py", "bimdata_brand.py"):
+        kept = repo / "audit_bim" / "reporting" / name
+        assert kept.exists(), f"{name} a été supprimé à tort"
+        assert not _is_pure_reexport(ast.parse(kept.read_text(encoding="utf-8")))

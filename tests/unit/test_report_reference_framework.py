@@ -139,7 +139,9 @@ def test_no_hardcoded_client_framework_in_neutral_reporting():
     Les règles et exigences I3F ont parfaitement le droit de citer le CCH ;
     les modules de rendu, non — ce sont eux qui partiront dans `bim-reporting`.
     """
-    neutral = ["context.py", "word_report.py", "xlsx_annex.py", "theming.py", "pdf_export.py"]
+    # ``pdf_export.py`` a disparu : c'était la seule façade pure du module, et
+    # elle a été retirée au profit d'un import direct de ``bim_reporting.pdf``.
+    neutral = ["context.py", "word_report.py", "xlsx_annex.py", "theming.py"]
     offenders = []
     for name in neutral:
         for lineno, line in enumerate(

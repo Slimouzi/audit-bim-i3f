@@ -11,6 +11,8 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from bim_reporting.pdf import docx_to_pdf
+
 from ...audit.engine import AuditResult
 from ...extraction.model_data import ModelSnapshot
 from ..avp_snapshot import (
@@ -28,7 +30,6 @@ from ..avp_sources import (
     load_sources,
 )
 from ..context import ReportProjectContext
-from ..pdf_export import docx_to_pdf
 from .docx_analyse import _build_analyse_bim_avp_docx
 from .models import (
     _CONTROLE_STATS_SHEETS,

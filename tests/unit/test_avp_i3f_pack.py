@@ -11,11 +11,11 @@ import zipfile
 
 import openpyxl
 import pytest
+from bim_reporting.pdf import docx_to_pdf
 from docx import Document
 
 from audit_bim.reporting.avp_i3f import write_avp_i3f_report_pack
 from audit_bim.reporting.avp_sources import AvpSourcePaths
-from audit_bim.reporting.pdf_export import docx_to_pdf
 
 
 def _wb(path, sheet_rows):
