@@ -102,9 +102,16 @@ socle qui ne lui rend rien. La lecture honnête est donc :
 
 Ces outils s'appuient sur des modules internes qu'aucun second consommateur n'a
 encore exercés — `audit_bim.actions`, `audit_bim.doe`, `audit_bim.mcp.payloads`,
-`audit_bim.mcp.selection`, `audit_bim.query`, `audit_bim.classifier`,
-`audit_bim.enrichment`. Ils sont *présumés* neutres, pas prouvés : c'est la
-même situation que `snapshot_health` avant E5.
+`audit_bim.mcp.selection`, `audit_bim.classifier`, `audit_bim.enrichment`. Ils
+sont *présumés* neutres, pas prouvés : c'est la même situation que
+`snapshot_health` avant E5.
+
+La couche requête, elle, n'est plus interne : `audit_bim.query` était une façade
+de ré-exports sur le paquet `bim-query`, et elle a été retirée. Les outils
+importent désormais `bim_query.<module>` directement, comme ils importent
+`bim_core` ou `bim_reporting`. Ce qui reste à prouver les concernant n'est donc
+plus la neutralité du paquet — elle est acquise, il ne dépend que de `bim-core` —
+mais l'usage qu'un second AMO en ferait.
 
 ### Les 12 outils I3F, et leur point d'attache
 
@@ -141,9 +148,10 @@ sans référentiel peut faire seul**. Trois cercles, du plus sûr au plus coûte
    **➜ Extrait en E7** vers `audit_bim/tools_shared/session.py`, déclaré par les
    deux profils. `bim_in_motion` a perdu ses deux réimplémentations ; il ne garde
    que `set_active_target`, son équivalent I3F portant une phase BIM.
-2. **Requêtes sur snapshot** — 5 outils, neutres mais reposant sur
-   `audit_bim.query` et `audit_bim.mcp.selection`, qu'aucun second consommateur
-   n'a exercés.
+2. **Requêtes sur snapshot** — 5 outils. Leur moteur est déjà externalisé
+   (`bim-query`, importé directement depuis la suppression de la façade locale),
+   mais ils reposent aussi sur `audit_bim.mcp.selection`, qu'aucun second
+   consommateur n'a exercé.
 3. **Écritures et DOE** — 13 outils, cercle le plus large et le moins prouvé.
 
 Le premier cercle était le prolongement direct d'E5 : `bim_in_motion` avait
