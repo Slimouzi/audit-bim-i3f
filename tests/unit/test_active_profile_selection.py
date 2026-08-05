@@ -17,6 +17,7 @@ laisserait quand même le référentiel d'un client dans le processus d'un autre
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -348,3 +349,26 @@ def test_the_module_guard_is_not_vacuous():
         ".py"
     )
     assert not ghost.exists()
+
+
+@pytest.mark.parametrize("profile_id", ["i3f", "bim_in_motion"])
+def test_the_registry_announces_the_surface_it_actually_exposes(profile_id):
+    """Le décompte annoncé par le registre doit être celui qu'on mesure.
+
+    ``list_mcp_profiles`` sert cette phrase à l'utilisateur : c'est de la
+    documentation exécutée, pas un commentaire. Elle avait dérivé — « 45 outils »
+    pour I3F omettait l'outil transverse, et « 3 outils » pour BIM in Motion
+    datait d'avant l'adoption du socle partagé — parce que rien ne la confrontait
+    à la réalité. Un chiffre écrit dans une réponse MCP se vérifie comme un
+    résultat, pas comme une intention.
+    """
+    from audit_bim.profiles import get_profile
+
+    spec = next(s for s in get_profile(profile_id).specializations if s.key.startswith("tools_"))
+    announced = re.search(r"soit (\d+) outils visibles", spec.responsibility)
+    assert announced, f"le registre n'annonce aucun décompte : {spec.responsibility!r}"
+
+    measured = len(_probe(profile_id)["tools"])
+    assert int(announced.group(1)) == measured, (
+        f"{profile_id} annonce {announced.group(1)} outils, en expose {measured}"
+    )
