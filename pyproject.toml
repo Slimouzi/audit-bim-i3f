@@ -116,10 +116,10 @@ ocr = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Slimouzi/audit-bim-i3f"
-Repository = "https://github.com/Slimouzi/audit-bim-i3f"
-Issues = "https://github.com/Slimouzi/audit-bim-i3f/issues"
-Changelog = "https://github.com/Slimouzi/audit-bim-i3f/blob/master/CHANGELOG.md"
+Homepage = "https://github.com/Slimouzi/audit-bim-mcp"
+Repository = "https://github.com/Slimouzi/audit-bim-mcp"
+Issues = "https://github.com/Slimouzi/audit-bim-mcp/issues"
+Changelog = "https://github.com/Slimouzi/audit-bim-mcp/blob/master/CHANGELOG.md"
 
 [project.scripts]
 audit-bim = "audit_bim.cli:main"

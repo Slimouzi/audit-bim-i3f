@@ -1,5 +1,17 @@
 # Audit BIM I3F — MCP server
 
+> **Le dépôt s'appelle désormais `Slimouzi/audit-bim-mcp`.** Il héberge un
+> serveur MCP multi-AMO : I3F en est le profil par défaut, pas la totalité du
+> produit. L'ancienne URL redirige, et les tags `audit-bim-i3f-vX.Y.Z` restent
+> résolvables tels quels.
+>
+> **Rien d'autre n'a été renommé, et c'est délibéré.** Le paquet Python reste
+> `audit_bim`, la distribution `audit-bim-i3f`, l'exécutable `audit-bim-mcp`,
+> le préfixe d'environnement `AUDIT_BIM_*`, et surtout **le nom du serveur MCP
+> reste `audit-bim-i3f`** : il figure dans la configuration Claude de chaque
+> poste. Un nom de dépôt est une adresse ; un nom de serveur MCP est une API
+> utilisateur, et son changement demanderait une fenêtre de migration.
+
 MCP qui automatise l'**audit de conformité** d'une maquette IFC hébergée sur
 [BIMData.io](https://bimdata.io) au **Cahier des Charges BIM I3F** (CCH V3.x).
 Pensé pour un usage AMO BIM : lecture des exigences du maître d'ouvrage,
