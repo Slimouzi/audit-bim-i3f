@@ -21,12 +21,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from bim_query.filtering import suggestion_matches
+
 from ..classifier.applier import apply_classifications
 from ..classifier.suggestion_store import ClassificationSuggestionStore
 from ..domain.filters import SuggestionFilter, SuggestionStatus
 from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
-from ..query.filtering import suggestion_matches
 from ..security.redaction import redact_secrets
 from ._apply_runtime import ApplyOutcome, run_apply
 

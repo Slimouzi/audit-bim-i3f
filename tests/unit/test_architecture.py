@@ -18,6 +18,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
+import pytest
+
 import audit_bim
 
 _PKG_ROOT = pathlib.Path(audit_bim.__file__).resolve().parent
@@ -142,3 +144,89 @@ def test_forbidden_covers_the_four_frozen_edges():
     assert "reporting" in _FORBIDDEN["audit"] and "mcp" in _FORBIDDEN["audit"]
     assert "audit" in _FORBIDDEN["requirements"]
     assert "enrichment" in _FORBIDDEN["doe"]
+
+
+# ── La façade audit_bim.query ne doit pas réapparaître ────────────────
+
+
+def _query_offenders(source: str, package: str) -> list[str]:
+    """Imports interdits dans ``source`` : façade locale, ou privé de ``bim_query``.
+
+    Fonction unique, utilisée par le contrôle **et** par sa preuve de
+    non-vacuité. Une version antérieure réimplémentait la détection dans le test
+    de non-vacuité : elle prouvait que la copie fonctionnait, pas le contrôle.
+    """
+    offenders: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level:
+                parts = package.split(".")
+                base = parts[: len(parts) - node.level + 1]
+                module = ".".join([*base, module] if module else base)
+            if module.startswith("audit_bim.query"):
+                offenders.append(f"{node.lineno} -> {module} (façade locale)")
+            elif module.startswith("bim_query"):
+                offenders += [
+                    f"{node.lineno} -> {module}.{a.name} (privé)"
+                    for a in node.names
+                    if a.name.startswith("_")
+                ]
+        elif isinstance(node, ast.Import):
+            offenders += [
+                f"{node.lineno} -> {a.name} (façade locale)"
+                for a in node.names
+                if a.name.startswith("audit_bim.query")
+            ]
+    return offenders
+
+
+def test_no_local_query_facade_is_reintroduced():
+    """``audit-bim-i3f`` consomme ``bim-query`` par son API publique, sans couche locale.
+
+    La façade ``audit_bim.query`` a été supprimée une fois le paquet stabilisé.
+    Une couche locale « pour dépanner » la reconstituerait sans que rien ne
+    l'annonce : elle rendrait de nouveau invisible ce que le dépôt emprunte au
+    paquet, et masquerait au passage un éventuel retour à un nom privé.
+    """
+    repo = pathlib.Path(__file__).resolve().parents[2]
+    assert not (repo / "audit_bim" / "query").exists(), "la façade locale est de retour"
+
+    offenders: list[str] = []
+    for path in sorted((repo / "audit_bim").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        package = ".".join(path.relative_to(repo).parts[:-1])
+        offenders += [
+            f"{path.relative_to(repo)}:{hit}"
+            for hit in _query_offenders(path.read_text(encoding="utf-8"), package)
+        ]
+    assert not offenders, offenders
+
+
+@pytest.mark.parametrize(
+    "sample",
+    [
+        "from audit_bim.query.filtering import object_matches\n",
+        "import audit_bim.query.views\n",
+        "from ..query.views import iter_bim_objects\n",
+        "from bim_query.views import _SPATIAL_CLASSES\n",
+    ],
+    ids=["import-absolu", "import-module", "import-relatif", "nom-privé"],
+)
+def test_the_query_facade_guard_is_not_vacuous(sample):
+    """Le contrôle doit reconnaître les quatre formes qu'il interdit.
+
+    L'import relatif compte autant que l'absolu : ``from ..query import`` est
+    précisément la forme qu'un module interne emploierait.
+    """
+    assert _query_offenders(sample, "audit_bim.mcp"), sample
+
+
+def test_the_public_api_of_bim_query_is_not_flagged():
+    """Les imports légitimes ne doivent pas déclencher le contrôle."""
+    sample = (
+        "from bim_query.filtering import apply_object_filter\n"
+        "from bim_query.views import SPATIAL_CLASSES, iter_bim_objects\n"
+    )
+    assert not _query_offenders(sample, "audit_bim.mcp")
