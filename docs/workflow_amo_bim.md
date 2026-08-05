@@ -548,6 +548,6 @@ exemples de migration. **Supprimés en v0.5.0.**
 
 ## Voir aussi
 
-- [docs/mcp_tools.md](mcp_tools.md) — référence des tools (45 canoniques par défaut, 53 avec aliases LEGACY ; statut, R/W, confirm requis)
+- [docs/mcp_tools.md](mcp_tools.md) — référence des tools (46 par défaut, 54 avec aliases LEGACY ; statut, R/W, confirm requis)
 - [docs/migration_prepare_apply.md](migration_prepare_apply.md) — guide migration
 - [audit_bim/mcp/deprecation.py](../audit_bim/mcp/deprecation.py) — registre central

@@ -212,7 +212,7 @@ list_classification_suggestions(filter={"min_confidence": 0.4, "limit": 200})
 
 ## Références
 
-- [docs/mcp_tools.md](mcp_tools.md) — référence complète (45 tools canoniques par défaut, 53 avec les aliases LEGACY)
+- [docs/mcp_tools.md](mcp_tools.md) — référence complète (46 tools par défaut, 54 avec les aliases LEGACY)
 - [audit_bim/mcp/deprecation.py](../audit_bim/mcp/deprecation.py) —
   registre central `DEPRECATIONS`
 - [audit_bim/actions/plans.py](../audit_bim/actions/plans.py) — scellé +
