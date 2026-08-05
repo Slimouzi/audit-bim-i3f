@@ -32,6 +32,135 @@ needs_template = pytest.mark.skipif(
 )
 
 
+SHAPE = Path(__file__).parent / "fixtures" / "mrn_template_shape.json"
+
+
+def _build_synthetic_template(path: Path, *, decoy_validation: bool = False) -> Path:
+    """Reconstruit un gabarit à la **forme** du fichier réel, sans son contenu.
+
+    Le fichier du maître d'ouvrage vit hors du dépôt : les tests qui en
+    dépendent sont donc ignorés en CI. Une suite verte ne prouvait alors aucun
+    des six compteurs — exactement ce qu'elle prétendait figer.
+
+    Cette fixture rejoue la structure relevée sur le vrai gabarit (numéros de
+    ligne, identifiants, marqueurs d'outillage), libellés remplacés. Le désordre
+    des sections en fait partie : c'est ce qu'il faut éprouver.
+    """
+    import json
+
+    import openpyxl
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    shape = json.loads(SHAPE.read_text(encoding="utf-8"))
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "1. Informations générales"
+
+    if decoy_validation:
+        # Piège : une liste sur une colonne SANS rapport avec les statuts,
+        # déclarée en premier. Un parseur qui prend « la première liste »
+        # servirait ces valeurs-là.
+        decoy = DataValidation(type="list", formula1='"APS,APD,PRO,EXPL"')
+        sheet.add_data_validation(decoy)
+        decoy.sqref = "B8:B134"
+
+    status = DataValidation(
+        type="list", formula1='"Conforme, Partiellement conforme, Non conforme, N/A"'
+    )
+    sheet.add_data_validation(status)
+    status.sqref = "G8:I112 G116:I134"
+
+    for row, number, marker in shape:
+        if number:
+            sheet.cell(row, 4).value = number
+            sheet.cell(row, 5).value = f"Libellé {number}"
+        if marker:
+            sheet.cell(row, 6).value = marker
+
+    # Note d'addendum après le dernier contrôle : c'est ce qui doit être
+    # classé ``trailing``, et non traité comme une ligne de contrôle.
+    sheet.cell(136, 5).value = "Ajout du 05/04/2026"
+
+    categories = workbook.create_sheet("CAT_SSCAT")
+    categories.append(["Catégorie", "Sous-catégorie", "Code", "Classe IFC"])
+    categories.append(["CVC", "Ventilation", "CV01", "IfcAirTerminal"])
+
+    workbook.save(path)
+    return path
+
+
+@pytest.fixture(scope="module")
+def synthetic(tmp_path_factory):
+    return parse_mrn_template(
+        _build_synthetic_template(tmp_path_factory.mktemp("mrn") / "gabarit.xlsx")
+    )
+
+
+# ── Les six compteurs, éprouvés SANS le fichier local ─────────────────
+
+
+def test_the_arbitrated_counters_hold_on_the_synthetic_template(synthetic):
+    """Le contrôle qui tourne réellement en CI.
+
+    Les tests sur le fichier du maître d'ouvrage sont ignorés là où il est
+    absent : sans ce doublon synthétique, la CI verte ne prouvait aucun des six
+    compteurs qu'elle était censée figer.
+    """
+    summary = synthetic.summary()
+    assert summary["control_rows"] == 96
+    assert summary["section_rows"] == 26
+    assert summary["chapter_header_rows"] == 1
+    assert summary["distinct_chapters"] == 2
+    assert summary["distinct_chapter_ids"] == ["1", "2"]
+    assert summary["last_control_row"] == 134
+    assert summary["sections_are_ordered"] is False
+
+
+def test_the_section_disorder_is_reproduced_by_the_fixture(synthetic):
+    """La fixture doit porter le désordre, sinon elle n'éprouve rien."""
+    order = list(synthetic.sections)
+    assert order.index("2.13") < order.index("2.1")
+    assert order.index("2.4") > order.index("2.8")
+    for control in synthetic.controls:
+        assert control.control_id.startswith(f"{control.section_id}.")
+
+
+def test_the_tool_markers_are_frozen(synthetic):
+    """PR 4 devra neutraliser **exactement** ces lignes.
+
+    Un compte flou laisserait passer un marqueur oublié ou ajouté sans que rien
+    ne casse — et la purge annoncée serait partielle.
+    """
+    assert len(synthetic.tool_markers) == 31
+    assert min(synthetic.tool_markers) == 5
+    assert max(synthetic.tool_markers) == 131
+    assert sum(1 for value in synthetic.tool_markers.values() if "ITO" in value) == 2
+
+
+def test_the_trailing_note_is_classified(synthetic):
+    assert synthetic.last_control_row == 134
+    assert synthetic.trailing_rows == [136]
+
+
+def test_a_decoy_list_validation_never_becomes_the_statuses(tmp_path):
+    """Le piège du P3, rejoué.
+
+    Une liste déclarée avant celle des statuts, sur une colonne sans rapport,
+    serait servie par un parseur qui prend « la première liste trouvée ». Le
+    classeur accepterait alors des statuts que le parseur ignorerait.
+    """
+    template = parse_mrn_template(
+        _build_synthetic_template(tmp_path / "piege.xlsx", decoy_validation=True)
+    )
+    assert template.status_values == [
+        "Conforme",
+        "Partiellement conforme",
+        "Non conforme",
+        "N/A",
+    ]
+    assert "APS" not in template.status_values
+
+
 @pytest.fixture(scope="module")
 def template():
     return parse_mrn_template(TEMPLATE)
@@ -47,7 +176,8 @@ def test_the_arbitrated_counters_hold(template):
     assert summary["control_rows"] == 96
     assert summary["section_rows"] == 26
     assert summary["chapter_header_rows"] == 1
-    assert summary["distinct_chapters"] == ["1", "2"]
+    assert summary["distinct_chapters"] == 2
+    assert summary["distinct_chapter_ids"] == ["1", "2"]
     assert summary["last_control_row"] == 134
     assert summary["sections_are_ordered"] is False
 
@@ -62,7 +192,8 @@ def test_one_header_row_does_not_mean_one_chapter(template):
     n'écrirait la moitié de la grille sans que rien ne le signale.
     """
     assert len(template.chapter_header_rows) == 1
-    assert template.distinct_chapters == ["1", "2"]
+    assert template.distinct_chapters == 2
+    assert template.distinct_chapter_ids == ["1", "2"]
     assert {control.chapter_id for control in template.controls} == {"1", "2"}
 
 
@@ -146,7 +277,7 @@ def test_tool_markers_are_located_not_erased(template):
     Les localiser d'abord permet de vérifier plus tard qu'ils ont tous été
     traités — supprimer sans inventaire ne laisse rien à contrôler.
     """
-    assert template.tool_markers, "la colonne F porte bien des marqueurs"
+    assert len(template.tool_markers) == 31
     markers = set(template.tool_markers.values())
     assert "x" in markers
     assert any("ITO" in marker for marker in markers)

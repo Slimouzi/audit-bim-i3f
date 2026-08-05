@@ -106,7 +106,7 @@ class MRNTemplate:
     categories: list[dict[str, Any]] = field(default_factory=list)
 
     @property
-    def distinct_chapters(self) -> list[str]:
+    def distinct_chapter_ids(self) -> list[str]:
         """Chapitres réellement couverts, déduits de la numérotation.
 
         Distinct de ``chapter_header_rows`` : le gabarit ne porte qu'**une**
@@ -114,6 +114,16 @@ class MRNTemplate:
         les en-têtes ferait croire à un document mono-chapitre.
         """
         return sorted({control.chapter_id for control in self.controls})
+
+    @property
+    def distinct_chapters(self) -> int:
+        """Nombre de chapitres couverts. Distinct de ``chapter_header_rows``.
+
+        Deux noms pour deux faits : le gabarit porte **une** ligne d'en-tête et
+        couvre **deux** chapitres. Exposer une liste sous le nom d'un compteur
+        rendait le contrat ambigu.
+        """
+        return len(self.distinct_chapter_ids)
 
     @property
     def sections_are_ordered(self) -> bool:
@@ -135,6 +145,7 @@ class MRNTemplate:
             "section_rows": len(self.sections),
             "chapter_header_rows": len(self.chapter_header_rows),
             "distinct_chapters": self.distinct_chapters,
+            "distinct_chapter_ids": self.distinct_chapter_ids,
             "last_control_row": self.last_control_row,
             "sections_are_ordered": self.sections_are_ordered,
             "tool_marker_rows": len(self.tool_markers),
@@ -149,15 +160,28 @@ def _text(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _covers_status_columns(validation) -> bool:
+    """La validation porte-t-elle sur les colonnes de statut ?
+
+    Choisir « la première liste trouvée » marchait sur le gabarit actuel, qui
+    n'en a qu'une. Une liste ajoutée ailleurs — une phase, une catégorie —
+    prendrait sa place et le parseur servirait de faux statuts, sans rien
+    signaler.
+    """
+    letters = {chr(64 + column) for column in (NON_MODEL_COLUMN, *MODEL_COLUMNS)}
+    cells = str(validation.sqref or "")
+    return any(letter in cells for letter in letters)
+
+
 def _status_values(sheet) -> list[str]:
-    """Valeurs de statut admises, lues dans la validation du gabarit.
+    """Valeurs de statut admises, lues dans la validation qui couvre G:I.
 
     Les recopier en dur ici les figerait à côté du document : si le maître
     d'ouvrage en ajoute une, le gabarit l'accepterait et le parseur l'ignorerait.
     """
     for validation in sheet.data_validations.dataValidation:
         formula = (validation.formula1 or "").strip().strip('"')
-        if validation.type == "list" and formula:
+        if validation.type == "list" and formula and _covers_status_columns(validation):
             return [part.strip() for part in formula.split(",") if part.strip()]
     return []
 
