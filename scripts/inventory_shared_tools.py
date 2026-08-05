@@ -23,6 +23,11 @@ Trois catégories, dans l'ordre de coût croissant :
 ``i3f``
     Dépend du référentiel : catalogue d'exigences, règles d'audit CCH, pack AVP.
     Extraire ces outils reviendrait à extraire le référentiel avec.
+``inconnu``
+    Lit un champ de ``_State`` qu'aucune des trois listes ci-dessus ne connaît.
+    **Échec fermé délibéré** : un champ ajouté demain peut porter du contexte
+    client, et le présumer neutre ferait entrer le référentiel d'un AMO dans le
+    socle sans qu'aucun compteur ne bouge. Le script sort alors en erreur.
 
 Usage::
 
@@ -228,7 +233,10 @@ def analyse() -> dict:
                 fields - I3F_STATE_FIELDS - UPSTREAM_STATE_FIELDS - NEUTRAL_STATE_FIELDS
             )
 
-            if "i3f" in kinds or i3f_fields:
+            if unclassified_fields:
+                # Fail-closed : on ne devine pas la nature d'un champ inconnu.
+                category = "inconnu"
+            elif "i3f" in kinds or i3f_fields:
                 category = "i3f"
             elif "parametrable" in kinds:
                 category = "parametrable"
@@ -280,7 +288,7 @@ def main() -> int:
         by_category[entry["category"]].append(entry)
 
     print(f"{len(report['tools'])} outils analysés\n")
-    for category in ("extractible", "parametrable", "i3f"):
+    for category in ("extractible", "parametrable", "i3f", "inconnu"):
         entries = by_category[category]
         print(f"── {category} : {len(entries)}")
         for entry in entries:
@@ -292,11 +300,15 @@ def main() -> int:
             print(f"   {entry['tool']:38} {entry['module']:16}{flag}{detail}")
         print()
 
-    unclassified = sorted(
-        {f for e in report["tools"] for f in e["unclassified_state_fields"]},
-    )
+    unclassified = sorted({f for e in report["tools"] for f in e["unclassified_state_fields"]})
     if unclassified:
-        print(f"Champs de session non classés : {', '.join(unclassified)}")
+        print(
+            "ERREUR — champs de session non classés : "
+            f"{', '.join(unclassified)}.\nClasser chacun dans I3F_STATE_FIELDS, "
+            "UPSTREAM_STATE_FIELDS ou NEUTRAL_STATE_FIELDS avant de citer cet "
+            "inventaire : un champ inconnu n'est pas un champ neutre."
+        )
+        return 1
     return 0
 
 

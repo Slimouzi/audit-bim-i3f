@@ -63,7 +63,7 @@ référentiel. Les lots C1/C2 avaient déjà sorti le narratif et la structure v
 le profil ; ce qui reste dans les outils de reporting est le référentiel
 lui-même.
 
-### La nuance qui compte : 15 outils exigent un amont
+### La nuance qui compte : 15 outils au total exigent un amont
 
 Parmi les 33 extractibles, **8 lisent `_State.result` ou `_State.suggestion_store`**
 — des données qu'aucun outil ne produit hors d'un audit. Leur code est

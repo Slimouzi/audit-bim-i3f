@@ -54,6 +54,7 @@ def test_the_document_figures_match_the_measurement(report):
     assert len(upstream) == 8
 
     text = DOC.read_text(encoding="utf-8")
+    assert not [t for t in report["tools"] if t["category"] == "inconnu"]
     for claim in (
         "| **Extractibles** | 33 |",
         "| **Irréductiblement I3F** | 12 |",
@@ -63,17 +64,94 @@ def test_the_document_figures_match_the_measurement(report):
         assert claim in text, f"le document ne porte plus : {claim}"
 
 
-def test_the_document_lists_the_right_upstream_bound_tools(report):
-    """Les 8 outils suspendus à un amont sont nommés — un compte ne suffit pas."""
-    measured = {
+def _tools_cited(section: str, known: set[str]) -> set[str]:
+    """Noms d'outils cités entre backticks dans ``section``.
+
+    Le motif capture ``[^`]+`` puis intersecte avec les noms réels. Filtrer par
+    ``[a-z_]+`` laissait passer des chaînes tronquées — ``i3f`` contient un
+    chiffre — et retenait des noms de modules ou d'attributs qui ne sont pas des
+    outils. L'intersection avec l'inventaire mesuré est le seul filtre exact.
+    """
+    return set(re.findall(r"`([^`]+)`", section)) & known
+
+
+def _section(text: str, start: str, end: str) -> str:
+    return text[text.index(start) : text.index(end)]
+
+
+@pytest.fixture(scope="module")
+def doc() -> str:
+    return DOC.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def known_tools(report) -> set[str]:
+    return {t["tool"] for t in report["tools"]}
+
+
+def _measured(report: dict, category: str, upstream: bool | None = None) -> set[str]:
+    return {
         t["tool"]
         for t in report["tools"]
-        if t["category"] == "extractible" and t["requires_upstream"]
+        if t["category"] == category and (upstream is None or t["requires_upstream"] is upstream)
     }
-    text = DOC.read_text(encoding="utf-8")
-    section = text[text.index("suspendus à un amont") : text.index("**12 outils I3F**")]
-    cited = set(re.findall(r"`([a-z_]+)`", section))
-    assert cited == measured, f"document {sorted(cited)} vs mesure {sorted(measured)}"
+
+
+def test_the_document_lists_the_right_upstream_bound_tools(report, doc, known_tools):
+    """Les 8 outils suspendus à un amont sont nommés — un compte ne suffit pas."""
+    section = _section(doc, "suspendus à un amont", "**12 outils I3F**")
+    assert _tools_cited(section, known_tools) == _measured(report, "extractible", upstream=True)
+
+
+def test_the_document_lists_the_right_autonomous_tools(report, doc, known_tools):
+    """Les 25 autonomes, nommément.
+
+    C'est la table sur laquelle E7 s'appuiera. Un outil qui y glisserait sans
+    l'être resterait invisible tant que le total ne bouge pas — et c'est
+    précisément un total qui ne bouge pas quand deux erreurs se compensent.
+    """
+    section = _section(doc, "### Les 25 extractibles autonomes", "Ces outils s'appuient")
+    assert _tools_cited(section, known_tools) == _measured(report, "extractible", upstream=False)
+
+
+def test_the_document_lists_the_right_i3f_tools(report, doc, known_tools):
+    """Les 12 outils du référentiel, nommément."""
+    section = _section(doc, "### Les 12 outils I3F", "## Ce que cela dit pour E7")
+    assert _tools_cited(section, known_tools) == _measured(report, "i3f")
+
+
+def test_the_e7_first_circle_is_exactly_what_the_measurement_supports(report, doc, known_tools):
+    """La recommandation d'E7 doit rester adossée à la mesure.
+
+    Ce paragraphe est le seul du document qui engage le lot suivant. Un outil
+    qu'on y ajouterait — parce qu'il *semble* générique — deviendrait une
+    décision de périmètre prise sans preuve, et la seule chose que ce dossier
+    devait empêcher.
+    """
+    section = _section(doc, "1. **Cible, identité, lecture**", "2. **Requêtes sur snapshot**")
+    cited = _tools_cited(section, known_tools)
+
+    assert cited == {
+        "parse_bimdata_target",
+        "check_bimdata_access",
+        "verify_active_model",
+        "extract_model_snapshot",
+        "download_model_ifc",
+    }
+    # Et chacun doit être mesuré comme extractible ET autonome.
+    assert cited <= _measured(report, "extractible", upstream=False)
+
+
+def test_the_section_parsing_is_not_vacuous(report, doc, known_tools):
+    """Une découpe qui ne capterait rien ferait passer tous les tests ci-dessus."""
+    section = _section(doc, "### Les 25 extractibles autonomes", "Ces outils s'appuient")
+    assert len(_tools_cited(section, known_tools)) == 25
+
+    # Le filtre par intersection doit écarter ce qui n'est pas un outil : cette
+    # section cite aussi des modules entre backticks, juste après.
+    modules = _section(doc, "Ces outils s'appuient", "### Les 12 outils I3F")
+    assert "audit_bim.doe" in modules
+    assert _tools_cited(modules, known_tools) == set()
 
 
 def test_the_ten_proven_neutral_modules_come_from_the_second_profile(report):
@@ -153,3 +231,48 @@ def test_the_lexical_approach_would_have_been_wrong(report):
     assert body, "prémisse : la fonction doit être localisée"
     assert not re.search(r"\b(CCH|AVP|I3F)\b", body), "prémisse : aucun marqueur dans cet outil"
     assert _entry(report, "generate_xlsx_annex")["category"] == "i3f"
+
+
+def test_no_unclassified_state_fields_are_allowed(report):
+    """Un champ de session inconnu ne doit pas être présumé neutre.
+
+    Le script calculait ces champs sans en tirer de conséquence : un futur
+    ``_State.contexte_client`` lu par un outil l'aurait laissé compté dans le
+    socle, sans qu'aucun compteur ne bouge. Le classement est désormais fermé —
+    catégorie ``inconnu`` et code de retour non nul.
+    """
+    offenders = {
+        t["tool"]: t["unclassified_state_fields"]
+        for t in report["tools"]
+        if t["unclassified_state_fields"]
+    }
+    assert not offenders, (
+        f"champs de session non classés : {offenders}. Les ranger dans "
+        f"I3F_STATE_FIELDS, UPSTREAM_STATE_FIELDS ou NEUTRAL_STATE_FIELDS."
+    )
+    assert not [t for t in report["tools"] if t["category"] == "inconnu"]
+
+
+def test_an_unknown_state_field_would_be_caught():
+    """Non-vacuité : le classement fermé doit savoir refuser.
+
+    On retire un champ des listes connues et on vérifie qu'un outil qui le lit
+    bascule en ``inconnu`` — sans quoi le contrôle ci-dessus ne prouverait que
+    l'absence actuelle de champ inattendu, pas la capacité à en voir un.
+    """
+    import inventory_shared_tools as inv
+
+    removed = "snapshot"
+    original = set(inv.NEUTRAL_STATE_FIELDS)
+    try:
+        inv.NEUTRAL_STATE_FIELDS.discard(removed)
+        degraded = inv.analyse()
+    finally:
+        inv.NEUTRAL_STATE_FIELDS.clear()
+        inv.NEUTRAL_STATE_FIELDS.update(original)
+
+    unknown = [t["tool"] for t in degraded["tools"] if t["category"] == "inconnu"]
+    assert unknown, f"{removed!r} déclassé n'a fait basculer aucun outil"
+
+    # Et la mutation ne laisse pas de trace : l'inventaire réel reste propre.
+    assert not [t for t in inv.analyse()["tools"] if t["category"] == "inconnu"]
