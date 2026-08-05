@@ -229,8 +229,9 @@ _I3F_PROFILE = McpProfile(
             current_location="audit_bim/profiles/i3f",
             status="ready",
             responsibility=(
-                "Exposer les 45 outils du profil I3F : session, audit, "
-                "reporting, actions, requêtes, plus les aliases LEGACY."
+                "45 outils métier I3F — session, audit, reporting, actions, "
+                "requêtes — plus list_mcp_profiles transverse, soit 46 outils "
+                "visibles. Les aliases LEGACY restent opt-in."
             ),
         ),
         ClientSpecialization(
@@ -306,8 +307,9 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
             current_location="audit_bim/profiles/bim_in_motion",
             status="ready",
             responsibility=(
-                "Exposer les 3 outils du profil : cible, contrôle d'identité, "
-                "instantané. Aucun import du profil I3F."
+                "1 outil propre (set_active_target) + 5 outils du socle partagé "
+                "+ list_mcp_profiles transverse, soit 7 outils visibles. "
+                "Aucun import du profil I3F."
             ),
         ),
     ),
