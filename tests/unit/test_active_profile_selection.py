@@ -204,34 +204,38 @@ def test_the_prelude_probe_is_not_vacuous():
         assert seen["i3f_modules"], f"prélude {prelude!r} n'a rien chargé"
 
 
-def test_compat_reexports_refuse_to_serve_another_profile():
-    """Sous un autre profil, ``server.<tool>`` n'existe pas.
+def test_the_server_module_exposes_no_tool_under_any_profile():
+    """``server`` ne sert plus aucun outil, quel que soit le profil actif.
 
-    Servir le nom importerait le profil I3F dans le processus d'un autre AMO et
-    y enregistrerait ses outils. L'``AttributeError`` est le comportement
-    correct : le ré-export est une compat pour I3F, pas une API universelle.
+    Ce contrôle vérifiait auparavant que les ré-exports *refusaient* de servir
+    un outil I3F hors du profil `i3f`. Ils ont été retirés : le refus n'est plus
+    conditionnel, il est structurel. Le module reste importable pour ``main``,
+    ``mcp`` et ``list_mcp_profiles``, et son import ne charge toujours pas I3F.
     """
-    env = {"PATH": "/usr/bin:/bin", "HOME": str(REPO), ACTIVE_PROFILE_ENV: "bim_in_motion"}
     probe = (
         "import sys\n"
         "from audit_bim.mcp import server\n"
-        "try:\n"
-        "    server.full_audit\n"
-        "except AttributeError as exc:\n"
-        "    assert 'I3F' in str(exc), str(exc)\n"
-        "else:\n"
-        "    raise SystemExit('le ré-export a servi un outil I3F sous un autre profil')\n"
+        "for name in ('full_audit', 'set_active_model', 'prepare_bcf_from_findings'):\n"
+        "    try:\n"
+        "        getattr(server, name)\n"
+        "    except AttributeError:\n"
+        "        continue\n"
+        "    raise SystemExit(f'server expose encore {name}')\n"
+        "assert server.mcp is not None and callable(server.main)\n"
+        "assert callable(server.list_mcp_profiles)\n"
         "assert not [m for m in sys.modules if m.startswith('audit_bim.profiles.i3f')]\n"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", probe],
-        capture_output=True,
-        text=True,
-        cwd=REPO,
-        env=env,
-        timeout=180,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr[-2000:]
+    for profile_id in ("i3f", "bim_in_motion"):
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(REPO), ACTIVE_PROFILE_ENV: profile_id}
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            cwd=REPO,
+            env=env,
+            timeout=180,
+        )
+        assert result.returncode == 0, f"[{profile_id}] " + (result.stdout + result.stderr)[-2000:]
 
 
 def test_the_server_keeps_its_own_transverse_tools():

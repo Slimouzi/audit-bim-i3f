@@ -7,7 +7,7 @@ from pathlib import Path
 
 import anyio
 
-from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp import app as mcp_app
 from audit_bim.mcp.tools_profiles import list_mcp_profiles
 from audit_bim.profiles import list_profiles
 
@@ -34,7 +34,7 @@ def test_list_mcp_profiles_unknown_profile_is_structured_error():
 
 
 def test_list_mcp_profiles_is_registered():
-    tools = anyio.run(mcp_server.mcp.list_tools)
+    tools = anyio.run(mcp_app.mcp.list_tools)
     names = {t.name for t in tools}
     assert "list_mcp_profiles" in names
 

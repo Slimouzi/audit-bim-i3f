@@ -19,7 +19,7 @@ import anyio
 import pytest
 from bim_mcp_runtime import SessionBinding, SessionStore
 
-from audit_bim.mcp import server as mcp_server
+from audit_bim.mcp import app as mcp_app
 from audit_bim.mcp import session as session_mod
 
 #: Surface MCP figée AVANT l'adoption. Toute divergence est une régression.
@@ -116,7 +116,7 @@ def test_prompt_is_still_exposed():
 
 def _tool_params(name: str) -> set[str]:
     """Paramètres réels d'un outil, lus depuis le registre du serveur."""
-    tool = next(t for t in anyio.run(mcp_server.mcp.list_tools) if t.name == name)
+    tool = next(t for t in anyio.run(mcp_app.mcp.list_tools) if t.name == name)
     return set(inspect.signature(tool.fn).parameters)
 
 
@@ -133,7 +133,7 @@ def test_avp_pack_keeps_its_key_parameters():
 
 def test_every_tool_still_exposes_a_callable():
     """Aucun outil n'a été enveloppé au passage : `fn` reste inspectable."""
-    for tool in anyio.run(mcp_server.mcp.list_tools):
+    for tool in anyio.run(mcp_app.mcp.list_tools):
         assert callable(tool.fn)
         inspect.signature(tool.fn)
 

@@ -95,12 +95,20 @@ def test_profile_carries_the_tool_surface():
 # ── 2. Le déplacement n'a rien renommé ────────────────────────────────
 
 
-def test_public_names_are_still_reachable_from_server():
-    """Les ré-exports de compat continuent de fonctionner."""
-    from audit_bim.mcp import server
+def test_public_names_are_reachable_from_the_profile():
+    """Les outils s'importent depuis le profil, plus depuis ``server``.
 
-    for name in ("set_active_model", "generate_avp_i3f_pack", "run_audit_tool"):
-        assert callable(getattr(server, name))
+    Ce contrôle vérifiait l'inverse : que les ré-exports de compat marchaient
+    encore. Ils ont été retirés une fois établi qu'aucun appelant ne les
+    empruntait — ni ici, ni dans les douze autres dépôts. Ce qui doit rester
+    vrai, c'est que E2 n'a renommé aucun outil en les déplaçant.
+    """
+    from audit_bim.profiles.i3f.tools_audit import run_audit_tool
+    from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack
+    from audit_bim.profiles.i3f.tools_session import set_active_model
+
+    for tool in (set_active_model, generate_avp_i3f_pack, run_audit_tool):
+        assert callable(tool)
 
 
 def test_legacy_aliases_are_still_lazily_reachable():
