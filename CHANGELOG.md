@@ -7,6 +7,102 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-05
+
+**Aucun changement de surface MCP pour I3F** : 46 outils, mêmes noms, mêmes
+paramètres, même prompt `amo_bim_i3f`. Cette version rend le serveur
+**multi-AMO** — un second profil peut tourner sans emprunter une ligne au
+profil I3F — et externalise le moteur MCP et le socle de reporting. Une
+référence versionnée (`tests/unit/golden/mcp_surface.json`) verrouille
+désormais la surface, outil par outil et paramètre par paramètre.
+
+### Added (profil actif configurable)
+
+- **`AUDIT_BIM_PROFILE`** choisit le profil au démarrage. Absent ⇒ `i3f` :
+  aucun déploiement existant ne change.
+- Un identifiant inconnu **empêche le démarrage**, en citant la valeur fautive
+  et les profils connus. Le repli silencieux sur `i3f` a été écarté
+  délibérément : il donnerait un serveur qui répond normalement tout en
+  imprimant « CCH BIM I3F » dans le rapport d'un autre AMO.
+- Le profil ne se change pas en cours de session : aucun outil MCP ne le
+  bascule. Un serveur qui changerait de référentiel servirait deux réponses
+  incohérentes au même client.
+- La sélection tient **quel que soit l'ordre d'import** : les ré-exports de
+  compat sont résolus paresseusement et refusent de servir un outil I3F hors du
+  profil `i3f`.
+
+### Added (profil `bim_in_motion` — second AMO)
+
+- `set_active_target` (cible par identifiants **ou** URL viewer), le prompt
+  `amo_bim_in_motion`, et les cinq outils du socle partagé : 7 outils au total.
+- Aucun import du profil I3F, vérifié en sous-processus après appel effectif des
+  outils — un import paresseux ne se voit pas à l'enregistrement.
+- Ne produit ni audit, ni notation, ni livrable : il établit une cible, la
+  vérifie, décrit le modèle.
+
+### Added (socle d'outils partagé)
+
+- **`audit_bim/tools_shared/session.py`** — `parse_bimdata_target`,
+  `check_bimdata_access`, `verify_active_model`, `extract_model_snapshot`,
+  `download_model_ifc`, déclarés par les deux profils. Code déplacé verbatim
+  depuis le profil I3F.
+- **`audit_bim/extraction/snapshot_health.py`** — diagnostics de lecture
+  (`snapshot_health`, `snapshot_warning`, `n_extraction_errors`,
+  `extraction_errors`), partagés eux aussi.
+- Périmètre décidé par inventaire de dépendances (`docs/scope-shared-tools.md`,
+  `scripts/inventory_shared_tools.py`), pas par intuition : seuls les outils
+  qu'un second profil avait dû réimplémenter sont extraits.
+
+### Added (paquets first-party)
+
+- **`bim-mcp-runtime`** — sessions bornées (TTL, plafond, éviction LRU),
+  résultats et erreurs typés, registre d'outils, configuration à préfixe
+  d'environnement **injecté**. N'importe aucun serveur MCP.
+- **`bim-reporting`** — primitives Word et Excel : écriture XLSX protégée contre
+  l'injection de formules, sections de document, charte. Aucun squelette de
+  rapport imposé.
+
+### Changed (frontière profil / socle)
+
+- Les 45 outils et le prompt I3F vivent dans **`audit_bim/profiles/i3f/`**.
+  `audit_bim/mcp/` ne contient plus aucune déclaration client.
+- Le prompt est enregistré **par le profil**, plus par le serveur : un autre
+  profil enregistre le sien sans modifier une ligne de `server.py`.
+- Le narratif et la structure des rapports (`ReportNarrativeSpec`,
+  `ClassificationNarrativeSpec`, `ReportStructureSpec`, `ReferenceFramework`)
+  sont déclarés par le profil. Les valeurs I3F sont reprises **à l'octet près** —
+  y compris les noms d'onglets, qui sont des clés techniques référencées côté
+  maîtrise d'ouvrage.
+- Les messages du socle ne nomment plus d'outil en dur : le nom du ciblage vient
+  du profil actif (`McpProfile.target_tool_name`). Une description MCP qui cite
+  un outil absent du serveur est une instruction plausible et inapplicable.
+
+### Deprecated
+
+- **`audit_bim.mcp.server.<tool>`** — ré-exports de compatibilité. Plus aucun
+  appelant du dépôt ne les emprunte, et l'enregistrement ne les traverse plus.
+  Ils ne sont pas l'API principale : utiliser le registre MCP, ou
+  `audit_bim.profiles.i3f.tools_*` côté Python.
+
+### Fixed
+
+- **Ordre non déterministe dans le rapport Word** : les blocs de thèmes étaient
+  ordonnés depuis un `set`, dont l'itération varie d'une exécution à l'autre.
+  Deux audits identiques pouvaient produire deux documents différents.
+- **Diagnostics d'extraction masqués** côté profil tiers : une lecture BIMData
+  en échec était présentée comme un résultat vide.
+
+### Security
+
+- `cryptography` 49.0.0 → 50.0.0 (CVE-2026-69247), lock seul.
+
+### Docs
+
+- `docs/scope-shared-tools.md`, `docs/scope-bim-mcp-runtime.md`,
+  `docs/scope-report-narrative-spec.md`, `docs/scope-word-sections-inventory.md`,
+  `docs/scope-multi-amo-mcp.md` — inventaires mesurés qui ont servi de base de
+  décision aux extractions.
+
 ### Added (profils MCP multi-AMO — déclaratif)
 
 - **`audit_bim.profiles`** : registre versionnable des briques génériques
