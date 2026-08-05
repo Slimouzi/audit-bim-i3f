@@ -12,6 +12,29 @@ un package réutilisable, **sans réécriture** et **sans changement observable*
 Ce n'est **pas** une première implémentation from scratch : le code métier est
 déjà écrit, testé, et branché sur les contrats `bim-core`.
 
+> **État au 2026-08-05 — la façade a été retirée.**
+>
+> Ce document a piloté l'extraction de `bim-query` puis a servi de référence
+> tant que `audit_bim.query` existait en ré-exports. Cette couche locale n'existe
+> plus : `audit-bim-i3f` importe directement `bim_query.<module>`, comme il
+> importe `bim_core`, `bim_reporting` ou `bimdata_read`.
+>
+> Ce qui change dans la lecture des sections ci-dessous :
+>
+> - les **tests d'identité de façade** (§7, `audit_bim.query.<f> is bim_query.<f>`)
+>   ont disparu avec leur objet. Ils sont remplacés par un contrôle statique qui
+>   interdit la réapparition d'un chemin `audit_bim.query` ou d'un import privé.
+> - `_SPATIAL_CLASSES`, cité comme symbole ré-exporté, est devenu
+>   **`SPATIAL_CLASSES`**, API publique de `bim-query` depuis v0.1.5. Le nom
+>   privé subsiste comme alias dans le paquet, le temps que d'éventuels autres
+>   consommateurs migrent ; `audit-bim-i3f` ne l'emploie plus.
+> - la règle « zéro modification de call-site » (§4) a rempli son office : elle
+>   a permis d'extraire le paquet sans toucher aux appelants. La façade était le
+>   prix de cette prudence, pas un état cible.
+>
+> Le reste du document est conservé tel quel : il documente une décision prise
+> et les raisons qui l'ont motivée, pas l'état courant du code.
+
 ## 0. Décisions figées (revue CTO)
 
 **Décision 1 — c'est une extraction, pas une création.** La couche vit déjà dans

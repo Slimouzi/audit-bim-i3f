@@ -26,7 +26,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
+from bim_query.filtering import apply_finding_filter, apply_suggestion_filter
 from bim_query.presets import QUERY_PRESETS
+from bim_query.table_query import BimQuery, query_bim_table
+from bim_query.views import bim_object_from_element
 
 from ...classifier.suggestion_store import ClassificationSuggestionStore
 from ...domain.filters import FindingFilter, ObjectFilter, SuggestionFilter
@@ -34,9 +37,6 @@ from ...mcp.app import mcp
 from ...mcp.payloads import ensure_suggestion_store, maybe_dump_to_disk
 from ...mcp.selection import resolve_object_selection
 from ...mcp.session import _State
-from ...query.filtering import apply_finding_filter, apply_suggestion_filter
-from ...query.table_query import BimQuery, query_bim_table
-from ...query.views import bim_object_from_element
 
 
 @mcp.tool()
@@ -414,7 +414,7 @@ def query_bim_data(
             Ex: ``{"ifc_types": ["IfcDoor"]}``.
         fields: Liste des champs à projeter. Défaut :
             ``["uuid", "ifc_type", "name"]``. Voir
-            :data:`audit_bim.query.table_query.KNOWN_FIELDS` pour la liste
+            :data:`bim_query.table_query.KNOWN_FIELDS` pour la liste
             officielle ; n'importe quel ``Pset.Prop`` ou alias projet est
             accepté en fallback.
         include_empty: Si False, n'inclut une ligne que si au moins un

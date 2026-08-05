@@ -134,8 +134,8 @@ requires-dist = [
     { name = "bim-audit-engine", git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.5" },
     { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.3.0" },
     { name = "bim-mcp-runtime", git = "https://github.com/Slimouzi/bim-mcp-runtime.git?tag=bim-mcp-runtime-v0.1.2" },
-    { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.4" },
-    { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.4" },
+    { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.5" },
+    { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.5" },
     { name = "bim-reporting", git = "https://github.com/Slimouzi/bim-reporting.git?tag=bim-reporting-v0.2.0" },
     { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.7" },
     { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.5" },
@@ -221,8 +221,8 @@ source = { git = "https://github.com/Slimouzi/bim-mcp-runtime.git?tag=bim-mcp-ru
 
 [[package]]
 name = "bim-publication"
-version = "0.1.4"
-source = { git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.4#6687eb08b00b1653969414fdc847715913faaa18" }
+version = "0.1.5"
+source = { git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.5#4c067cb62519d0c319f39a5f1bd4533b30859c32" }
 dependencies = [
     { name = "bim-core" },
     { name = "bim-query" },
@@ -230,8 +230,8 @@ dependencies = [
 
 [[package]]
 name = "bim-query"
-version = "0.1.4"
-source = { git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.4#6ba9b4a3a6fd956e829a0964a4639697b28126ff" }
+version = "0.1.5"
+source = { git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.5#aef918822d44ec81baff9af74992e3582de2302f" }
 dependencies = [
     { name = "bim-core" },
     { name = "pydantic" },

@@ -1,4 +1,4 @@
-"""Tests du moteur de filtrage (``audit_bim.query.filtering``).
+"""Tests du moteur de filtrage (``bim_query.filtering``).
 
 Couvre les 3 entrées : :func:`apply_object_filter`,
 :func:`apply_finding_filter`, :func:`apply_suggestion_filter`.
@@ -7,6 +7,12 @@ Couvre les 3 entrées : :func:`apply_object_filter`,
 from __future__ import annotations
 
 import pytest
+from bim_query.filtering import (
+    apply_finding_filter,
+    apply_object_filter,
+    apply_suggestion_filter,
+)
+from bim_query.views import iter_bim_objects
 
 from audit_bim.audit.findings import ErrorType, Finding, Severity, Theme
 from audit_bim.classifier.suggestion_store import (
@@ -21,12 +27,6 @@ from audit_bim.domain.filters import (
     SuggestionStatus,
 )
 from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.query.filtering import (
-    apply_finding_filter,
-    apply_object_filter,
-    apply_suggestion_filter,
-)
-from audit_bim.query.views import iter_bim_objects
 
 # ── Fixtures locales ─────────────────────────────────────────────────────
 

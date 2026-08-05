@@ -14,11 +14,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from bim_query.filtering import apply_object_filter, object_matches
+from bim_query.views import SPATIAL_CLASSES, iter_bim_objects
+
 from ..audit.findings import ErrorType, Severity, Theme
 from ..domain.bim_object import BimObject
 from ..domain.filters import ObjectFilter
-from ..query.filtering import apply_object_filter, object_matches
-from ..query.views import _SPATIAL_CLASSES, iter_bim_objects
 from .session import _State
 
 
@@ -122,7 +123,7 @@ def resolve_object_selection(
             severities=with_finding_severities,
         )
 
-    spatial_targeted = bool(f.ifc_types) and any(t in _SPATIAL_CLASSES for t in f.ifc_types)
+    spatial_targeted = bool(f.ifc_types) and any(t in SPATIAL_CLASSES for t in f.ifc_types)
     effective_spatial = include_spatial or spatial_targeted or allow is not None
 
     objs = list(iter_bim_objects(_State.snapshot, include_spatial=effective_spatial))

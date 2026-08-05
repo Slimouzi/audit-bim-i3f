@@ -1,17 +1,17 @@
-"""Tests du moteur de requête tabulaire (``audit_bim.query.table_query``)."""
+"""Tests du moteur de requête tabulaire (``bim_query.table_query``)."""
 
 from __future__ import annotations
 
 import pytest
-
-from audit_bim.domain.filters import ObjectFilter
-from audit_bim.extraction.model_data import ModelSnapshot
-from audit_bim.query.table_query import (
+from bim_query.table_query import (
     KNOWN_FIELDS,
     BimQuery,
     BimQueryResult,
     query_bim_table,
 )
+
+from audit_bim.domain.filters import ObjectFilter
+from audit_bim.extraction.model_data import ModelSnapshot
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 

@@ -1,9 +1,8 @@
-"""Tests du résolveur d'alias (``audit_bim.query.property_aliases``)."""
+"""Tests du résolveur d'alias (``bim_query.property_aliases``)."""
 
 from __future__ import annotations
 
-from audit_bim.domain.bim_object import BimObject, ClassificationRef
-from audit_bim.query.property_aliases import (
+from bim_query.property_aliases import (
     ACOUSTIC_ALIASES,
     DIMENSION_ALIASES,
     MANUFACTURER_ALIASES,
@@ -15,6 +14,8 @@ from audit_bim.query.property_aliases import (
     normalize_key,
     resolve_requested_field,
 )
+
+from audit_bim.domain.bim_object import BimObject, ClassificationRef
 
 
 def _make_door(**overrides) -> BimObject:
