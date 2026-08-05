@@ -19,7 +19,7 @@ publié sur PyPI. Les artefacts sdist + wheel sont attachés à la release
 GitHub et installables soit via téléchargement direct, soit via :
 
 ```bash
-pip install https://github.com/Slimouzi/audit-bim-i3f/releases/download/v0.2.1/audit_bim_i3f-0.2.1-py3-none-any.whl
+pip install https://github.com/Slimouzi/audit-bim-mcp/releases/download/v0.2.1/audit_bim_i3f-0.2.1-py3-none-any.whl
 ```
 
 ### Jobs
