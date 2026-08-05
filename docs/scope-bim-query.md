@@ -26,8 +26,9 @@ déjà écrit, testé, et branché sur les contrats `bim-core`.
 >   interdit la réapparition d'un chemin `audit_bim.query` ou d'un import privé.
 > - `_SPATIAL_CLASSES`, cité comme symbole ré-exporté, est devenu
 >   **`SPATIAL_CLASSES`**, API publique de `bim-query` depuis v0.1.5. Le nom
->   privé subsiste comme alias dans le paquet, le temps que d'éventuels autres
->   consommateurs migrent ; `audit-bim-i3f` ne l'emploie plus.
+>   privé a d'abord subsisté comme alias, le temps de la migration, puis a été
+>   **retiré en v0.1.6** une fois son unique consommateur passé à l'API
+>   publique. Un nom privé qui reste importable devient une API de fait.
 > - la règle « zéro modification de call-site » (§4) a rempli son office : elle
 >   a permis d'extraire le paquet sans toucher aux appelants. La façade était le
 >   prix de cette prudence, pas un état cible.
