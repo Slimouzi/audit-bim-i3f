@@ -135,9 +135,15 @@ recharge la config.
 
 À taper dans une conversation Claude, dans l'ordre :
 
-1. « **Liste les outils MCP audit-bim-i3f disponibles.** »
-   Doit énumérer une vingtaine de tools (`project_context_questions`,
-   `extract_model_snapshot`, `full_audit`, etc.).
+1. « **Appelle `list_mcp_profiles`.** »
+   C'est le contrôle qui tranche le plus vite. Attendu :
+   `default_profile_id: "i3f"`, profils `["i3f", "bim_in_motion"]`, et **46
+   outils** annoncés pour I3F.
+
+   Si l'outil n'apparaît pas dans la liste proposée, inutile de chercher plus
+   loin : le serveur ou le harness sert un build antérieur. Quitter Claude,
+   relancer, et **rouvrir une conversation** — les outils ne sont énumérés qu'à
+   son ouverture.
 
 2. « **Utilise audit-bim-i3f pour afficher les questions de contexte projet.** »
    Appelle `project_context_questions`. Renvoie les champs manquants

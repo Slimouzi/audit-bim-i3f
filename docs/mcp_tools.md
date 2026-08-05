@@ -177,11 +177,13 @@ d'un autre AMO — une erreur invisible en exploitation.
 Le profil ne se change **pas** en cours de session : il n'existe aucun outil MCP
 pour le basculer. Changer de profil, c'est relancer le serveur.
 
-La sélection tient **quel que soit l'ordre d'import** : les ré-exports de compat
-`audit_bim.mcp.server.<tool>` sont résolus paresseusement et refusent de servir
-un outil I3F si le profil actif n'est pas `i3f`. Sans cela, un simple
-`import audit_bim.mcp.server` chez un appelant aurait enregistré les 45 outils
-I3F avant même que le profil ne soit lu.
+La sélection tient **quel que soit l'ordre d'import**. `audit_bim.mcp.server`
+n'expose plus que `main`, `mcp` et `list_mcp_profiles` : les ré-exports
+`server.<tool>` ont été retirés, et son import n'enregistre plus rien. Ils
+avaient d'abord été rendus paresseux et conditionnés au profil actif, parce
+qu'un simple `import audit_bim.mcp.server` chez un appelant enregistrait les 45
+outils I3F avant même que le profil ne soit lu ; ils ont ensuite disparu, aucun
+appelant ne les empruntant plus. Un contrôle statique interdit leur retour.
 
 ## Aliases métier — compat LEGACY opt-in
 
