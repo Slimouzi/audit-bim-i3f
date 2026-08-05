@@ -19,11 +19,15 @@ Trois axes mesurés par module :
     un contrat de sortie, et toute recomposition doit prouver la parité du
     fichier — pas seulement celle du code.
 ``consommateurs``
-    Qui l'importe. Un module peut être neutre par dépendances et n'exister que
-    pour le pack AVP : son code ne connaît pas le référentiel, mais personne
+    Qui l'importe. Un module peut n'avoir aucune dépendance au référentiel et
+    n'exister que pour le pack AVP : son code ne le connaît pas, mais personne
     d'autre ne l'appelle. L'inventaire du socle partagé avait rencontré la même
-    nuance sous une autre forme — du code générique suspendu à un amont I3F. La
-    classer « neutre » sans le dire promettrait un socle qui ne sert personne.
+    nuance sous une autre forme — du code générique suspendu à un amont I3F.
+
+Aucune catégorie ne s'appelle « neutre ». Le mot serait lu comme
+« extractible » par le lot suivant, alors que la mesure ne dit que « aucune
+attache trouvée ». ``sans_attache_directe`` nomme ce qu'on a constaté ;
+``lié_livrable_i3f`` nomme ce que les appelants révèlent.
 
 Le troisième axe est le plus important ici, et c'est ce qui distingue ce lot du
 précédent. Un livrable est relu par un humain, ouvert par des outils MOA, parfois
@@ -63,6 +67,19 @@ I3F_ROOTS = (
 #: explique la frontière ne compte pas — la distinction a déjà été tranchée sur
 #: le profil BIM in Motion.
 CLIENT_TERMS = ("i3f", "cch", "avp", "3f")
+
+#: Modules qui composent un **livrable I3F** : le pack AVP, les deux documents
+#: principaux, et l'outil MCP qui les déclenche. Un module dont *tous* les
+#: appelants sont là-dedans sert le livrable, quelle que soit la neutralité de
+#: son code.
+DELIVERABLE_CONSUMERS = (
+    "audit_bim.reporting.avp",
+    "audit_bim.reporting.word_report",
+    "audit_bim.reporting.xlsx_annex",
+    "audit_bim.reporting.context",
+    "audit_bim.profiles.i3f.tools_reporting",
+    "audit_bim.profiles.i3f.tools_audit",
+)
 
 #: Signatures d'écriture de fichier. Un module qui en porte une a un contrat de
 #: sortie : sa recomposition se recette en ouvrant le fichier produit.
@@ -160,24 +177,31 @@ def analyse() -> dict:
 
         rel = str(path.relative_to(REPORTING_DIR))
         callers = consumers.get(rel, [])
-        avp_only = bool(callers) and all(
-            "avp" in c.rsplit(".", 1)[-1] or ".avp" in c for c in callers
+        deliverable_bound = bool(callers) and all(
+            c.startswith(DELIVERABLE_CONSUMERS) for c in callers
         )
 
         if delegation and not attaches and len(source.splitlines()) < 120:
             kind = "façade"
         elif attaches or client_hits:
             kind = "orchestration_i3f"
-        elif avp_only:
-            kind = "neutre_lié_avp"
+        elif deliverable_bound:
+            # Aucune dépendance mesurée au référentiel, mais aucun appelant hors
+            # de la chaîne de livrables : le code est neutre, l'usage ne l'est
+            # pas. La catégorie porte l'usage, pas le seul verdict des imports.
+            kind = "lié_livrable_i3f"
         else:
-            kind = "neutre"
+            # Volontairement PAS « neutre » : le mot serait lu comme
+            # « extractible » par le prochain lot, alors qu'il ne dit que
+            # « aucune attache trouvée par cette mesure ». Un module sans
+            # appelant du tout tombe ici, et n'est pas pour autant réutilisable.
+            kind = "sans_attache_directe"
 
         modules.append(
             {
                 "module": rel,
                 "consumers": callers,
-                "avp_only": avp_only,
+                "deliverable_bound": deliverable_bound,
                 "lines": len(source.splitlines()),
                 "kind": kind,
                 "delegation": delegation,
@@ -205,7 +229,12 @@ def main() -> int:
 
     total = sum(m["lines"] for m in report["modules"])
     print(f"{len(report['modules'])} modules, {total} lignes\n")
-    for kind in ("façade", "neutre", "neutre_lié_avp", "orchestration_i3f"):
+    for kind in (
+        "façade",
+        "sans_attache_directe",
+        "lié_livrable_i3f",
+        "orchestration_i3f",
+    ):
         entries = by_kind[kind]
         lines = sum(e["lines"] for e in entries)
         print(f"── {kind} : {len(entries)} modules, {lines} lignes")

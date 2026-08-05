@@ -12,9 +12,15 @@ dont **4 973 dans dix modules qui écrivent un fichier**.
 | Nature | Modules | Lignes |
 |---|---:|---:|
 | Façade vers `bim-reporting` | 3 | **153** |
-| Neutre par dépendances | 6 | 2 023 |
-| Neutre mais appelé seulement par le pack AVP | 3 | 75 |
+| Sans attache directe mesurée | 2 | 7 |
+| Lié au livrable I3F par ses appelants | 7 | 2 091 |
 | Orchestration I3F | 12 | **5 980** |
+
+**Aucune catégorie ne s'appelle « neutre »**, et c'est délibéré. Le mot serait lu
+comme « extractible » par le lot suivant, alors que la mesure ne dit que « aucune
+attache trouvée ». `sans_attache_directe` nomme ce qui a été constaté ;
+`lié_livrable_i3f` nomme ce que les appelants révèlent. Il ne reste dans la
+première que deux `__init__.py`, pour sept lignes.
 
 La façade réelle représente **1,9 %** du module. Le reste est de la production
 de livrables. Poser la question en termes de « suppression de façade » conduirait
@@ -55,18 +61,22 @@ ses chaînes malgré `ReferenceFramework`.
 ## La nuance qui commande le découpage
 
 **`avp_snapshot.py` — 1 057 lignes, aucune dépendance I3F, aucun terme client.**
-Mesuré seul, c'est le plus gros bloc « neutre » du module. Mais ses six appelants
-sont `avp/pack`, `avp/docx_analyse`, `avp/xlsx_common`, `avp_availability`,
-`avp_i3f` et `tools_reporting` : **il n'existe que pour alimenter le pack AVP**.
+Mesuré sur ses seuls imports, c'est le plus gros bloc sans attache du module.
+Mais ses six appelants sont `avp/pack`, `avp/docx_analyse`, `avp/xlsx_common`,
+`avp_availability`, `avp_i3f` et `tools_reporting` : **il n'existe que pour
+alimenter le pack AVP**.
 
 Son code ne connaît pas le référentiel ; personne d'autre ne l'appelle. C'est la
 même nuance que celle rencontrée dans l'inventaire du socle partagé — du code
 générique suspendu à un amont I3F — et elle mène à la même conclusion : le
-classer « extractible » sans le dire promettrait à un second AMO une brique dont
-il n'aurait aucun usage.
+classer « extractible » promettrait à un second AMO une brique dont il n'aurait
+aucun usage.
 
-Trois autres modules sont dans ce cas, pour 75 lignes seulement
-(`avp/xlsx_menuiseries`, `avp/xlsx_plancher`, `avp/xlsx_zones`).
+Six autres modules sont dans ce cas, dont `avp_autocompute` (621 l),
+`avp_availability` (278 l) et `avp_i3f` (60 l). **Le script les classe
+lui-même** `lié_livrable_i3f` : une première version les rangeait en « neutre »
+et laissait ce document rétablir la nuance à la main — un lecteur exécutant le
+script y aurait lu l'inverse de ce qu'il énonce.
 
 ## Contrats de sortie à préserver
 
@@ -124,7 +134,7 @@ Sortir les dernières chaînes `cch`. Petit, mais 5 appelants dont deux outils M
 ### Ce qu'il ne faut pas faire
 
 **Extraire `avp_snapshot.py` vers un socle.** C'est le candidat qui paraît le
-plus évident — 1 057 lignes neutres — et c'est le piège : il n'a qu'un usage,
+plus évident — 1 057 lignes sans attache mesurée — et c'est le piège : il n'a qu'un usage,
 le pack AVP. L'extraire déplacerait du code sans créer de réutilisation, et
 ajouterait une dépendance inter-paquets à un seul consommateur.
 

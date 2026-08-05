@@ -37,10 +37,34 @@ def test_the_document_figures_match_the_measurement(report):
     assert sum(m["lines"] for m in report["modules"]) == 8231
     assert counts["façade"] == 3 and lines["façade"] == 153
     assert counts["orchestration_i3f"] == 12 and lines["orchestration_i3f"] == 5980
+    assert counts["lié_livrable_i3f"] == 7 and lines["lié_livrable_i3f"] == 2091
+    assert counts["sans_attache_directe"] == 2 and lines["sans_attache_directe"] == 7
 
     text = DOC.read_text(encoding="utf-8")
-    for claim in ("**8 231 lignes**", "| Façade vers `bim-reporting` | 3 | **153** |", "**1,9 %**"):
+    for claim in (
+        "**8 231 lignes**",
+        "| Façade vers `bim-reporting` | 3 | **153** |",
+        "| Lié au livrable I3F par ses appelants | 7 | 2 091 |",
+        "**1,9 %**",
+    ):
         assert claim in text, f"le document ne porte plus : {claim}"
+
+
+def test_no_category_is_named_neutral(report):
+    """« Neutre » serait lu comme « extractible » par le lot suivant.
+
+    La sortie machine et le document doivent dire la même chose. Une version
+    antérieure classait 2 023 lignes du bloc AVP en « neutre » et laissait le
+    document rétablir la nuance en prose : un lecteur exécutant le script y
+    aurait lu l'inverse de ce que le document énonce.
+    """
+    kinds = {m["kind"] for m in report["modules"]}
+    assert not [k for k in kinds if k == "neutre" or k.startswith("neutre_")], kinds
+    assert kinds <= {"façade", "sans_attache_directe", "lié_livrable_i3f", "orchestration_i3f"}
+
+    # Ce qui reste sans attache ne doit plus être qu'un résidu.
+    residual = [m for m in report["modules"] if m["kind"] == "sans_attache_directe"]
+    assert {m["module"] for m in residual} == {"__init__.py", "avp/__init__.py"}
 
 
 def test_the_three_facades_are_the_ones_named(report):
@@ -61,24 +85,27 @@ def test_writing_modules_are_counted_as_claimed(report):
     assert "**4 973 dans dix modules qui écrivent un fichier**" in DOC.read_text(encoding="utf-8")
 
 
-def test_avp_snapshot_is_neutral_by_dependency_but_bound_by_use(report):
-    """La nuance qui commande le découpage — mesurée, pas supposée.
+def test_avp_snapshot_is_classified_by_use_not_only_by_imports(report):
+    """La nuance qui commande le découpage — portée par le **script**, pas la prose.
 
-    Le module est le plus gros bloc sans dépendance I3F ni terme client. Ce
-    n'est pas pour autant une brique extractible : tous ses appelants servent le
-    pack AVP. Le classer « extractible » promettrait à un second AMO une brique
-    dont il n'aurait aucun usage.
+    Le module n'a aucune dépendance I3F ni terme client. Ce n'est pas pour
+    autant une brique extractible : tous ses appelants servent le livrable. La
+    classification doit le dire d'elle-même.
     """
     entry = next(m for m in report["modules"] if m["module"] == "avp_snapshot.py")
 
     assert entry["attaches"] == [] and entry["client_terms"] == []
     assert entry["lines"] == 1057
     assert len(entry["consumers"]) == 6
-    assert all("avp" in c or "tools_reporting" in c for c in entry["consumers"]), entry["consumers"]
+    assert entry["deliverable_bound"] is True
+    assert entry["kind"] == "lié_livrable_i3f", "le script doit porter la nuance lui-même"
 
-    text = DOC.read_text(encoding="utf-8")
+    # Comparaison insensible aux retours à la ligne : le document est du texte
+    # rédigé, ses phrases se replient. Assertion sur le fond, pas sur la mise en
+    # forme — sinon le test casse au premier reformatage et n'apprend rien.
+    text = " ".join(DOC.read_text(encoding="utf-8").split())
     assert "il n'existe que pour alimenter le pack AVP" in text
-    assert "**Extraire `avp_snapshot.py` vers un socle.**" in text
+    assert "Extraire `avp_snapshot.py` vers un socle." in text
 
 
 def test_client_vocabulary_is_measured_in_written_strings_not_docstrings(report):
@@ -92,6 +119,19 @@ def test_client_vocabulary_is_measured_in_written_strings_not_docstrings(report)
     assert "avp/docx_analyse.py" in flagged
     assert set(flagged["avp/docx_analyse.py"]) >= {"i3f", "cch", "avp"}
 
-    # Le socle partagé, lui, ne doit rien porter : c'est la contre-épreuve.
-    shared = REPO / "audit_bim" / "tools_shared" / "session.py"
-    assert shared.exists()
+    # Contre-épreuve réelle : la sélection doit retenir la chaîne écrite et
+    # écarter la docstring qui parle du même sujet. Une version antérieure se
+    # contentait de vérifier qu'un fichier existait — une non-vacuité qui ne
+    # mordait pas.
+    import ast
+
+    from inventory_reporting_modules import _shipped_texts
+
+    probe = ast.parse(
+        '"""Docstring de module : ce module parle du CCH I3F."""\n'
+        "def f():\n"
+        '    """Docstring de fonction : encore le CCH."""\n'
+        '    return "Référence CCH"\n'
+    )
+    texts = _shipped_texts(probe)
+    assert texts == ["Référence CCH"], texts
