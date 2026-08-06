@@ -1,10 +1,12 @@
 """Outil MCP — couverture du référentiel MRN sur la maquette active.
 
 Cet outil dit **ce qui est évaluable**, jamais **ce qui est conforme**. La
-distinction n'est pas une prudence de langage : sur une maquette architecturale,
-680 des 1 013 exigences MRN visent des classes absentes. Un outil qui rendrait
-« non conforme » produirait un livrable chiffré, crédible et faux — et personne
-ne relirait les 680 lignes.
+distinction n'est pas une prudence de langage. Sur MN_BAT, **877 des 1 013
+exigences ne sont pas évaluables** — dont 680 parce que la classe IFC visée est
+absente, et 197 parce que le Pset exigé ne correspond à aucun de la maquette.
+C'est le total, 877, que renvoie ``false_non_conformity_risk`` : le nombre de
+faux constats qu'aurait produits un outil concluant « non conforme » sur tout ce
+qu'il ne peut pas évaluer. Personne ne relirait 877 lignes.
 
 Le porteur actif est **déclaré par l'appelant**, jamais déduit du nom de la
 maquette. Un nom de fichier n'est pas une donnée : deviner « ARC » parce que le

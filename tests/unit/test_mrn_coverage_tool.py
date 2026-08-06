@@ -99,7 +99,11 @@ def test_a_missing_target_is_refused_by_name():
     payload = json.loads(result.stdout.strip().splitlines()[-1])
 
     assert payload["status"] == "error"
-    assert "set_active_target" in payload["error"] or "introuvable" in payload["error"]
+    # Verrouillé sur ce message seul : avec un `or "introuvable"`, une
+    # régression qui validerait le fichier Excel AVANT la cible passerait le
+    # test tout en renvoyant l'utilisateur vers le mauvais problème.
+    assert "set_active_target" in payload["error"], payload["error"]
+    assert "introuvable" not in payload["error"], "la cible se vérifie avant le fichier"
 
 
 def test_the_contract_keys_come_from_the_real_payload():
