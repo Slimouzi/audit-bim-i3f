@@ -1,0 +1,286 @@
+"""Inventaire de la table des attributs MRN — compteurs figés, éprouvés en CI.
+
+Le fichier du maître d'ouvrage vit hors du dépôt. Une fixture synthétique
+reproduit donc les compteurs **par construction**, pour que la CI prouve ce
+qu'elle affirme : les tests sur le fichier local restent, mais ne sont plus les
+seuls garants.
+
+Une exigence atomique est **une ligne de propriété attendue**. Les 4 620
+cellules d'applicabilité sont un diagnostic — les appeler « exigences »
+multiplierait le référentiel par quatre.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from audit_bim.profiles.bim_in_motion.mrn.attributes import (
+    EXPECTED_PHASES,
+    SHEET_LAYOUTS,
+    parse_mrn_attribute_table,
+)
+
+TABLE = Path(
+    "/Users/stani/code/MCP/Documents maître d'ouvrage/Documents BIM in Motion/"
+    "Données d'entrée/MRN_CHARTE_Annexe_Table des attributs_03082025.xlsx"
+)
+
+needs_table = pytest.mark.skipif(not TABLE.is_file(), reason=f"table MRN absente : {TABLE}")
+
+#: Compteurs arrêtés après mesure, feuille par feuille.
+EXPECTED = {
+    "Généralités": (80, 769),
+    "Gros Oeuvre - CEA": (270, 1389),
+    "CVC-PLB-SSI-ELEC": (532, 1987),
+    "VRD-Extérieur": (131, 475),
+}
+EXPECTED_ROWS = 1013
+EXPECTED_CELLS = 4620
+
+
+# ── Fixture synthétique : les compteurs tournent sans le fichier client ──
+
+
+def _build_synthetic_table(
+    path: Path,
+    *,
+    broken_phase_headers: bool = False,
+    formula_without_value: bool = False,
+) -> Path:
+    """Reconstruit une table à la forme du fichier réel, aux mêmes compteurs.
+
+    Les croix sont distribuées de façon déterministe pour retomber exactement
+    sur les totaux mesurés — dont l'unique ``x+`` de ``CVC-PLB-SSI-ELEC``.
+    """
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    workbook.remove(workbook.active)
+
+    for name, (rows, cells) in EXPECTED.items():
+        layout = SHEET_LAYOUTS[name]
+        sheet = workbook.create_sheet(name)
+
+        phases = list(EXPECTED_PHASES)
+        if broken_phase_headers and name == "VRD-Extérieur":
+            # Décalage d'une colonne : le bloc déclaré tomberait sur « Exemple
+            # de valeur », exactement le faux positif que le refus doit voir.
+            phases = ["Exemple de valeur", *phases[:-1]]
+        for index, col in enumerate(layout.phase_range()):
+            sheet.cell(layout.header_row, col).value = phases[index]
+        for index, col in enumerate(layout.carrier_range()):
+            sheet.cell(layout.header_row, col).value = f"MAQ{index}"
+
+        # Colonnes métier de VRD qu'un parseur par mots-clés confondrait.
+        if name == "VRD-Extérieur":
+            sheet.cell(layout.header_row, 6).value = "Nom de la propriété"
+            sheet.cell(layout.header_row, 7).value = "Attribut/Propriétés"
+            sheet.cell(layout.header_row, 9).value = "Exemple de valeur"
+
+        applicable = list(layout.carrier_range()) + list(layout.phase_range())
+        first = layout.header_row + 1
+
+        # Toutes les lignes d'abord : le nombre d'exigences ne dépend pas du
+        # nombre de croix, et les mêler ferait varier l'un avec l'autre.
+        for offset in range(rows):
+            row = first + offset
+            sheet.cell(row, layout.property_column).value = f"Prop_{name[:3]}_{offset}"
+            if offset == 0:
+                sheet.cell(row, layout.object_column).value = "Objet fusionné"
+                if layout.ifc_object_column:
+                    sheet.cell(row, layout.ifc_object_column).value = "IfcWall"
+
+        # Puis les croix, distribuées colonne par colonne jusqu'au total exact.
+        placed = 0
+        while placed < cells:
+            row = first + (placed // len(applicable)) % rows
+            col = applicable[placed % len(applicable)]
+            sheet.cell(row, col).value = "x"
+            placed += 1
+
+        # L'unique croix nuancée du classeur réel.
+        if name == "CVC-PLB-SSI-ELEC":
+            sheet.cell(first, layout.phase_columns[0]).value = "x+"
+
+        if formula_without_value and name == "Généralités":
+            sheet.cell(first, layout.phase_columns[0]).value = None
+            sheet.cell(first, layout.phase_columns[0]).value = '=IF(1=1,"x","")'
+
+    workbook.create_sheet("Liste des pièces").sheet_state = "hidden"
+    workbook.save(path)
+    return path
+
+
+@pytest.fixture(scope="module")
+def synthetic(tmp_path_factory):
+    return parse_mrn_attribute_table(
+        _build_synthetic_table(tmp_path_factory.mktemp("mrn") / "table.xlsx")
+    )
+
+
+def test_the_synthetic_fixture_reproduces_the_counters(synthetic):
+    """Le contrôle qui tourne réellement en CI."""
+    summary = synthetic.summary()
+    assert summary["requirement_rows"] == EXPECTED_ROWS
+    assert summary["applicability_cells_effective"] == EXPECTED_CELLS
+    for name, (rows, cells) in EXPECTED.items():
+        assert summary["per_sheet"][name]["requirement_rows"] == rows, name
+        assert summary["per_sheet"][name]["applicability_cells"] == cells, name
+
+
+def test_the_nuanced_marker_is_counted_without_being_flattened(synthetic):
+    """``x+`` est une croix, mais pas une croix ordinaire.
+
+    L'aplatir perdrait la nuance ; l'ignorer perdrait une exigence visible dans
+    le classeur.
+    """
+    assert synthetic.marker_variants == {"x": 4619, "x+": 1}
+    marked = [req for req in synthetic.by_sheet("CVC-PLB-SSI-ELEC") if req.applicable_phases]
+    assert marked, "la feuille doit porter des exigences applicables"
+
+
+def test_no_applicability_comes_from_a_formula(synthetic):
+    """Constat, pas hypothèse.
+
+    L'écart de 4 cellules observé pendant la mesure avait été attribué aux
+    formules. C'était **faux** : il n'y en a aucune. ``formula_value_missing``
+    est donc un garde-fou préventif, pas l'explication d'un delta constaté.
+    """
+    assert synthetic.formula_applicability_cells == 0
+
+
+# ── Refus explicites ──────────────────────────────────────────────────
+
+
+def test_a_shifted_phase_block_is_refused(tmp_path):
+    """Un bloc décalé tomberait sur « Exemple de valeur ».
+
+    Sans ce refus, une colonne métier serait comptée comme de l'applicabilité —
+    et le total resterait plausible.
+    """
+    path = _build_synthetic_table(tmp_path / "decale.xlsx", broken_phase_headers=True)
+    with pytest.raises(ValueError, match="bloc de phases"):
+        parse_mrn_attribute_table(path)
+
+
+def test_a_formula_without_cached_value_is_refused(tmp_path):
+    """``formula_value_missing`` doit savoir se déclencher.
+
+    Il ne le fait pas sur le fichier réel — d'où ce test. Un garde-fou qu'aucun
+    cas n'exerce affirme sans mesurer.
+    """
+    path = _build_synthetic_table(tmp_path / "formule.xlsx", formula_without_value=True)
+    with pytest.raises(ValueError, match="formula_value_missing"):
+        parse_mrn_attribute_table(path)
+
+
+def test_a_missing_requirement_sheet_is_refused(tmp_path):
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    workbook.active.title = "Généralités"
+    path = tmp_path / "incomplet.xlsx"
+    workbook.save(path)
+
+    with pytest.raises(ValueError, match="absentes"):
+        parse_mrn_attribute_table(path)
+
+
+# ── VRD : les colonnes métier ne sont jamais de l'applicabilité ───────
+
+
+def test_vrd_never_counts_its_business_columns(synthetic):
+    """F, G et I portent « propriété » et « exemple », pas des phases."""
+    layout = SHEET_LAYOUTS["VRD-Extérieur"]
+    assert layout.header_row == 2
+    assert layout.phase_columns == (10, 17)  # J:Q
+    assert layout.carrier_columns is None
+    for forbidden in (6, 7, 9):  # F, G, I
+        assert forbidden not in layout.phase_range()
+
+
+def test_a_keyword_parser_would_have_been_wrong(tmp_path):
+    """Non-vacuité : la détection par mots-clés compte à tort F, G et I.
+
+    C'est cette approche qui attribuait trois colonnes de trop à VRD —
+    « Nom de la **pro**priété » et « **Exe**mple de valeur » contiennent des
+    libellés de phase par coïncidence.
+    """
+    import openpyxl
+
+    path = _build_synthetic_table(tmp_path / "vrd.xlsx")
+    sheet = openpyxl.load_workbook(path)["VRD-Extérieur"]
+
+    words = {"ESQ", "DIAG", "APS", "APD", "PRO", "DCE", "EXE", "DOE", "EXPL", "MAINT"}
+    naive = [
+        col
+        for col in range(1, sheet.max_column + 1)
+        if sheet.cell(2, col).value
+        and any(word in str(sheet.cell(2, col).value).upper() for word in words)
+    ]
+    assert {6, 7, 9} <= set(naive), "le parseur naïf doit bien capter F, G et I"
+    assert set(naive) != set(SHEET_LAYOUTS["VRD-Extérieur"].phase_range())
+
+
+def test_carrier_scope_is_never_inherited(synthetic):
+    """Une feuille sans colonnes maquette ne dit rien de ses porteurs.
+
+    L'inventer depuis ``Généralités`` attribuerait des exigences à des maquettes
+    que le document ne désigne pas.
+    """
+    for name in ("Gros Oeuvre - CEA", "CVC-PLB-SSI-ELEC", "VRD-Extérieur"):
+        for req in synthetic.by_sheet(name):
+            assert req.carrier_models == []
+            assert req.carrier_scope == "non_specifie"
+    for req in synthetic.by_sheet("Généralités"):
+        assert req.carrier_scope == "declare"
+
+
+def test_merged_cells_are_forward_filled(synthetic):
+    """Un objet déclaré une fois vaut pour les lignes qu'il coiffe."""
+    rows = synthetic.by_sheet("Généralités")
+    assert rows[0].object_name == "Objet fusionné"
+    assert rows[5].object_name == "Objet fusionné", "la valeur doit se propager"
+
+
+# ── Fichier réel — conservé, mais pas seul garant ─────────────────────
+
+
+@needs_table
+def test_the_real_table_matches_the_frozen_counters():
+    table = parse_mrn_attribute_table(TABLE)
+    summary = table.summary()
+    assert summary["requirement_rows"] == EXPECTED_ROWS
+    assert summary["applicability_cells_effective"] == EXPECTED_CELLS
+    assert summary["applicability_marker_variants"] == {"x": 4619, "x+": 1}
+    assert summary["formula_applicability_cells"] == 0
+    for name, (rows, cells) in EXPECTED.items():
+        assert summary["per_sheet"][name] == {
+            "requirement_rows": rows,
+            "applicability_cells": cells,
+        }
+
+
+@needs_table
+def test_the_real_table_hides_its_reference_lists():
+    """Listes, classifications et dictionnaires sont masqués, pas des exigences."""
+    table = parse_mrn_attribute_table(TABLE)
+    assert len(table.hidden_sheets) == 8
+    assert set(SHEET_LAYOUTS).isdisjoint(table.hidden_sheets)
+
+
+def test_the_attribute_parser_never_imports_the_i3f_profile():
+    import ast
+
+    from audit_bim.profiles.bim_in_motion.mrn import attributes as module
+
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        modules = []
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules = [node.module] + [f"{node.module}.{a.name}" for a in node.names]
+        assert not [m for m in modules if "i3f" in m]
