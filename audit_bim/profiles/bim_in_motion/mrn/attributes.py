@@ -313,9 +313,12 @@ def parse_mrn_attribute_table(path: str | Path) -> MRNAttributeTable:
                         )
                         bucket.append(headers[index])
 
-            def _cell(attr: str) -> str:
-                column = getattr(layout, attr)
-                return _text(sheet.cell(row, column).value) if column else ""
+            # Liaison explicite des variables de boucle : une fermeture qui les
+            # capture par référence lirait la dernière feuille parcourue, pas
+            # celle en cours — un défaut qui ne se voit qu'au dernier tour.
+            def _cell(attr: str, _sheet=sheet, _layout=layout, _row=row) -> str:
+                column = getattr(_layout, attr)
+                return _text(_sheet.cell(_row, column).value) if column else ""
 
             requirements.append(
                 MRNAttributeRequirement(
