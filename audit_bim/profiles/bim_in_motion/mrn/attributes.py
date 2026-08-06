@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "ApplicabilityMark",
     "EXPECTED_PHASES",
     "SHEET_LAYOUTS",
     "MRNAttributeRequirement",
@@ -141,6 +142,22 @@ _FORWARD_FILLED = (
 
 
 @dataclass(frozen=True)
+class ApplicabilityMark:
+    """Une croix, avec sa nuance et l'axe auquel elle appartient.
+
+    Les listes ``applicable_phases`` et ``carrier_models`` restent pratiques
+    pour un filtrage, mais elles aplatissent : une fois réduites à des libellés,
+    plus rien ne dit quelle exigence portait ``x+``. Or c'est précisément la
+    nuance qu'on a décidé de conserver.
+    """
+
+    axis: str  # "phase" | "carrier"
+    label: str
+    marker: str
+    marker_kind: str
+
+
+@dataclass(frozen=True)
 class MRNAttributeRequirement:
     """Une **ligne de propriété attendue**, avec ses dimensions d'applicabilité."""
 
@@ -157,7 +174,13 @@ class MRNAttributeRequirement:
     example: str = ""
     carrier_models: list[str] = field(default_factory=list)
     applicable_phases: list[str] = field(default_factory=list)
+    applicability: list[ApplicabilityMark] = field(default_factory=list)
     carrier_scope: str = "non_specifie"
+
+    @property
+    def nuanced_marks(self) -> list[ApplicabilityMark]:
+        """Croix portant une nuance — ``x+`` aujourd'hui."""
+        return [m for m in self.applicability if m.marker_kind != "applicable"]
 
     @property
     def applicability_cells(self) -> int:
@@ -293,7 +316,7 @@ def parse_mrn_attribute_table(path: str | Path) -> MRNAttributeTable:
             if not property_name:
                 continue
 
-            phases, carriers = [], []
+            phases, carriers, marks = [], [], []
             for headers, columns, bucket in (
                 (phase_headers, layout.phase_range(), phases),
                 (carrier_headers, layout.carrier_range(), carriers),
@@ -306,12 +329,19 @@ def parse_mrn_attribute_table(path: str | Path) -> MRNAttributeTable:
                         if _text(value) == "":
                             missing_values.append(f"{name}!{chr(64 + col)}{row}")
                             continue
+                    marker = _text(value).lower()
                     kind = _marker_kind(value)
                     if kind:
-                        marker_variants[_text(value).lower()] = (
-                            marker_variants.get(_text(value).lower(), 0) + 1
-                        )
+                        marker_variants[marker] = marker_variants.get(marker, 0) + 1
                         bucket.append(headers[index])
+                        marks.append(
+                            ApplicabilityMark(
+                                axis="phase" if bucket is phases else "carrier",
+                                label=headers[index],
+                                marker=marker,
+                                marker_kind=kind,
+                            )
+                        )
 
             # Liaison explicite des variables de boucle : une fermeture qui les
             # capture par référence lirait la dernière feuille parcourue, pas
@@ -335,6 +365,7 @@ def parse_mrn_attribute_table(path: str | Path) -> MRNAttributeTable:
                     example=_cell("example_column"),
                     carrier_models=carriers,
                     applicable_phases=phases,
+                    applicability=marks,
                     # Aucun héritage depuis Généralités : une feuille sans
                     # colonnes maquette ne dit rien de ses porteurs, et
                     # l'inventer produirait une exigence attribuée à tort.

@@ -39,6 +39,45 @@ EXPECTED = {
 EXPECTED_ROWS = 1013
 EXPECTED_CELLS = 4620
 
+#: Layout **indépendant** de la production, relevé à la main sur le classeur du
+#: maître d'ouvrage. Construire la fixture depuis ``SHEET_LAYOUTS`` rendait le
+#: garde-fou circulaire : le parseur était validé contre lui-même, et remettre
+#: ``Gros Oeuvre`` en colonne D laissait passer les compteurs inchangés.
+#:
+#: (header_row, property_column, carrier_columns, phase_columns)
+FROZEN_LAYOUT = {
+    "Généralités": (3, 4, (8, 14), (15, 22)),
+    "Gros Oeuvre - CEA": (3, 7, None, (10, 17)),
+    "CVC-PLB-SSI-ELEC": (3, 7, None, (10, 17)),
+    "VRD-Extérieur": (2, 7, None, (10, 17)),
+}
+
+
+def test_the_production_layout_matches_the_independently_frozen_one():
+    """Le contrôle que la fixture ne peut pas rendre : les deux sources doivent coïncider.
+
+    Sans lui, remettre une feuille technique en colonne ``D`` passerait — la
+    fixture serait construite avec la même erreur qu'elle est censée détecter.
+    """
+    for name, (header, prop, carriers, phases) in FROZEN_LAYOUT.items():
+        layout = SHEET_LAYOUTS[name]
+        assert layout.header_row == header, name
+        assert layout.property_column == prop, name
+        assert layout.carrier_columns == carriers, name
+        assert layout.phase_columns == phases, name
+    assert set(SHEET_LAYOUTS) == set(FROZEN_LAYOUT)
+
+
+def test_the_technical_sheets_never_read_the_type_object_column():
+    """Colonne ``D`` = ``IfcTypeObject`` sur les feuilles techniques.
+
+    L'y lire donnait 178 exigences au lieu de 1 013. Le contrôle nomme l'erreur
+    plutôt que de la laisser réapparaître sous un compteur juste.
+    """
+    for name in ("Gros Oeuvre - CEA", "CVC-PLB-SSI-ELEC", "VRD-Extérieur"):
+        assert SHEET_LAYOUTS[name].property_column == 7, f"{name} doit lire G, pas D"
+        assert SHEET_LAYOUTS[name].ifc_type_object_column == 4
+
 
 # ── Fixture synthétique : les compteurs tournent sans le fichier client ──
 
@@ -60,7 +99,9 @@ def _build_synthetic_table(
     workbook.remove(workbook.active)
 
     for name, (rows, cells) in EXPECTED.items():
-        layout = SHEET_LAYOUTS[name]
+        header_row, property_column, carriers, phase_span = FROZEN_LAYOUT[name]
+        carrier_span = range(carriers[0], carriers[1] + 1) if carriers else range(0)
+        phase_span = range(phase_span[0], phase_span[1] + 1)
         sheet = workbook.create_sheet(name)
 
         phases = list(EXPECTED_PHASES)
@@ -68,29 +109,28 @@ def _build_synthetic_table(
             # Décalage d'une colonne : le bloc déclaré tomberait sur « Exemple
             # de valeur », exactement le faux positif que le refus doit voir.
             phases = ["Exemple de valeur", *phases[:-1]]
-        for index, col in enumerate(layout.phase_range()):
-            sheet.cell(layout.header_row, col).value = phases[index]
-        for index, col in enumerate(layout.carrier_range()):
-            sheet.cell(layout.header_row, col).value = f"MAQ{index}"
+        for index, col in enumerate(phase_span):
+            sheet.cell(header_row, col).value = phases[index]
+        for index, col in enumerate(carrier_span):
+            sheet.cell(header_row, col).value = f"MAQ{index}"
 
         # Colonnes métier de VRD qu'un parseur par mots-clés confondrait.
         if name == "VRD-Extérieur":
-            sheet.cell(layout.header_row, 6).value = "Nom de la propriété"
-            sheet.cell(layout.header_row, 7).value = "Attribut/Propriétés"
-            sheet.cell(layout.header_row, 9).value = "Exemple de valeur"
+            sheet.cell(header_row, 6).value = "Nom de la propriété"
+            sheet.cell(header_row, 7).value = "Attribut/Propriétés"
+            sheet.cell(header_row, 9).value = "Exemple de valeur"
 
-        applicable = list(layout.carrier_range()) + list(layout.phase_range())
-        first = layout.header_row + 1
+        applicable = list(carrier_span) + list(phase_span)
+        first = header_row + 1
 
         # Toutes les lignes d'abord : le nombre d'exigences ne dépend pas du
         # nombre de croix, et les mêler ferait varier l'un avec l'autre.
         for offset in range(rows):
             row = first + offset
-            sheet.cell(row, layout.property_column).value = f"Prop_{name[:3]}_{offset}"
+            sheet.cell(row, property_column).value = f"Prop_{name[:3]}_{offset}"
             if offset == 0:
-                sheet.cell(row, layout.object_column).value = "Objet fusionné"
-                if layout.ifc_object_column:
-                    sheet.cell(row, layout.ifc_object_column).value = "IfcWall"
+                sheet.cell(row, 1).value = "Objet fusionné"
+                sheet.cell(row, 3).value = "IfcWall"
 
         # Puis les croix, distribuées colonne par colonne jusqu'au total exact.
         placed = 0
@@ -102,11 +142,10 @@ def _build_synthetic_table(
 
         # L'unique croix nuancée du classeur réel.
         if name == "CVC-PLB-SSI-ELEC":
-            sheet.cell(first, layout.phase_columns[0]).value = "x+"
+            sheet.cell(first, phase_span[0]).value = "x+"
 
         if formula_without_value and name == "Généralités":
-            sheet.cell(first, layout.phase_columns[0]).value = None
-            sheet.cell(first, layout.phase_columns[0]).value = '=IF(1=1,"x","")'
+            sheet.cell(first, phase_span[0]).value = '=IF(1=1,"x","")'
 
     workbook.create_sheet("Liste des pièces").sheet_state = "hidden"
     workbook.save(path)
@@ -137,8 +176,13 @@ def test_the_nuanced_marker_is_counted_without_being_flattened(synthetic):
     le classeur.
     """
     assert synthetic.marker_variants == {"x": 4619, "x+": 1}
-    marked = [req for req in synthetic.by_sheet("CVC-PLB-SSI-ELEC") if req.applicable_phases]
-    assert marked, "la feuille doit porter des exigences applicables"
+    nuanced = [req for req in synthetic.requirements if req.nuanced_marks]
+    assert len(nuanced) == 1, "une seule croix nuancée dans tout le classeur"
+    mark = nuanced[0].nuanced_marks[0]
+    assert (mark.marker, mark.marker_kind, mark.axis) == ("x+", "applicable_with_note", "phase")
+    # La nuance doit survivre jusqu'à l'exigence : sans elle, PR 3 ne saurait
+    # plus laquelle des 1013 portait un x+.
+    assert mark.label in nuanced[0].applicable_phases
 
 
 def test_no_applicability_comes_from_a_formula(synthetic):
