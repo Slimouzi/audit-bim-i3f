@@ -30,7 +30,25 @@ def _normalize_property(name: str) -> str:
     return "".join(ch for ch in str(name or "").lower() if ch.isalnum())
 
 
-__all__ = ["MappingCandidate", "PsetGap", "diagnose_pset_gap"]
+__all__ = [
+    "MappingCandidate",
+    "PsetGap",
+    "covered_rows",
+    "diagnose_pset_gap",
+]
+
+
+def covered_rows(rows, candidates) -> list[tuple[str, int]]:
+    """Exigences dont la propriete exacte a un candidat — **jamais le groupe**.
+
+    C'est le coeur du bug corrige au lot 183 : compter les groupes ayant au
+    moins un candidat donnait 54 exigences la ou 21 sont couvertes. Sur
+    ``IfcWindow`` / ``Pset_MRN``, un seul ``IsExternal`` retrouve couvre **une**
+    exigence sur vingt-cinq. La fonction est isolee pour etre testable : le
+    script d'inventaire ne doit pas reimplementer ce comptage.
+    """
+    wanted = {c.required_property for c in candidates}
+    return [(r.sheet, r.row) for r in rows if r.property_name in wanted]
 
 
 @dataclass(frozen=True)
@@ -72,7 +90,14 @@ class PsetGap:
     expected_pset: str
     expected_properties: list[str]
     requirements: int
-    resolvable_by_mapping: bool
+    #: Au moins une propriete attendue a un candidat. **Ne dit rien du groupe** :
+    #: le champ s'appelait ``resolvable_by_mapping``, ce qui laissait lire
+    #: « ce groupe est mappable » alors qu'une propriete sur quinze suffisait a
+    #: le mettre a True. Ce qui compte est ``covered_requirements``.
+    has_candidate_properties: bool
+    #: Exigences du groupe dont la propriete exacte a un candidat.
+    covered_requirements: int = 0
+    covered_rows: list[tuple[str, int]] = field(default_factory=list)
     #: Part des proprietes attendues retrouvees quelque part sur la classe.
     #: Diagnostic uniquement : ce taux ne debloque aucune exigence.
     group_overlap_rate: float = 0.0
@@ -85,7 +110,8 @@ class PsetGap:
             "expected_pset": self.expected_pset,
             "expected_properties": list(self.expected_properties),
             "requirements": self.requirements,
-            "resolvable_by_mapping": self.resolvable_by_mapping,
+            "has_candidate_properties": self.has_candidate_properties,
+            "covered_requirements": self.covered_requirements,
             "group_overlap_rate": self.group_overlap_rate,
             "candidates": [c.to_dict() for c in self.candidates],
         }
@@ -117,9 +143,10 @@ def diagnose_pset_gap(blocked_requirements, snapshot) -> list[PsetGap]:
 
     Returns:
         Un :class:`PsetGap` par couple (feuille, classe, Pset attendu), trié par
-        nombre d'exigences décroissant. ``resolvable_by_mapping`` est ``False``
-        quand aucun Pset présent ne porte la moindre propriété attendue — le cas
-        d'une donnée non saisie, qu'aucune correspondance ne répare.
+        nombre d'exigences décroissant. Le chiffre qui engage est
+        ``covered_requirements`` — les exigences dont la propriété exacte a un
+        candidat. ``has_candidate_properties`` ne dit que l'existence d'au moins
+        un rapprochement dans le groupe, et ne vaut jamais « groupe mappable ».
     """
     elements = list(getattr(snapshot, "elements", None) or [])
     grouped: dict[tuple[str, str, str], list] = defaultdict(list)
@@ -158,6 +185,7 @@ def diagnose_pset_gap(blocked_requirements, snapshot) -> list[PsetGap]:
         overlap = round(len(found) / len(expected), 3) if expected else 0.0
 
         candidates.sort(key=lambda c: (c.required_property, c.candidate_source_pset))
+        covered = covered_rows(rows, candidates)
         gaps.append(
             PsetGap(
                 sheet=sheet,
@@ -165,7 +193,9 @@ def diagnose_pset_gap(blocked_requirements, snapshot) -> list[PsetGap]:
                 expected_pset=expected_pset,
                 expected_properties=expected,
                 requirements=len(rows),
-                resolvable_by_mapping=bool(candidates),
+                has_candidate_properties=bool(candidates),
+                covered_requirements=len(covered),
+                covered_rows=covered,
                 group_overlap_rate=overlap,
                 candidates=candidates,
             )

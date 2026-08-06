@@ -39,21 +39,10 @@ def main(argv: list[str]) -> int:
 
     gaps = diagnose_pset_gap(blocked, snapshot)
 
-    # Compte par EXIGENCE, jamais par groupe. Additionner g.requirements des
-    # groupes ayant au moins un candidat reproduirait exactement la lecture que
-    # ce lot interdit : sur IfcWindow / Pset_MRN, un candidat ferait compter
-    # 25 exigences au lieu d'une, et le total remonterait à 54.
-    covered: set[tuple[str, int]] = set()
-    for gap in gaps:
-        wanted = {c.required_property for c in gap.candidates}
-        for entry in blocked:
-            same_group = (entry.sheet, entry.ifc_object, entry.pset) == (
-                gap.sheet,
-                gap.ifc_object,
-                gap.expected_pset,
-            )
-            if same_group and entry.property_name in wanted:
-                covered.add((entry.sheet, entry.row))
+    # Compte par EXIGENCE, jamais par groupe. Le calcul vit dans `pset_gap`
+    # (`covered_rows`, teste sur le cas IfcWindow) : le reimplementer ici a
+    # produit 54 au lieu de 21, et c'est le script qu'on execute.
+    covered = {key for gap in gaps for key in gap.covered_rows}
 
     print(f"exigences bloquées                              : {len(blocked)}")
     print(f"  propriété exacte retrouvée (classe compatible) : {len(covered)}")

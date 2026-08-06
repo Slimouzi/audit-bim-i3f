@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from audit_bim.profiles.bim_in_motion.mrn.pset_gap import diagnose_pset_gap
+from audit_bim.profiles.bim_in_motion.mrn.pset_gap import covered_rows, diagnose_pset_gap
 
 
 @dataclass
@@ -64,6 +64,13 @@ def test_a_group_overlap_never_produces_one_candidate_per_requirement():
     assert gap.candidates[0].required_property == "IsExternal"
     assert gap.group_overlap_rate == pytest.approx(0.07, abs=0.005), "le chiffre documenté"
 
+    # Le comptage lui-même, sur le cas qui a produit 54 : une exigence couverte,
+    # pas vingt-cinq. `has_candidate_properties` reste vrai — c'est précisément
+    # pourquoi il ne doit jamais servir à compter.
+    assert gap.covered_requirements == 1
+    assert covered_rows(blocked, gap.candidates) == [("Gros Oeuvre - CEA", 24)]
+    assert gap.has_candidate_properties is True
+
 
 def test_the_overlap_rate_is_diagnostic_and_unblocks_nothing():
     """Le taux signale qu'un rapprochement existe ; il ne vaut pas correspondance."""
@@ -85,7 +92,8 @@ def test_a_requirement_whose_property_is_absent_gets_no_candidate():
     gap = diagnose_pset_gap(blocked, snapshot)[0]
 
     assert gap.candidates == []
-    assert gap.resolvable_by_mapping is False
+    assert gap.has_candidate_properties is False
+    assert gap.covered_requirements == 0
     assert gap.group_overlap_rate == 0.0
 
 
@@ -143,17 +151,19 @@ def test_the_document_never_promises_a_guaranteed_gain():
     assert "quatre exigences sur cent soixante-quinze" in text
 
 
-def test_the_script_counts_requirements_not_groups():
-    """Contrôle statique : le comptage par groupe ne doit pas revenir.
+def test_the_script_delegates_the_count_instead_of_redoing_it():
+    """Le script ne doit pas reimplementer le comptage qui l'avait fait mentir.
 
-    ``sum(g.requirements for g in gaps if g.resolvable_by_mapping)`` compterait
-    25 exigences là où un seul candidat existe — c'est le chemin qui ramenait 54
-    au lieu de 21, et c'est le script qu'on exécute, donc celui qui fait foi
-    contre le document.
+    Interdire le seul nom ``resolvable_by_mapping`` ne suffisait pas : une
+    régression écrite ``sum(g.requirements for g in gaps if g.candidates)``
+    serait passée, et c'était exactement la forme du bug. Ce qu'on interdit
+    ici, c'est toute agrégation de ``g.requirements`` — le script doit se
+    servir de ``covered_rows``, testé ci-dessus sur le cas IfcWindow.
     """
     script = (
         Path(__file__).resolve().parents[2] / "scripts" / "inventory_mrn_pset_gap.py"
     ).read_text(encoding="utf-8")
 
-    assert "resolvable_by_mapping" not in script, "le statut de groupe ne compte rien"
-    assert "covered" in script and "required_property" in script
+    assert "g.requirements" not in script, "un total de groupe ne compte pas des exigences"
+    assert "resolvable_by_mapping" not in script
+    assert "covered_rows" in script, "le comptage vit dans pset_gap, pas ici"
