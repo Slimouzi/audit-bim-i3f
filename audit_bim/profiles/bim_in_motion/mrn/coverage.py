@@ -9,6 +9,13 @@ des classes IFC absentes d'une maquette architecturale. Un moteur qui trancherai
 « non conforme » par défaut produirait **plus de la moitié du référentiel en faux
 constats** — un livrable crédible, chiffré, et faux.
 
+Mesure sur MN_BAT : **118 exigences évaluables sur 1 013**. Ce chiffre est
+resté identique après correction de trois biais — portée des Psets, sous-classes
+IFC, porteur actif. C'est un **fait mesuré de cette maquette**, pas une preuve
+que les correctifs seraient sans effet : elle ne présente aucun des trois cas.
+Sur un modèle produisant des ``IfcWallStandardCase``, ou sur une maquette CVC,
+le résultat changera.
+
 La normalisation douce des noms de Pset est appliquée, et ne rattrape rien : zéro
 correspondance sur les quatre feuilles. L'écart de nommage n'est donc ni de
 casse, ni d'accent, ni de séparateur, mais de vocabulaire. Aucun mapping métier
@@ -29,12 +36,35 @@ __all__ = ["COVERAGE_STATUSES", "MRNCoverage", "assess_mrn_coverage", "normalize
 #: ils disent si l'exigence est **évaluable**, et sinon ce qui l'en empêche.
 COVERAGE_STATUSES = (
     "evaluable_pset_exact",
+    "evaluable_pset_normalized",
     "evaluable_without_pset",
     "hors_perimetre_modele",
     "non_evaluable_classe_absente",
     "non_evaluable_mapping_pset",
     "non_evaluable_donnee_absente",
 )
+
+
+#: Sous-classes IFC 2x3 rencontrees en pratique. ``IfcWall`` exige et
+#: ``IfcWallStandardCase`` present sont la meme chose pour une exigence MRN :
+#: les traiter comme distincts transformerait des exigences evaluables en
+#: « classe absente », donc sous-estimerait la couverture dans un sens et
+#: surestimerait le nombre de non-evaluables dans l'autre.
+IFC_SUBCLASSES: dict[str, tuple[str, ...]] = {
+    "IfcWall": ("IfcWallStandardCase", "IfcWallElementedCase"),
+    "IfcSlab": ("IfcSlabStandardCase", "IfcSlabElementedCase"),
+    "IfcBeam": ("IfcBeamStandardCase",),
+    "IfcColumn": ("IfcColumnStandardCase",),
+    "IfcDoor": ("IfcDoorStandardCase",),
+    "IfcWindow": ("IfcWindowStandardCase",),
+    "IfcMember": ("IfcMemberStandardCase",),
+    "IfcPlate": ("IfcPlateStandardCase",),
+}
+
+
+def matching_classes(required: str) -> set[str]:
+    """La classe exigee, et ses sous-classes connues."""
+    return {required, *IFC_SUBCLASSES.get(required, ())}
 
 
 def normalize_pset(name: str) -> str:
@@ -128,43 +158,71 @@ class MRNCoverage:
         )
 
 
-def assess_mrn_coverage(requirements, snapshot, *, model_name: str = "") -> MRNCoverage:
+def assess_mrn_coverage(
+    requirements,
+    snapshot,
+    *,
+    model_name: str = "",
+    active_carriers: tuple[str, ...] | list[str] | None = None,
+) -> MRNCoverage:
     """Confronte les exigences MRN à un snapshot, sans juger la conformité.
 
     Args:
         requirements: exigences issues de ``parse_mrn_attribute_table``.
         snapshot: ``ModelSnapshot`` de la maquette ciblée.
         model_name: nom du modèle, repris tel quel dans la synthèse.
+        active_carriers: porteurs de la maquette analysée (``["ARC"]``…).
+            ``None`` = inconnu, et alors **aucune** exigence ne peut être dite
+            hors périmètre : sans savoir ce que porte cette maquette, conclure
+            « ce n'était pas à elle de le contenir » est une supposition.
     """
     elements = list(getattr(snapshot, "elements", None) or [])
     model_classes = {(el.get("type") or "") for el in elements if el.get("type")}
-    model_psets = {
-        pset.get("name")
-        for el in elements
-        for pset in (el.get("property_sets") or [])
-        if pset.get("name")
-    }
-    normalized_psets = {normalize_pset(name) for name in model_psets}
+    carriers_known = bool(active_carriers)
+    active = {str(c).strip().upper() for c in (active_carriers or ())}
+
+    # Psets indexes PAR CLASSE : un Pset_DoorCommon porte par un mur ne rend pas
+    # evaluable une exigence sur les portes. Le mesurer globalement surestimait
+    # la couverture, et l'erreur etait invisible — le total restait plausible.
+    psets_by_class: dict[str, set[str]] = {}
+    for element in elements:
+        kind = element.get("type") or ""
+        bucket = psets_by_class.setdefault(kind, set())
+        for pset in element.get("property_sets") or []:
+            if pset.get("name"):
+                bucket.add(pset["name"])
+
+    model_psets = {name for names in psets_by_class.values() for name in names}
 
     assessed: list[RequirementCoverage] = []
     for requirement in requirements:
+        candidates = matching_classes(requirement.ifc_object) & model_classes
+        scoped = {name for kind in candidates for name in psets_by_class.get(kind, ())}
+        scoped_normalized = {normalize_pset(name) for name in scoped}
+
         pset = requirement.pset
         if not pset:
             match = "not_declared"
-        elif pset in model_psets:
+        elif pset in scoped:
             match = "exact"
-        elif normalize_pset(pset) in normalized_psets:
+        elif normalize_pset(pset) in scoped_normalized:
             match = "normalized"
         else:
             match = "missing"
 
         carrier_declared = bool(requirement.carrier_models)
+        declared = {c.strip().upper() for c in requirement.carrier_models}
 
-        if requirement.ifc_object and requirement.ifc_object not in model_classes:
+        if requirement.ifc_object and not candidates:
             # Une classe absente n'est jamais une non-conformité par défaut : rien
             # ne dit que cette maquette devait la porter. Seule une colonne
             # porteuse permet de trancher, et les feuilles techniques n'en ont pas.
-            status = "hors_perimetre_modele" if carrier_declared else "non_evaluable_classe_absente"
+            # Hors perimetre exige DEUX conditions : savoir ce que porte la
+            # maquette active, et constater qu'elle n'est pas visee. Un porteur
+            # declare ne suffit pas — une exigence ARC absente d'une maquette
+            # ARC est un manque, pas un hors-sujet.
+            out_of_scope = carriers_known and declared and not (declared & active)
+            status = "hors_perimetre_modele" if out_of_scope else "non_evaluable_classe_absente"
         elif match == "exact":
             status = "evaluable_pset_exact"
         elif match == "not_declared":
@@ -173,7 +231,7 @@ def assess_mrn_coverage(requirements, snapshot, *, model_name: str = "") -> MRNC
             # couverture. Ici on constate seulement qu'elle est possible.
             status = "evaluable_without_pset"
         elif match == "normalized":
-            status = "evaluable_pset_exact"
+            status = "evaluable_pset_normalized"
         else:
             status = "non_evaluable_mapping_pset"
 

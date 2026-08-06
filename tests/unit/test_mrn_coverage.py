@@ -15,6 +15,7 @@ import pytest
 from audit_bim.profiles.bim_in_motion.mrn.coverage import (
     COVERAGE_STATUSES,
     assess_mrn_coverage,
+    matching_classes,
     normalize_pset,
 )
 
@@ -58,15 +59,21 @@ def test_an_absent_class_is_never_a_non_conformity():
     assert not any("conforme" == s for s in verdicts)
 
 
-def test_a_declared_carrier_turns_an_absent_class_into_out_of_scope():
-    """Seule une colonne porteuse permet de dire « hors périmètre ».
+def test_out_of_scope_needs_both_a_declared_and_a_known_active_carrier():
+    """« Hors périmètre » exige deux conditions, pas une.
 
-    Les feuilles techniques n'en ont pas : leurs exigences restent donc
-    « non évaluables », un aveu et non un jugement.
+    Un porteur déclaré ne suffit pas : sans savoir ce que porte la maquette
+    analysée, conclure « ce n'était pas à elle de le contenir » est une
+    supposition. Les feuilles techniques n'ayant aucun porteur, leurs exigences
+    restent « non évaluables » — un aveu, pas un jugement.
     """
     reqs = [_Req("Généralités", 4, "RefLatitude", "IfcSite", "", ["ARC"])]
-    coverage = assess_mrn_coverage(reqs, SNAPSHOT)
-    assert coverage.requirements[0].status == "hors_perimetre_modele"
+
+    unknown = assess_mrn_coverage(reqs, SNAPSHOT).requirements[0]
+    assert unknown.status == "non_evaluable_classe_absente"
+
+    other = assess_mrn_coverage(reqs, SNAPSHOT, active_carriers=["STR"]).requirements[0]
+    assert other.status == "hors_perimetre_modele"
 
 
 def test_an_exact_pset_on_a_present_class_is_evaluable():
@@ -151,3 +158,82 @@ def test_the_summary_reports_causes_not_only_totals():
 def test_no_coverage_status_reads_as_a_conformity_verdict(status):
     """Non-vacuité du contrat : aucun libellé ne peut se lire comme un jugement."""
     assert status.startswith(("evaluable", "non_evaluable", "hors_perimetre"))
+
+
+# ── Les trois biais corrigés — non-régression ─────────────────────────
+
+
+def test_a_pset_carried_by_another_class_never_makes_a_requirement_evaluable():
+    """Un ``Pset_DoorCommon`` porté par un mur ne dit rien des portes.
+
+    Mesurer les Psets globalement surestimait la couverture, et l'erreur était
+    invisible : le total restait plausible.
+    """
+    snapshot = _Snapshot([_element("IfcWall", ["Pset_DoorCommon"]), _element("IfcDoor", [])])
+    reqs = [_Req("Gros Oeuvre - CEA", 1, "Height", "IfcDoor", "Pset_DoorCommon")]
+    result = assess_mrn_coverage(reqs, snapshot).requirements[0]
+
+    assert result.status == "non_evaluable_mapping_pset"
+    assert result.pset_match_kind == "missing"
+
+
+def test_the_class_scoped_count_is_lower_than_the_global_one():
+    """Contre-épreuve : le même Pset, bien placé, redevient évaluable.
+
+    Sans elle, le contrôle précédent pourrait passer parce que *rien* n'est
+    jamais évaluable, plutôt que parce que la portée est respectée.
+    """
+    reqs = [_Req("Gros Oeuvre - CEA", 1, "Height", "IfcDoor", "Pset_DoorCommon")]
+
+    misplaced = _Snapshot([_element("IfcWall", ["Pset_DoorCommon"]), _element("IfcDoor", [])])
+    well_placed = _Snapshot([_element("IfcDoor", ["Pset_DoorCommon"])])
+
+    assert len(assess_mrn_coverage(reqs, misplaced).evaluable) == 0
+    assert len(assess_mrn_coverage(reqs, well_placed).evaluable) == 1
+
+
+def test_a_known_subclass_counts_as_the_required_class():
+    """``IfcWall`` exigé et ``IfcWallStandardCase`` présent sont la même chose.
+
+    Les traiter comme distincts transformerait des exigences évaluables en
+    « classe absente » — une sous-estimation qui passerait pour de la rigueur.
+    """
+    snapshot = _Snapshot([_element("IfcWallStandardCase", ["Pset_WallCommon"])])
+    reqs = [_Req("Gros Oeuvre - CEA", 1, "IsExternal", "IfcWall", "Pset_WallCommon")]
+
+    assert assess_mrn_coverage(reqs, snapshot).requirements[0].status == "evaluable_pset_exact"
+    assert "IfcWallStandardCase" in matching_classes("IfcWall")
+
+
+@pytest.mark.parametrize(
+    ("active", "expected"),
+    [
+        (None, "non_evaluable_classe_absente"),
+        (["ARC"], "hors_perimetre_modele"),
+        (["CVC"], "non_evaluable_classe_absente"),
+    ],
+    ids=["porteur-inconnu", "porteur-autre", "porteur-visé"],
+)
+def test_out_of_scope_requires_knowing_the_active_carrier(active, expected):
+    """Un porteur déclaré ne suffit pas : il faut savoir ce que porte la maquette.
+
+    Le cas décisif est le dernier — une exigence CVC absente d'une maquette
+    **CVC** est un manque, pas un hors-sujet. Sans le porteur actif, la classer
+    « hors périmètre » masquerait le défaut derrière une justification.
+    """
+    reqs = [_Req("CVC-PLB-SSI-ELEC", 1, "Rearmement", "IfcAlarm", "Pset_X", ["CVC"])]
+    snapshot = _Snapshot([_element("IfcWall", [])])
+
+    result = assess_mrn_coverage(reqs, snapshot, active_carriers=active).requirements[0]
+    assert result.status == expected
+
+
+def test_the_normalized_status_is_part_of_the_contract():
+    """Figé même si MN_BAT n'en produit aucun : le statut existe, donc il se déclare."""
+    assert "evaluable_pset_normalized" in COVERAGE_STATUSES
+
+    snapshot = _Snapshot([_element("IfcWall", ["pset wall-common"])])
+    reqs = [_Req("Gros Oeuvre - CEA", 1, "IsExternal", "IfcWall", "Pset_WallCommon")]
+    result = assess_mrn_coverage(reqs, snapshot).requirements[0]
+    assert result.status == "evaluable_pset_normalized"
+    assert result.pset_match_kind == "normalized"
