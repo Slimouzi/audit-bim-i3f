@@ -119,6 +119,7 @@ def test_the_third_party_profile_surface_is_explicit():
     """
     surface = _golden_surface("bim_in_motion")
     assert sorted(surface["tools"]) == [
+        "analyze_mrn_model_coverage",
         "check_bimdata_access",
         "download_model_ifc",
         "extract_model_snapshot",

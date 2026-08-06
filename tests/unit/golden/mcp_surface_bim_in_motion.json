@@ -3,6 +3,12 @@
     "amo_bim_in_motion"
   ],
   "tools": {
+    "analyze_mrn_model_coverage": [
+      "active_carriers",
+      "attribute_table_xlsx",
+      "export_path",
+      "overwrite"
+    ],
     "check_bimdata_access": [],
     "download_model_ifc": [
       "cache_dir",

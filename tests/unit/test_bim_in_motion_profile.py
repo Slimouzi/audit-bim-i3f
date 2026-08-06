@@ -199,6 +199,7 @@ def test_the_registry_entry_matches_what_is_on_disk():
     assert profile.tool_modules == (
         "audit_bim.tools_shared.session",
         "audit_bim.profiles.bim_in_motion.tools_session",
+        "audit_bim.profiles.bim_in_motion.tools_mrn",
     )
     assert profile.target_tool_name == "set_active_target"
     assert profile.prompt_module == "audit_bim.profiles.bim_in_motion.prompts"

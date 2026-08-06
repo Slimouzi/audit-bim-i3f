@@ -274,6 +274,7 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
     tool_modules=(
         "audit_bim.tools_shared.session",
         "audit_bim.profiles.bim_in_motion.tools_session",
+        "audit_bim.profiles.bim_in_motion.tools_mrn",
     ),
     prompt_module="audit_bim.profiles.bim_in_motion.prompts",
     # Les aliases LEGACY sont une dette d'I3F : un profil neuf n'en hérite pas.
@@ -307,8 +308,8 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
             current_location="audit_bim/profiles/bim_in_motion",
             status="ready",
             responsibility=(
-                "1 outil propre (set_active_target) + 5 outils du socle partagé "
-                "+ list_mcp_profiles transverse, soit 7 outils visibles. "
+                "1 outil de cible + 1 de couverture MRN, plus 5 outils du socle "
+                "partagé et list_mcp_profiles transverse, soit 8 outils visibles. "
                 "Aucun import du profil I3F."
             ),
         ),
