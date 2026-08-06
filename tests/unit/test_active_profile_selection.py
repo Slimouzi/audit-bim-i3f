@@ -160,6 +160,7 @@ def test_another_profile_neither_registers_nor_imports_i3f():
 #: Surface attendue du profil tiers depuis E7 : son outil de cible, les cinq
 #: outils du socle partagé, et le transverse du serveur.
 THIRD_PARTY_TOOLS = [
+    "analyze_mrn_model_coverage",
     "check_bimdata_access",
     "download_model_ifc",
     "extract_model_snapshot",
