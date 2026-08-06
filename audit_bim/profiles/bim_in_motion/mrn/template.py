@@ -167,10 +167,22 @@ def _covers_status_columns(validation) -> bool:
     n'en a qu'une. Une liste ajoutée ailleurs — une phase, une catégorie —
     prendrait sa place et le parseur servirait de faux statuts, sans rien
     signaler.
+
+    Les plages sont comparées par **index de colonne**, jamais par lettre :
+    ``AG8:AG134`` contient la lettre ``G`` et passerait une comparaison
+    textuelle, alors que la colonne 33 n'a rien a voir avec les statuts.
     """
-    letters = {chr(64 + column) for column in (NON_MODEL_COLUMN, *MODEL_COLUMNS)}
-    cells = str(validation.sqref or "")
-    return any(letter in cells for letter in letters)
+    from openpyxl.worksheet.cell_range import CellRange
+
+    expected = {NON_MODEL_COLUMN, *MODEL_COLUMNS}
+    for chunk in str(validation.sqref or "").split():
+        try:
+            cell_range = CellRange(chunk)
+        except ValueError:
+            continue
+        if expected & set(range(cell_range.min_col, cell_range.max_col + 1)):
+            return True
+    return False
 
 
 def _status_values(sheet) -> list[str]:

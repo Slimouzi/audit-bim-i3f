@@ -62,7 +62,9 @@ def _build_synthetic_template(path: Path, *, decoy_validation: bool = False) -> 
         # servirait ces valeurs-là.
         decoy = DataValidation(type="list", formula1='"APS,APD,PRO,EXPL"')
         sheet.add_data_validation(decoy)
-        decoy.sqref = "B8:B134"
+        # ``AG`` contient la lettre G : une comparaison textuelle la prendrait
+        # pour une colonne de statut. C'est le cas dangereux, pas ``B``.
+        decoy.sqref = "B8:B134 AG8:AG134"
 
     status = DataValidation(
         type="list", formula1='"Conforme, Partiellement conforme, Non conforme, N/A"'
@@ -335,5 +337,34 @@ def test_the_parser_never_imports_the_i3f_profile():
             if isinstance(node, ast.Import):
                 modules = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom) and node.module:
-                modules = [node.module]
+                # Les alias comptent : ``from audit_bim.profiles import i3f``
+                # n'a pas « i3f » dans son module, seulement dans ses noms.
+                modules = [node.module] + [f"{node.module}.{alias.name}" for alias in node.names]
             assert not [m for m in modules if "profiles.i3f" in m or "i3f" in m], path.name
+
+
+def test_the_anti_i3f_guard_sees_an_aliased_import():
+    """Non-vacuite : le controle doit reconnaitre les formes qu'il interdit.
+
+    Sans le cas des alias, ``from audit_bim.profiles import i3f`` passerait —
+    le garde-fou dirait plus que ce qu'il mesure.
+    """
+    import ast
+
+    def _modules(source: str) -> list[str]:
+        found = []
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                found += [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                found += [node.module] + [f"{node.module}.{a.name}" for a in node.names]
+        return found
+
+    for source in (
+        "from audit_bim.profiles.i3f import tools_audit\n",
+        "from audit_bim.profiles import i3f\n",
+        "import audit_bim.profiles.i3f.tools_query\n",
+    ):
+        assert [m for m in _modules(source) if "i3f" in m], source
+
+    assert not [m for m in _modules("from audit_bim.mcp.session import _State\n") if "i3f" in m]
