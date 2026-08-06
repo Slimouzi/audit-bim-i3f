@@ -237,3 +237,64 @@ def test_the_normalized_status_is_part_of_the_contract():
     result = assess_mrn_coverage(reqs, snapshot).requirements[0]
     assert result.status == "evaluable_pset_normalized"
     assert result.pset_match_kind == "normalized"
+
+
+def test_scope_is_decided_before_class_and_pset():
+    """Le porteur actif filtre en premier, sinon il ne filtre presque rien.
+
+    Une exigence portée par CVC n'est pas « évaluable » sur une maquette ARC
+    sous prétexte que la classe et le Pset s'y trouvent : elle n'y est pas
+    attendue. Appliqué seulement au cas « classe absente », le contrôle laissait
+    passer tout ce qui existait par ailleurs.
+    """
+    snapshot = _Snapshot([_element("IfcWall", ["Pset_WallCommon"])])
+    reqs = [_Req("Généralités", 1, "IsExternal", "IfcWall", "Pset_WallCommon", ["CVC"])]
+
+    assert assess_mrn_coverage(reqs, snapshot).requirements[0].status == "evaluable_pset_exact"
+    filtered = assess_mrn_coverage(reqs, snapshot, active_carriers=["ARC"]).requirements[0]
+    assert filtered.status == "hors_perimetre_modele"
+
+
+@pytest.mark.parametrize(
+    ("cell", "expected"),
+    [
+        ("IfcWall / IfcWallStandardCase", ["IfcWall", "IfcWallStandardCase"]),
+        ("IfcSpace ou IfcCovering (si modélisé)", ["IfcSpace", "IfcCovering"]),
+        ("IfcFlowSegment ou IfcPipeSegment", ["IfcFlowSegment", "IfcPipeSegment"]),
+        ("IfcFooting\nIfcPile (si pieu)", ["IfcFooting", "IfcPile"]),
+    ],
+    ids=["slash", "ou-annote", "ou-simple", "retour-ligne"],
+)
+def test_a_composite_class_cell_yields_every_class(cell, expected):
+    """Le fichier réel ne met pas toujours une classe unique dans la cellule.
+
+    La prendre pour un nom de classe classait 54 exigences « classe absente »
+    alors que la maquette porte l'une des variantes citées.
+    """
+    from audit_bim.profiles.bim_in_motion.mrn.coverage import declared_classes
+
+    assert declared_classes(cell) == expected
+
+
+def test_any_declared_class_present_makes_the_requirement_evaluable():
+    """Il suffit qu'une des classes citées existe."""
+    snapshot = _Snapshot([_element("IfcPipeSegment", ["Pset_PipeSegmentCommon"])])
+    reqs = [
+        _Req(
+            "CVC-PLB-SSI-ELEC",
+            1,
+            "Material",
+            "IfcFlowSegment ou IfcPipeSegment",
+            "Pset_PipeSegmentCommon",
+        )
+    ]
+    assert assess_mrn_coverage(reqs, snapshot).requirements[0].status == "evaluable_pset_exact"
+
+
+def test_a_composite_cell_with_no_present_class_stays_unevaluable():
+    """Contre-épreuve : l'extraction ne rend pas tout évaluable."""
+    snapshot = _Snapshot([_element("IfcWall", [])])
+    reqs = [_Req("CVC-PLB-SSI-ELEC", 1, "x", "IfcFooting\nIfcPile (si pieu)", "P")]
+    assert (
+        assess_mrn_coverage(reqs, snapshot).requirements[0].status == "non_evaluable_classe_absente"
+    )

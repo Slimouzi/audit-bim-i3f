@@ -9,8 +9,10 @@ des classes IFC absentes d'une maquette architecturale. Un moteur qui trancherai
 « non conforme » par défaut produirait **plus de la moitié du référentiel en faux
 constats** — un livrable crédible, chiffré, et faux.
 
-Mesure sur MN_BAT : **118 exigences évaluables sur 1 013**. Ce chiffre est
-resté identique après correction de trois biais — portée des Psets, sous-classes
+Mesure sur MN_BAT : **136 exigences évaluables sur 1 013** (13,4 %). Le chiffre
+était de 118 avant deux corrections : le périmètre n'était tranché qu'en cas de
+classe absente, et 54 exigences citent plusieurs classes IFC dans une même
+cellule. Il était resté identique après correction de trois biais antérieurs — portée des Psets, sous-classes
 IFC, porteur actif. C'est un **fait mesuré de cette maquette**, pas une preuve
 que les correctifs seraient sans effet : elle ne présente aucun des trois cas.
 Sur un modèle produisant des ``IfcWallStandardCase``, ou sur une maquette CVC,
@@ -62,9 +64,26 @@ IFC_SUBCLASSES: dict[str, tuple[str, ...]] = {
 }
 
 
+#: Extraction bornee des classes IFC d'une cellule. Le fichier reel n'y met pas
+#: toujours une classe unique : « IfcWall / IfcWallStandardCase »,
+#: « IfcSpace ou IfcCovering (si modelise) », « IfcFooting\nIfcPile (si pieu) ».
+#: Prendre la cellule brute pour un nom de classe classait ces exigences
+#: « classe absente » alors que la maquette porte l'une des variantes.
+_IFC_CLASS_RE = re.compile(r"Ifc[A-Za-z0-9]+")
+
+
+def declared_classes(cell: str) -> list[str]:
+    """Classes IFC citees dans une cellule, dedupliquees et dans l'ordre."""
+    seen: dict[str, None] = {}
+    for name in _IFC_CLASS_RE.findall(str(cell or "")):
+        seen.setdefault(name, None)
+    return list(seen)
+
+
 def matching_classes(required: str) -> set[str]:
-    """La classe exigee, et ses sous-classes connues."""
-    return {required, *IFC_SUBCLASSES.get(required, ())}
+    """Les classes citees par ``required``, et leurs sous-classes connues."""
+    found = declared_classes(required) or ([required] if required else [])
+    return {name for base in found for name in {base, *IFC_SUBCLASSES.get(base, ())}}
 
 
 def normalize_pset(name: str) -> str:
@@ -213,7 +232,13 @@ def assess_mrn_coverage(
         carrier_declared = bool(requirement.carrier_models)
         declared = {c.strip().upper() for c in requirement.carrier_models}
 
-        if requirement.ifc_object and not candidates:
+        # Le perimetre se tranche AVANT la classe et le Pset. Une exigence
+        # portee par CVC n'est pas « evaluable » sur une maquette ARC sous
+        # pretexte que la classe et le Pset s'y trouvent : elle n'y est
+        # simplement pas attendue.
+        if carriers_known and declared and not (declared & active):
+            status = "hors_perimetre_modele"
+        elif requirement.ifc_object and not candidates:
             # Une classe absente n'est jamais une non-conformité par défaut : rien
             # ne dit que cette maquette devait la porter. Seule une colonne
             # porteuse permet de trancher, et les feuilles techniques n'en ont pas.
