@@ -12,7 +12,7 @@ Depuis E5, `bim_in_motion` existe et tourne. Son inventaire d'imports est donc
 la première liste de ce dossier qui ne soit pas un jugement — elle est lue sur
 disque, dans un profil qui fonctionne.
 
-**Treize modules sont ainsi prouvés neutres**, au sens fort de « du code que
+**Quatorze modules sont ainsi prouvés neutres**, au sens fort de « du code que
 deux profils déclarent les utilise » :
 
 ```
@@ -22,10 +22,10 @@ audit_bim.extraction.ifc_download         audit_bim.mcp.security
 audit_bim.extraction.model_data           audit_bim.mcp.session
 audit_bim.extraction.snapshot_cache       audit_bim.safe_paths
 audit_bim.extraction.snapshot_health      audit_bim.security.redaction
-audit_bim (config)
+audit_bim (config)                        audit_bim.domain.ifc_taxonomy
 ```
 
-Le compte est passé de dix à treize avec E7 : le socle partagé, déclaré par les
+Le compte est passé de dix à quatorze : le socle partagé, déclaré par les
 deux profils, tire trois modules de plus. Il faut d'ailleurs compter le socle
 comme du code à deux consommateurs, sinon la mutualisation *détruirait* la
 preuve qu'elle établit — `bim_in_motion` n'importe plus l'extraction lui-même,
