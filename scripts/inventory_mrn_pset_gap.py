@@ -12,7 +12,6 @@ Usage::
 from __future__ import annotations
 
 import sys
-from collections import Counter
 
 
 def main(argv: list[str]) -> int:
@@ -39,18 +38,36 @@ def main(argv: list[str]) -> int:
         object.__setattr__(entry, "property_name", entry.property_name or entry_property)
 
     gaps = diagnose_pset_gap(blocked, snapshot)
-    unresolvable = [g for g in gaps if not g.resolvable_by_mapping]
 
-    print(f"exigences bloquées : {len(blocked)}")
-    print(f"  dont non résolubles par mapping : {sum(g.requirements for g in unresolvable)}")
-    print(
-        f"  dont candidats trouvés          : {sum(g.requirements for g in gaps if g.resolvable_by_mapping)}"
-    )
+    # Compte par EXIGENCE, jamais par groupe. Additionner g.requirements des
+    # groupes ayant au moins un candidat reproduirait exactement la lecture que
+    # ce lot interdit : sur IfcWindow / Pset_MRN, un candidat ferait compter
+    # 25 exigences au lieu d'une, et le total remonterait à 54.
+    covered: set[tuple[str, int]] = set()
+    for gap in gaps:
+        wanted = {c.required_property for c in gap.candidates}
+        for entry in blocked:
+            same_group = (entry.sheet, entry.ifc_object, entry.pset) == (
+                gap.sheet,
+                gap.ifc_object,
+                gap.expected_pset,
+            )
+            if same_group and entry.property_name in wanted:
+                covered.add((entry.sheet, entry.row))
+
+    print(f"exigences bloquées                              : {len(blocked)}")
+    print(f"  propriété exacte retrouvée (classe compatible) : {len(covered)}")
+    print(f"  aucun candidat exact                           : {len(blocked) - len(covered)}")
     print()
-    print("par Pset attendu :")
-    for pset, count in Counter(b.pset for b in blocked).most_common():
-        resolvable = any(g.expected_pset == pset and g.resolvable_by_mapping for g in gaps)
-        print(f"  {pset:38} {count:4}  {'candidats' if resolvable else 'AUCUN CANDIDAT'}")
+    print("par Pset attendu — exigences couvertes / total :")
+    per_pset: dict[str, list[int]] = {}
+    for entry in blocked:
+        bucket = per_pset.setdefault(entry.pset, [0, 0])
+        bucket[1] += 1
+        if (entry.sheet, entry.row) in covered:
+            bucket[0] += 1
+    for pset, (hit, total) in sorted(per_pset.items(), key=lambda kv: -kv[1][1]):
+        print(f"  {pset:38} {hit:4} / {total:<4}")
     return 0
 
 

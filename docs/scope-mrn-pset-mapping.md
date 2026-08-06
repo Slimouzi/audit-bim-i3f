@@ -41,8 +41,8 @@ ailleurs.
 
 **54 — le recouvrement de groupe.** En cherchant si un Pset présent contenait
 *au moins une* propriété attendue, 54 exigences trouvaient un candidat. Mais un
-`Pset_WindowCommon` qui porte `IsExternal` — une propriété sur les vingt-cinq
-attendues — ne rend pas les vingt-cinq évaluables.
+`Pset_WindowCommon` qui porte `IsExternal` — une propriété sur les quinze
+attendues — ne rend pas les vingt-cinq exigences évaluables.
 
 > **Anti-règle** : un critère de groupe transfère la preuve d'une exigence à ses
 > voisines. Le score doit être local à ce qu'on prétend débloquer.
@@ -55,13 +55,34 @@ engage : *cette propriété-là existe-t-elle sur cette classe-là ?*
 | | |
 |---|---|
 | Exigences du groupe | 25 |
-| `group_overlap_rate` | **0,07** |
+| Propriétés distinctes attendues | 15 |
+| `group_overlap_rate` | **0,07** (1 propriété sur 15) |
 | Candidats exacts | **1** |
 
 Une convention écrite au niveau du groupe aurait déclaré 25 exigences mappables
 sur la foi d'un seul `IsExternal`. Le taux de recouvrement est conservé comme
 **diagnostic** — il signale qu'un rapprochement existe — mais il ne débloque
 rien.
+
+## Ventilation par Pset attendu
+
+Sortie de `scripts/inventory_mrn_pset_gap.py` — exigences **couvertes / total** :
+
+| Pset attendu | Couvertes / total |
+|---|---:|
+| `Pset_MRN` | **4 / 175** |
+| `Qto_WindowBaseQuantities` | 10 / 10 |
+| `Qto_DoorBaseQuantities` | 6 / 7 |
+| `Qto_WallBaseQuantities` | 1 / 1 |
+| `Pset_DistributionFlowElementCommon` | 0 / 2 |
+| `Pset_CoveringCommon` | 0 / 2 |
+
+Cette ventilation existe pour empêcher une phrase : **« `Pset_MRN` a des
+candidats »**. Elle est vraie et trompeuse — quatre exigences sur cent
+soixante-quinze. Toute mention de candidats pour `Pset_MRN` doit porter le
+rapport, jamais le seul fait qu'il en existe.
+
+Les quantités, à l'inverse, sont presque intégralement couvertes : 17 sur 18.
 
 ## Forme des candidats
 
@@ -112,5 +133,11 @@ seconde voie répond à 176 exigences, la première à 21 au mieux.
 python scripts/inventory_mrn_pset_gap.py <table_attributs.xlsx> <url_viewer>
 ```
 
-Chiffres relevés sur `250613_MN_BAT (2).ifc` — cloud 34140, projet 3281472,
+Le tableau de ventilation ci-dessus est la sortie de cette commande, pas une
+saisie manuelle. La CI ne peut pas le recalculer : elle n'a ni le fichier MRN
+ni l'acces BIMData. Le test ne fige donc que la **forme** imposee au document
+(le rapport `4 / 175`, jamais « a des candidats » seul) et le fait que le
+script compte par exigence. Les valeurs se reverifient en rejouant le script.
+
+Chiffres releves sur `250613_MN_BAT (2).ifc` — cloud 34140, projet 3281472,
 modèle 1744293.

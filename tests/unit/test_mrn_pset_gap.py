@@ -46,19 +46,23 @@ def test_a_group_overlap_never_produces_one_candidate_per_requirement():
     C'est le garde-fou central du lot. Sans lui, un `IsExternal` partagé
     suffirait à faire signer une convention couvrant vingt-cinq exigences.
     """
-    expected = [f"Prop_{i}" for i in range(24)] + ["IsExternal"]
+    # Le cas réel : 25 exigences réparties sur 15 propriétés distinctes — le
+    # dénominateur du taux est le nombre de propriétés, pas d'exigences.
+    distinct = [f"Prop_{i}" for i in range(14)] + ["IsExternal"]
+    names = distinct + distinct[:10]
     blocked = [
         _Blocked("Gros Oeuvre - CEA", "IfcWindow", "Pset_MRN", name, row)
-        for row, name in enumerate(expected, start=10)
+        for row, name in enumerate(names, start=10)
     ]
     snapshot = _Snapshot([_element("IfcWindow", {"Pset_WindowCommon": ["IsExternal"]})])
 
     gap = diagnose_pset_gap(blocked, snapshot)[0]
 
     assert gap.requirements == 25
+    assert len(gap.expected_properties) == 15, "le taux se calcule sur les propriétés"
     assert len(gap.candidates) == 1, "un seul candidat, pas vingt-cinq"
     assert gap.candidates[0].required_property == "IsExternal"
-    assert gap.group_overlap_rate == pytest.approx(0.04, abs=0.01)
+    assert gap.group_overlap_rate == pytest.approx(0.07, abs=0.005), "le chiffre documenté"
 
 
 def test_the_overlap_rate_is_diagnostic_and_unblocks_nothing():
@@ -132,3 +136,24 @@ def test_the_document_never_promises_a_guaranteed_gain():
         assert forbidden not in text, forbidden
     assert "plafonné à 21 exigences, sous validation humaine" in text
     assert "structure contractuelle" in text
+
+    # L'interdit implicite : « Pset_MRN a des candidats » est vrai et trompeur.
+    # Toute mention doit porter le rapport, pas le seul fait qu'il en existe.
+    assert "**4 / 175**" in text
+    assert "quatre exigences sur cent soixante-quinze" in text
+
+
+def test_the_script_counts_requirements_not_groups():
+    """Contrôle statique : le comptage par groupe ne doit pas revenir.
+
+    ``sum(g.requirements for g in gaps if g.resolvable_by_mapping)`` compterait
+    25 exigences là où un seul candidat existe — c'est le chemin qui ramenait 54
+    au lieu de 21, et c'est le script qu'on exécute, donc celui qui fait foi
+    contre le document.
+    """
+    script = (
+        Path(__file__).resolve().parents[2] / "scripts" / "inventory_mrn_pset_gap.py"
+    ).read_text(encoding="utf-8")
+
+    assert "resolvable_by_mapping" not in script, "le statut de groupe ne compte rien"
+    assert "covered" in script and "required_property" in script
