@@ -328,3 +328,31 @@ def test_the_attribute_parser_never_imports_the_i3f_profile():
         elif isinstance(node, ast.ImportFrom) and node.module:
             modules = [node.module] + [f"{node.module}.{a.name}" for a in node.names]
         assert not [m for m in modules if "i3f" in m]
+
+
+@needs_table
+def test_the_real_nuanced_mark_is_pinned_to_its_requirement():
+    """L'unique ``x+`` du classeur réel, à sa place exacte.
+
+    Le test synthétique prouve que la nuance survit au parcours ; il ne dit rien
+    de l'endroit où elle se trouve dans le document du maître d'ouvrage. Sans ce
+    contrôle, l'affirmation « la croix nuancée est figée » dépassait la mesure —
+    et un déplacement de cette exigence passerait inaperçu.
+    """
+    table = parse_mrn_attribute_table(TABLE)
+    nuanced = [req for req in table.requirements if req.nuanced_marks]
+
+    assert len(nuanced) == 1
+    requirement = nuanced[0]
+    assert requirement.sheet == "CVC-PLB-SSI-ELEC"
+    assert requirement.row == 443
+    assert requirement.property_name == "Rearmement"
+
+    mark = requirement.nuanced_marks[0]
+    assert (mark.axis, mark.label, mark.marker, mark.marker_kind) == (
+        "phase",
+        "APD",
+        "x+",
+        "applicable_with_note",
+    )
+    assert "APD" in requirement.applicable_phases
