@@ -47,23 +47,6 @@ COVERAGE_STATUSES = (
 )
 
 
-#: Sous-classes IFC 2x3 rencontrees en pratique. ``IfcWall`` exige et
-#: ``IfcWallStandardCase`` present sont la meme chose pour une exigence MRN :
-#: les traiter comme distincts transformerait des exigences evaluables en
-#: « classe absente », donc sous-estimerait la couverture dans un sens et
-#: surestimerait le nombre de non-evaluables dans l'autre.
-IFC_SUBCLASSES: dict[str, tuple[str, ...]] = {
-    "IfcWall": ("IfcWallStandardCase", "IfcWallElementedCase"),
-    "IfcSlab": ("IfcSlabStandardCase", "IfcSlabElementedCase"),
-    "IfcBeam": ("IfcBeamStandardCase",),
-    "IfcColumn": ("IfcColumnStandardCase",),
-    "IfcDoor": ("IfcDoorStandardCase",),
-    "IfcWindow": ("IfcWindowStandardCase",),
-    "IfcMember": ("IfcMemberStandardCase",),
-    "IfcPlate": ("IfcPlateStandardCase",),
-}
-
-
 #: Extraction bornee des classes IFC d'une cellule. Le fichier reel n'y met pas
 #: toujours une classe unique : « IfcWall / IfcWallStandardCase »,
 #: « IfcSpace ou IfcCovering (si modelise) », « IfcFooting\nIfcPile (si pieu) ».
@@ -81,9 +64,17 @@ def declared_classes(cell: str) -> list[str]:
 
 
 def matching_classes(required: str) -> set[str]:
-    """Les classes citees par ``required``, et leurs sous-classes connues."""
+    """Les classes citees par ``required``, et leurs sous-classes connues.
+
+    La taxonomie vient de ``audit_bim.domain.ifc_taxonomy``, partagee et plus
+    complete. En dupliquer une ici garantissait la divergence : la copie
+    ignorait IfcRoof, IfcStair, IfcFooting et IfcRailing, et rien n'aurait
+    signale l'ecart.
+    """
+    from ....domain.ifc_taxonomy import expand_class
+
     found = declared_classes(required) or ([required] if required else [])
-    return {name for base in found for name in {base, *IFC_SUBCLASSES.get(base, ())}}
+    return {name for base in found for name in expand_class(base)}
 
 
 def normalize_pset(name: str) -> str:
@@ -246,8 +237,9 @@ def assess_mrn_coverage(
             # maquette active, et constater qu'elle n'est pas visee. Un porteur
             # declare ne suffit pas — une exigence ARC absente d'une maquette
             # ARC est un manque, pas un hors-sujet.
-            out_of_scope = carriers_known and declared and not (declared & active)
-            status = "hors_perimetre_modele" if out_of_scope else "non_evaluable_classe_absente"
+            # Le cas « hors perimetre » a deja ete intercepte plus haut : ici,
+            # la classe manque sans qu'on puisse dire si elle etait attendue.
+            status = "non_evaluable_classe_absente"
         elif match == "exact":
             status = "evaluable_pset_exact"
         elif match == "not_declared":

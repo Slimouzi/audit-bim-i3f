@@ -9,9 +9,11 @@ conforme » produirait plus de la moitié du référentiel en faux constats.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 
+from audit_bim.profiles.bim_in_motion.mrn import coverage as coverage_module
 from audit_bim.profiles.bim_in_motion.mrn.coverage import (
     COVERAGE_STATUSES,
     assess_mrn_coverage,
@@ -298,3 +300,21 @@ def test_a_composite_cell_with_no_present_class_stays_unevaluable():
     assert (
         assess_mrn_coverage(reqs, snapshot).requirements[0].status == "non_evaluable_classe_absente"
     )
+
+
+def test_the_shared_ifc_taxonomy_is_used_not_duplicated():
+    """Une copie locale de la taxonomie IFC diverge, et personne ne le voit.
+
+    La première version en dupliquait une, plus courte : elle ignorait IfcRoof,
+    IfcStair, IfcFooting et IfcRailing. Aucun test n'aurait signalé l'écart —
+    seulement des exigences classées « classe absente » sans raison visible.
+    """
+    from audit_bim.domain.ifc_taxonomy import IFC_SUBCLASSES
+
+    source = Path(coverage_module.__file__).read_text(encoding="utf-8")
+    assert "IFC_SUBCLASSES: dict" not in source, "la table ne doit pas être redéfinie ici"
+    assert "ifc_taxonomy" in source
+
+    for parent in ("IfcRoof", "IfcStair", "IfcFooting", "IfcRailing"):
+        expected = {parent, *IFC_SUBCLASSES[parent]}
+        assert matching_classes(parent) == expected, parent

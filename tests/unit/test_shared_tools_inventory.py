@@ -163,8 +163,11 @@ def test_the_proven_neutral_modules_come_from_two_declaring_profiles(report):
     mutualisation aboutit.
     """
     proven = set(report["proven_neutral_modules"])
-    assert len(proven) == 13, sorted(proven)
-    assert "Treize modules" in DOC.read_text(encoding="utf-8")
+    assert len(proven) == 14, sorted(proven)
+    # `domain.ifc_taxonomy` a rejoint la liste quand la couverture MRN a cessé
+    # d'en dupliquer une copie locale : c'est une preuve gagnée, pas un bruit.
+    assert "audit_bim.domain.ifc_taxonomy" in proven
+    assert "Quatorze modules" in DOC.read_text(encoding="utf-8")
     for module in (
         "audit_bim.extraction.snapshot_health",
         "audit_bim.mcp.model_identity",
