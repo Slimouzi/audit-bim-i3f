@@ -12,9 +12,12 @@ from .attributes import (
     MRNAttributeTable,
     parse_mrn_attribute_table,
 )
+from .coverage import MRNCoverage, assess_mrn_coverage
 from .template import MRNControlRow, MRNTemplate, parse_mrn_template
 
 __all__ = [
+    "MRNCoverage",
+    "assess_mrn_coverage",
     "MRNAttributeRequirement",
     "MRNAttributeTable",
     "parse_mrn_attribute_table",
