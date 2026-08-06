@@ -7,6 +7,18 @@ communiquer ferait entrer les règles de l'un dans le livrable de l'autre.
 
 from __future__ import annotations
 
+from .attributes import (
+    MRNAttributeRequirement,
+    MRNAttributeTable,
+    parse_mrn_attribute_table,
+)
 from .template import MRNControlRow, MRNTemplate, parse_mrn_template
 
-__all__ = ["MRNControlRow", "MRNTemplate", "parse_mrn_template"]
+__all__ = [
+    "MRNAttributeRequirement",
+    "MRNAttributeTable",
+    "parse_mrn_attribute_table",
+    "MRNControlRow",
+    "MRNTemplate",
+    "parse_mrn_template",
+]
