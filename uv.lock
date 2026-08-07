@@ -131,17 +131,17 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bim-audit-engine", git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.5" },
-    { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.3.0" },
+    { name = "bim-audit-engine", git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.6" },
+    { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.4.0" },
     { name = "bim-mcp-runtime", git = "https://github.com/Slimouzi/bim-mcp-runtime.git?tag=bim-mcp-runtime-v0.1.2" },
-    { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.5" },
-    { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.5" },
+    { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.6" },
+    { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.7" },
     { name = "bim-reporting", git = "https://github.com/Slimouzi/bim-reporting.git?tag=bim-reporting-v0.2.0" },
-    { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.7" },
-    { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.5" },
+    { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.10" },
+    { name = "bimdata-write", git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.6" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
     { name = "fastmcp", specifier = ">=3.0,<4" },
-    { name = "ifc-geometry-mcp", marker = "extra == 'geometry'", git = "https://github.com/Slimouzi/ifc-geometry-mcp.git?tag=ifc-geometry-mcp-v0.5.1" },
+    { name = "ifc-geometry-mcp", marker = "extra == 'geometry'", git = "https://github.com/Slimouzi/ifc-geometry-mcp.git?tag=ifc-geometry-mcp-v0.6.0" },
     { name = "matplotlib", specifier = ">=3.8,<4" },
     { name = "openpyxl", specifier = ">=3.1,<4" },
     { name = "pdf2image", marker = "extra == 'ocr'", specifier = ">=1.16" },
@@ -200,16 +200,16 @@ wheels = [
 
 [[package]]
 name = "bim-audit-engine"
-version = "0.1.5"
-source = { git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.5#24b1a5d02c894cf48c21d6dcad94f5ba2a9a4afd" }
+version = "0.1.6"
+source = { git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.6#f9ca8930ca09b445cb0cd43a99ba6c0c29619d6e" }
 dependencies = [
     { name = "bim-core" },
 ]
 
 [[package]]
 name = "bim-core"
-version = "0.3.0"
-source = { git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.3.0#57a6488bbea4cd8c2c2a9dbf0a9fa4405d83c508" }
+version = "0.4.0"
+source = { git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.4.0#03c3acdb4c581e2c7ca4b7dc75babb9e5d037cf3" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -221,8 +221,8 @@ source = { git = "https://github.com/Slimouzi/bim-mcp-runtime.git?tag=bim-mcp-ru
 
 [[package]]
 name = "bim-publication"
-version = "0.1.5"
-source = { git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.5#4c067cb62519d0c319f39a5f1bd4533b30859c32" }
+version = "0.1.6"
+source = { git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.6#487f92a27d5a893f4202c7f103dd283f1589dd99" }
 dependencies = [
     { name = "bim-core" },
     { name = "bim-query" },
@@ -230,8 +230,8 @@ dependencies = [
 
 [[package]]
 name = "bim-query"
-version = "0.1.5"
-source = { git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.5#aef918822d44ec81baff9af74992e3582de2302f" }
+version = "0.1.7"
+source = { git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.7#9905e7c4d2097e84f070fc73deee1790c0d700df" }
 dependencies = [
     { name = "bim-core" },
     { name = "pydantic" },
@@ -248,8 +248,8 @@ dependencies = [
 
 [[package]]
 name = "bimdata-read"
-version = "0.1.7"
-source = { git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.7#74a18c5d39cd32c62f8daa1cab8bd21bd3e78dc9" }
+version = "0.1.10"
+source = { git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.10#36f5d737110ec9553088ed2c2753334ffc411bda" }
 dependencies = [
     { name = "bim-core" },
     { name = "requests" },
@@ -258,8 +258,8 @@ dependencies = [
 
 [[package]]
 name = "bimdata-write"
-version = "0.1.5"
-source = { git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.5#d81f4d02e8de9ca5c466371797690c7ebf724b2c" }
+version = "0.1.6"
+source = { git = "https://github.com/Slimouzi/bimdata-write.git?tag=bimdata-write-v0.1.6#c8e2ef6f0106a033832494d52c61178772343c1d" }
 dependencies = [
     { name = "bimdata-read" },
 ]
@@ -1151,8 +1151,8 @@ wheels = [
 
 [[package]]
 name = "ifc-geometry-mcp"
-version = "0.5.1"
-source = { git = "https://github.com/Slimouzi/ifc-geometry-mcp.git?tag=ifc-geometry-mcp-v0.5.1#6e58cb55a876d406f7eaaee6b83aa2db27767efd" }
+version = "0.6.0"
+source = { git = "https://github.com/Slimouzi/ifc-geometry-mcp.git?tag=ifc-geometry-mcp-v0.6.0#1ec64ac399c0ddd8f622193ef3e5c6fa6aa7d5b8" }
 dependencies = [
     { name = "bim-core" },
     { name = "fastmcp" },

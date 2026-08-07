@@ -61,12 +61,12 @@ python3 -m venv .venv && source .venv/bin/activate
 # du moteur d'audit) et bim-reporting (socle de rendu des livrables) ne sont
 # PAS publiés sur PyPI : on les installe d'abord depuis leurs tags Git, sinon la
 # résolution des dépendances échoue.
-pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.3.0"
-pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.7"
-pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.5"
-pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.5"
-pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.5"
-pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
+pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.4.0"
+pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.10"
+pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.6"
+pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.7"
+pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.6"
+pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.6"
 pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
 pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
 pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
@@ -78,12 +78,12 @@ pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 > le wheel :
 >
 > ```bash
-> pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.3.0"
-> pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.7"
-> pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.5"
-> pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.5"
-> pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.5"
-> pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.5"
+> pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.4.0"
+> pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.10"
+> pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.6"
+> pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.7"
+> pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.6"
+> pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.6"
 > pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
 > pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
 > pip install <url-du-wheel-release>
