@@ -12,7 +12,8 @@ Déclenché sur **push** vers `master` et sur **pull request**.
 
 ## `release.yml` — GitHub Release
 
-Déclenché sur **tag `audit-bim-i3f-v*`** (ex: `audit-bim-i3f-v0.10.0`).
+Déclenché sur **tag `audit-bim-i3f-v*`** (ex: `audit-bim-i3f-v0.10.0`), et
+manuellement via **`workflow_dispatch`** pour un dry-run.
 
 Le préfixe est celui de la **distribution**, pas du dépôt. Le workflow a
 longtemps écouté `v*`, qui ne matchait plus aucun tag réel : il ne se
@@ -33,9 +34,37 @@ pip install https://github.com/Slimouzi/audit-bim-mcp/releases/download/audit-bi
 |---|---|
 | `lint` / `test` / `integration` / `security-audit` (×2) | Gates qualité dupliqués de `ci.yml` (besoin de garantir que le commit taggé est validé, sans dépendre du `workflow_run`) |
 | `build` | `python -m build` + `twine check` — produit sdist + wheel uploadés en artifact |
-| `create-release` | Crée la GitHub Release avec les artifacts + release notes auto-générées |
+| `create-release` | Crée la GitHub Release avec les artifacts + release notes auto-générées. **Conditionné à `startsWith(github.ref, 'refs/tags/')`** |
+
+### Dry-run — et sa limite, qui n'est pas un détail
+
+`workflow_dispatch` exécute **toute la recette sauf la publication** : les
+gates, les pins first-party, le build, `twine check`, l'installation du wheel
+en venv vierge, `pip check` et le smoke CLI.
+
+`create-release` est **exclu par construction**, pas par prudence de
+l'opérateur : `softprops/action-gh-release` déduit le nom de la release de
+`github.ref`, et un dispatch de branche a `refs/heads/…`. Le job est donc
+`skipped`, ce qui est vérifiable sur le run.
+
+**Ce que le dry-run ne prouvera jamais.** Un `create-release` qui tourne n'est
+plus un dry-run, c'est une publication. Trois énoncés à tenir ensemble :
+
+1. `workflow_dispatch` exécute toute la recette **sauf** la publication ;
+2. un push de tag `audit-bim-i3f-v*` reste **le seul chemin** vers
+   `create-release` ;
+3. **le prochain vrai tag sera encore le premier test réel de la création de
+   GitHub Release.**
+
+Le dry-run réduit le risque au dernier job ; il ne le supprime pas. Le prétendre
+serait exactement la panne que ce workflow a déjà connue — croire publié ce qui
+ne l'est pas.
 
 ### Faire une release
+
+**Avant tout bump : lancer le dry-run** (onglet Actions → Release → *Run
+workflow*, sur `master`) et vérifier que `smoke-install` passe et que
+`create-release` est bien `skipped`.
 
 ```bash
 # Bump version dans pyproject.toml et CHANGELOG.md, regen lock

@@ -63,6 +63,68 @@ def _push_tags(workflow: Path) -> list[str]:
     return globs
 
 
+def _job_block(workflow: Path, job: str) -> str:
+    """Corps d'un job, délimité par l'indentation — même méthode que ci-dessus.
+
+    On ne prend pas ``pyyaml`` : cf. :func:`_push_tags`.
+    """
+    lignes = workflow.read_text(encoding="utf-8").splitlines()
+    debut = next((i for i, ligne in enumerate(lignes) if ligne.strip() == f"{job}:"), None)
+    assert debut is not None, f"{workflow.name} : job {job!r} introuvable"
+    indent = len(lignes[debut]) - len(lignes[debut].lstrip())
+    corps = []
+    for ligne in lignes[debut + 1 :]:
+        if ligne.strip() and len(ligne) - len(ligne.lstrip()) <= indent:
+            break
+        corps.append(ligne)
+    return "\n".join(corps)
+
+
+#: Garde attendue sur le job qui publie. Une ref de branche
+#: (``refs/heads/…``) ne doit jamais y satisfaire.
+_GARDE_TAG = re.compile(r"if:\s*startsWith\(\s*github\.ref\s*,\s*'refs/tags/'\s*\)")
+
+
+def test_the_release_workflow_can_be_dry_run():
+    """Le workflow doit être déclenchable à la main.
+
+    Sans ``workflow_dispatch``, la seule façon de l'exercer est de poser un
+    vrai tag — donc de découvrir une panne le jour de la release, sur un tag
+    déjà public et immuable.
+    """
+    texte = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    assert re.search(r"^\s*workflow_dispatch:", texte, re.M), (
+        "release.yml n'est déclenchable que par un tag : aucun dry-run possible"
+    )
+
+
+def test_the_publishing_job_is_gated_on_a_tag_ref():
+    """Un déclenchement manuel ne doit jamais publier de Release.
+
+    C'est ce qui rend le dry-run sûr **par construction**. Sans cette garde,
+    la sûreté reposerait sur le fait que l'opérateur pense à ne pas lancer le
+    workflow — exactement le genre de garantie qui tient jusqu'au jour où elle
+    ne tient plus.
+    """
+    assert _GARDE_TAG.search(_job_block(RELEASE_WORKFLOW, "create-release")), (
+        "create-release n'est pas conditionné à une ref de tag"
+    )
+
+
+def test_the_publishing_guard_is_not_vacuous():
+    """Le contrôle doit voir l'absence de garde, et refuser une garde trop large."""
+    sans_garde = "    name: Create GitHub Release\n    needs: [smoke-install]\n"
+    assert not _GARDE_TAG.search(sans_garde)
+
+    # Une garde qui accepterait aussi les branches ne doit pas passer pour
+    # équivalente : c'est précisément le cas qu'on veut exclure.
+    trop_large = "    if: startsWith(github.ref, 'refs/')\n"
+    assert not _GARDE_TAG.search(trop_large)
+
+    # Et la forme réelle du fichier doit bien être reconnue.
+    assert _GARDE_TAG.search("    if: startsWith(github.ref, 'refs/tags/')\n")
+
+
 def test_the_release_trigger_matches_the_distribution_name():
     """Le glob doit être ``<distribution>-v*``, dérivé et non recopié."""
     attendu = f"{_distribution_name()}-v*"
