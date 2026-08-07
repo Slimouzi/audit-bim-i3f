@@ -28,7 +28,7 @@ from .session import _State  # ré-export : conteneur d'état de session
 
 __all__ = ["mcp", "_State", "main", "register_all", "registered_profile_id"]
 
-mcp = FastMCP("audit-bim-i3f")
+mcp = FastMCP("audit-bim-mcp")
 # Masquage d'erreurs en réseau (E10) en **premier** = enveloppe extérieure : il
 # rattrape les exceptions non gérées de toute la chaîne. Puis isolation de session
 # (bind ``_State`` au client MCP courant) et authentification optionnelle. En stdio,

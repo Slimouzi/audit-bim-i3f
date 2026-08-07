@@ -1,6 +1,6 @@
 """Helpers de dépréciation pour les tools MCP.
 
-Convention audit-bim-i3f
+Convention audit-bim-mcp
 ------------------------
 
 On **ne lève pas** de ``DeprecationWarning`` Python côté MCP — les

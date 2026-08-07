@@ -191,7 +191,7 @@ def _contract_mismatch_payload(exc) -> dict:
 
 def _auto_envelope_roots() -> list[Path]:
     roots: list[Path] = []
-    # Déploiement local Codex/Claude : audit-bim-i3f est lancé depuis le repo,
+    # Déploiement local Codex/Claude : audit-bim-mcp est lancé depuis le repo,
     # tandis que les JSON produits par ifc-geometry vivent dans ../audit_in.
     repo_root = Path(__file__).resolve().parents[2]
     workspace_root = repo_root.parent

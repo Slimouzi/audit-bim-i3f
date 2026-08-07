@@ -31,7 +31,7 @@ logger = logging.getLogger("audit_bim.mcp")
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="python -m audit_bim.mcp",
-        description="Serveur MCP audit-bim-i3f — multi-transports.",
+        description="Serveur MCP audit-bim-mcp — multi-transports.",
     )
     parser.add_argument(
         "--transport",
@@ -69,7 +69,7 @@ def main() -> int:
     try:
         assert_startup_config(transport=args.transport, host=args.host)
     except RuntimeError as exc:
-        print(f"audit-bim-i3f MCP — refus de démarrer : {exc}", file=sys.stderr)
+        print(f"audit-bim-mcp MCP — refus de démarrer : {exc}", file=sys.stderr)
         return 2
 
     kwargs: dict = {}
@@ -77,7 +77,7 @@ def main() -> int:
         kwargs["host"] = args.host
         kwargs["port"] = args.port
         print(
-            f"audit-bim-i3f MCP — transport={args.transport} sur http://{args.host}:{args.port}",
+            f"audit-bim-mcp MCP — transport={args.transport} sur http://{args.host}:{args.port}",
             file=sys.stderr,
         )
 
