@@ -18,7 +18,7 @@ from importlib.metadata import version as _pkg_version
 # historique entre ``__init__.py`` (hardcodé "0.1.0" depuis l'origine
 # du projet) et ``pyproject.toml`` (bumpé à chaque release).
 try:
-    __version__ = _pkg_version("audit-bim-i3f")
+    __version__ = _pkg_version("audit-bim-mcp")
 except PackageNotFoundError:
     # Lecture du source sans ``pip install`` (CI exotique, archive
     # zip). On signale explicitement plutôt que de mentir avec une

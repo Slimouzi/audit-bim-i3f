@@ -1,4 +1,4 @@
-# Audit BIM I3F — MCP server
+# Audit BIM — serveur MCP multi-AMO
 
 > **Le dépôt s'appelle désormais `Slimouzi/audit-bim-mcp`.** Il héberge un
 > serveur MCP multi-AMO : I3F en est le profil par défaut, pas la totalité du
@@ -13,17 +13,32 @@
 > elle qui nomme le serveur côté agent. Les exemples ci-dessous l'alignent
 > néanmoins sur `audit-bim-mcp`.
 >
-> **Le reste n'a pas été renommé, et c'est délibéré.** Le paquet Python reste
-> `audit_bim`, la distribution `audit-bim-i3f`, l'exécutable `audit-bim-mcp`,
-> le préfixe d'environnement `AUDIT_BIM_*`, et le dossier local. Renommer la
-> distribution changerait le nom du wheel et le préfixe des tags : c'est une
-> migration à part, qui demande sa propre fenêtre.
+> **La distribution s'appelle désormais `audit-bim-mcp`.** Trois conséquences
+> concrètes, et aucune n'est cosmétique : le wheel devient
+> `audit_bim_mcp-X.Y.Z-py3-none-any.whl`, les extras s'installent par
+> `pip install "audit-bim-mcp[ocr]"`, et **les prochains tags de release sont
+> `audit-bim-mcp-vX.Y.Z`**. Les tags `audit-bim-i3f-vX.Y.Z` déjà posés restent
+> immuables et résolvables : ils sont l'historique, pas une alternative.
+>
+> **Ce qui n'a pas bougé.** Le paquet Python importé reste `audit_bim` —
+> `import audit_bim` fonctionne à l'identique — de même que l'exécutable
+> `audit-bim-mcp`, le préfixe d'environnement `AUDIT_BIM_*`, les profils MCP et
+> le dossier local. La provenance inscrite dans les livrables produits (BCF,
+> XLSX, property sets poussés dans la maquette) porte encore `audit-bim-i3f` :
+> c'est une migration distincte, parce qu'elle change des fichiers déjà livrés
+> à des clients.
 
 MCP qui automatise l'**audit de conformité** d'une maquette IFC hébergée sur
-[BIMData.io](https://bimdata.io) au **Cahier des Charges BIM I3F** (CCH V3.x).
-Pensé pour un usage AMO BIM : lecture des exigences du maître d'ouvrage,
-comparaison avec la maquette, génération d'un rapport Word + d'une annexe
-Excel par type d'erreur, et création de Smart Views BIMData (1 par thème).
+[BIMData.io](https://bimdata.io) au référentiel de son maître d'ouvrage.
+Pensé pour un usage AMO BIM : lecture des exigences, comparaison avec la
+maquette, génération d'un rapport Word + d'une annexe Excel par type d'erreur,
+et création de Smart Views BIMData (1 par thème).
+
+**Un processus sert un profil AMO, et un seul** (`AUDIT_BIM_PROFILE`). Trois
+profils existent : **I3F** — le profil par défaut, le plus complet, aligné sur
+le **Cahier des Charges BIM I3F** (CCH V3.x) — ainsi que **BIM in Motion** et
+**Domofrance**. Un seuil appartient au maître d'ouvrage qui l'écrit : les
+sections suivantes décrivent I3F, sauf mention contraire.
 
 ## Pourquoi ce projet
 

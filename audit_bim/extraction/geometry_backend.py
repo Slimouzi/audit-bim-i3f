@@ -23,7 +23,7 @@ from typing import Any
 BACKEND_DISTRIBUTION = "ifc-geometry-mcp"
 #: Extra à installer pour activer le calcul géométrique local.
 BACKEND_EXTRA = "geometry"
-BACKEND_INSTALL = f"pip install 'audit-bim-i3f[{BACKEND_EXTRA}]'"
+BACKEND_INSTALL = f"pip install 'audit-bim-mcp[{BACKEND_EXTRA}]'"
 
 
 class GeometryBackendUnavailable(RuntimeError):

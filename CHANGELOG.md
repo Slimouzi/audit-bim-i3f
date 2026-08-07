@@ -7,6 +7,24 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### Changed — BREAKING (installation)
+
+- **La distribution est renommée `audit-bim-i3f` → `audit-bim-mcp`** (lot B2).
+  Le wheel devient `audit_bim_mcp-X.Y.Z-py3-none-any.whl`, les extras
+  s'installent par `pip install "audit-bim-mcp[ocr]"`, et **les prochains tags
+  de release sont `audit-bim-mcp-vX.Y.Z`** (trigger `release.yml` et garde de
+  `create-release` alignés).
+  Les tags `audit-bim-i3f-v*` déjà posés restent immuables et résolvables :
+  ils sont l'historique, pas une cible alternative. `test_release_trigger.py`
+  porte la transition explicitement — il tolère l'ancien namespace comme passé,
+  **refuse** qu'il soit encore capté par le déclencheur, et exige que le
+  prochain tag soit dans le namespace courant.
+  Sans effet sur le code appelant : le paquet importé reste `audit_bim`,
+  l'exécutable `audit-bim-mcp`, les variables `AUDIT_BIM_*` et les profils MCP
+  sont inchangés. La provenance inscrite dans les livrables produits porte
+  encore `audit-bim-i3f` — migration distincte (B3), parce qu'elle change des
+  fichiers déjà livrés.
+
 ### CI
 
 - `release.yml` est désormais déclenchable manuellement (`workflow_dispatch`)

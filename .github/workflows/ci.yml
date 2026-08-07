@@ -95,13 +95,19 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Les tags, et tout l'historique. `test_release_trigger.py` confronte
+          # le déclencheur aux tags RÉELLEMENT posés : sans eux, ces contrôles
+          # se contentent de `skip`, et la CI est verte parce qu'ils ne
+          # s'exécutent pas. Un checkout par défaut est superficiel et sans tags.
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install bim-core (tagged contract lib)
         # bim-core n'est pas sur PyPI : on l'installe explicitement depuis le
-        # tag Git AVANT audit-bim-i3f. La dépendance `bim-core>=0.4.0,<0.5` est
+        # tag Git AVANT audit-bim-mcp. La dépendance `bim-core>=0.4.0,<0.5` est
         # alors déjà satisfaite lors de l'install du package.
         run: pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.4.0"
       - name: Install bimdata-read (tagged read core)
@@ -202,7 +208,7 @@ jobs:
         # ici — ce qui force le contributeur à regen + commit le lock.
         run: uv lock --check
       - name: Export resolved dependencies from lockfile
-        # ``--no-emit-project`` exclut audit-bim-i3f lui-même (pas
+        # ``--no-emit-project`` exclut audit-bim-mcp lui-même (pas
         # publié sur PyPI). ``--no-hashes`` car pip-audit n'utilise
         # pas les hashes — seuls les ``name==version`` comptent ici.
         # ``--no-emit-package bim-core`` : contrat first-party résolu via Git

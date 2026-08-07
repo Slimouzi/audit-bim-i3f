@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "audit-bim-i3f"
+name = "audit-bim-mcp"
 version = "0.10.0"
-description = "MCP server for BIM model audit against the I3F French BIM specifications (CCH BIM I3F V3.6)."
+description = "Multi-AMO MCP server for BIM model audit on BIMData.io — one active profile per process; I3F (CCH BIM V3.x) is the default, alongside BIM in Motion and Domofrance."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }

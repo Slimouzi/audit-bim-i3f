@@ -1,7 +1,8 @@
 """Le déclencheur de `release.yml` doit matcher les tags réellement posés.
 
 Panne éprouvée, et de la pire espèce : le workflow a écouté `tags: ["v*"]`
-pendant que le dépôt taguait `audit-bim-i3f-vX.Y.Z`. Le glob ne matchait plus
+pendant que le dépôt taguait `audit-bim-i3f-vX.Y.Z` (namespace
+historique, cf. `PREFIXE_HISTORIQUE`). Le glob ne matchait plus
 rien, donc le workflow **ne partait pas** — et un workflow qui ne part pas
 n'échoue jamais. Aucune CI rouge, aucune alerte : simplement plus aucune
 GitHub Release depuis v0.8.0, sans que personne ne l'ait décidé.
@@ -13,6 +14,8 @@ attendu du nom de la distribution : un renommage qui oublierait le trigger
 
 from __future__ import annotations
 
+import fnmatch
+import os
 import re
 from pathlib import Path
 
@@ -136,12 +139,12 @@ def test_the_publishing_condition_is_derived_from_the_distribution():
     ("event_name", "ref", "publie"),
     [
         # Le seul chemin autorisé.
-        ("push", "refs/tags/audit-bim-i3f-v0.10.0", True),
+        ("push", "refs/tags/audit-bim-mcp-v0.11.0", True),
         # Dry-run sur une branche.
         ("workflow_dispatch", "refs/heads/master", False),
         # Dry-run lancé SUR UN TAG : `gh workflow run --ref` l'accepte, et
         # c'est le cas qu'une garde portant sur la seule ref laissait passer.
-        ("workflow_dispatch", "refs/tags/audit-bim-i3f-v0.10.0", False),
+        ("workflow_dispatch", "refs/tags/audit-bim-mcp-v0.11.0", False),
         # Push de branche, et tag nu hors convention.
         ("push", "refs/heads/master", False),
         ("push", "refs/tags/v0.10.0", False),
@@ -165,8 +168,8 @@ def test_the_publishing_guard_is_not_vacuous():
     Sans le premier point, une garde qui refuse *tout* passerait chaque test
     de refus ci-dessus — et la publication ne marcherait jamais.
     """
-    legitime = ("push", "refs/tags/audit-bim-i3f-v")
-    assert _publierait(legitime, event_name="push", ref="refs/tags/audit-bim-i3f-v0.10.0")
+    legitime = ("push", "refs/tags/audit-bim-mcp-v")
+    assert _publierait(legitime, event_name="push", ref="refs/tags/audit-bim-mcp-v0.11.0")
 
     # La garde faible réellement écrite en premier : sans test d'événement,
     # elle publie sur un dispatch lancé depuis un tag.
@@ -195,31 +198,219 @@ def test_the_trigger_would_reject_the_bare_prefix():
     assert not re.fullmatch(r"v\*", attendu)
 
 
-def test_the_actual_tags_match_the_trigger():
-    """Le glob doit matcher les tags **réellement posés** dans ce dépôt.
+#: Namespaces de tags **antérieurs**, relevés sur le dépôt réel — pas devinés.
+#:
+#: Ils sont immuables et resteront résolvables : c'est l'historique, pas une
+#: cible acceptable pour un futur tag. La liste est **close** : un quatrième
+#: namespace qui apparaîtrait serait une dérive, pas une tolérance de plus.
+#:
+#: - ``v`` : convention d'origine, abandonnée — c'est elle qui a produit la
+#:   panne du déclencheur (cf. docstring du module).
+#: - ``audit-bim-i3f-v`` : convention intermédiaire, avant le renommage de
+#:   distribution (lot B2).
+PREFIXES_HISTORIQUES = ("audit-bim-i3f-v", "v")
 
-    Comparer le trigger à une convention écrite ne prouve rien si la convention
-    elle-même a divergé de la pratique. On confronte donc le glob aux tags que
-    le dépôt porte vraiment.
-    """
+#: Tag unique hors de toute convention, gelé tel quel.
+TAGS_HORS_CONVENTION = ("legacy-i3f-mcp-v1.0",)
+
+#: Compat : le namespace immédiatement précédent, celui que B2 remplace.
+PREFIXE_HISTORIQUE = PREFIXES_HISTORIQUES[0]
+
+
+def _tags_du_depot() -> list[str]:
+    """Tags réellement posés. Liste vide si le clone n'en porte aucun."""
     import subprocess
 
     resultat = subprocess.run(
         ["git", "tag", "-l"], capture_output=True, text=True, cwd=REPO, timeout=60
     )
     assert resultat.returncode == 0, resultat.stderr
-    tags = [t for t in resultat.stdout.split() if t]
-    if not tags:  # dépôt sans tags (clone superficiel) : rien à prouver
-        pytest.skip("aucun tag local — rien à confronter")
+    return [t for t in resultat.stdout.split() if t]
 
-    prefixe = f"{_distribution_name()}-v"
-    correspondants = [t for t in tags if t.startswith(prefixe)]
-    assert correspondants, (
-        f"aucun tag ne commence par {prefixe!r} : le trigger viserait dans le vide"
+
+def _tags_exigibles() -> list[str]:
+    """Tags réels — et **en CI, leur absence est une erreur, pas un skip**.
+
+    Panne mesurée sur la PR de renommage : ``actions/checkout`` fait par défaut
+    un clone superficiel et **sans tags**. Les contrôles « confrontés aux tags
+    réellement posés » se contentaient donc de ``skip``, et la CI était verte
+    *parce qu'ils ne s'exécutaient pas*. Localement, où les tags existent, tout
+    passait — l'écart était invisible des deux côtés.
+
+    En CI on échoue donc explicitement, en nommant la cause : c'est ce qui
+    empêche de réintroduire la vacuité en modifiant le checkout. Hors CI, le
+    skip reste légitime : un clone superficiel de travail n'a rien à prouver.
+    """
+    tags = _tags_du_depot()
+    if tags:
+        return tags
+    if os.environ.get("CI"):
+        pytest.fail(
+            "aucun tag dans le clone alors qu'on est en CI : le checkout doit "
+            "déclarer `fetch-depth: 0`, sinon les contrôles confrontés aux tags "
+            "réels sont vacants et la CI verdit sans rien vérifier"
+        )
+    pytest.skip("aucun tag local — rien à confronter")
+    raise AssertionError("inatteignable")  # pragma: no cover
+
+
+def _version(tag: str) -> tuple[int, ...]:
+    """Clé de tri numérique — ``max()`` sur des chaînes classerait v0.9 > v0.10."""
+    chiffres = re.search(r"v(\d+(?:\.\d+)*)$", tag)
+    return tuple(int(n) for n in chiffres.group(1).split(".")) if chiffres else ()
+
+
+def _dernier_tag_conventionnel(tags: list[str], courant: str) -> str | None:
+    """Tag de version le plus récent, **parmi les namespaces conventionnels**.
+
+    Les tags hors convention sont exclus, et pas par élégance : le dépôt porte
+    ``legacy-i3f-mcp-v1.0``, dont la version ``1.0`` domine numériquement tout
+    le versionnage réel du produit (``0.x``). Le laisser entrer ferait de lui
+    le « dernier tag » pour toujours — et le contrôle du namespace exigerait
+    qu'il commence par le préfixe courant. Il aurait donc cassé **au premier
+    tag posé sous le nouveau nom**, c'est-à-dire au moment précis où il doit
+    fonctionner.
+    """
+    prefixes = (courant, *PREFIXES_HISTORIQUES)
+    candidats = [
+        t for t in tags if _version(t) and t.startswith(prefixes) and t not in TAGS_HORS_CONVENTION
+    ]
+    return max(candidats, key=_version) if candidats else None
+
+
+@pytest.mark.parametrize("prefixe", PREFIXES_HISTORIQUES)
+def test_each_declared_historical_namespace_is_real(prefixe):
+    """Chaque namespace historique déclaré doit exister dans ce dépôt.
+
+    Sentinelle de la transition : un préfixe que plus aucun tag ne porte est
+    une fiction, et la tolérance qu'on lui accorde devient un chèque en blanc.
+    Ce contrôle a déjà servi — la première version de ce fichier déclarait
+    **deux** namespaces alors que le dépôt en porte trois, prémisse écrite au
+    lieu d'être mesurée.
+    """
+    tags = _tags_exigibles()
+    assert [t for t in tags if t.startswith(prefixe) and _version(t)], (
+        f"aucun tag ne porte {prefixe!r} : cette tolérance historique ne protège rien"
     )
-    # Le dernier tag de version posé doit être capté par le déclencheur.
-    dernier = max(correspondants)
-    assert dernier.startswith(prefixe), dernier
+
+
+def test_every_tag_belongs_to_a_known_namespace():
+    """La liste des namespaces est **close** : un quatrième serait une dérive.
+
+    Ce n'est pas de l'archéologie : tant que la liste est close et confrontée
+    au dépôt, elle empêche qu'on règle un futur conflit de convention en
+    ajoutant discrètement une tolérance de plus.
+    """
+    tags = _tags_exigibles()
+    connus = (f"{_distribution_name()}-v", *PREFIXES_HISTORIQUES)
+    inconnus = [
+        t
+        for t in tags
+        if _version(t) and not t.startswith(connus) and t not in TAGS_HORS_CONVENTION
+    ]
+    assert not inconnus, f"tags hors des namespaces connus : {inconnus}"
+
+
+def test_the_trigger_no_longer_matches_historical_tags():
+    """**Le cœur de la transition.** Tolérer le passé ne l'autorise pas.
+
+    Sans ce contrôle, la façon la plus simple de faire passer la suite au
+    moment du renommage serait d'élargir le déclencheur aux deux namespaces —
+    et le garde-fou deviendrait vacant : il n'exigerait plus rien du prochain
+    tag. On vérifie donc que le glob capte le namespace **courant** et
+    **refuse** l'ancien.
+    """
+    # TOUS les globs, pas seulement le premier. Le moyen le plus simple de
+    # rendre ce contrôle vacant est d'ajouter une seconde entrée qui rouvre
+    # l'ancien namespace : lire `globs[0]` ne la verrait jamais.
+    globs = _push_tags(RELEASE_WORKFLOW)
+    courant = f"{_distribution_name()}-v0.11.0"
+    assert any(fnmatch.fnmatch(courant, g) for g in globs), f"{globs!r} ne capte pas {courant!r}"
+
+    # Les contre-exemples viennent des tags RÉELLEMENT posés, pas d'échantillons
+    # écrits ici : un contre-exemple inventé peut ne ressembler à rien de ce que
+    # le dépôt porte.
+    tags = _tags_exigibles()
+    anciens = [
+        t for t in tags if _version(t) and t.startswith(PREFIXES_HISTORIQUES) and t != courant
+    ]
+    assert anciens, "prémisse : le dépôt doit porter des tags historiques"
+    captes = [(t, g) for t in anciens for g in globs if fnmatch.fnmatch(t, g)]
+    assert not captes, f"le déclencheur capte encore des tags historiques : {captes}"
+
+
+def test_the_next_tag_must_be_in_the_current_namespace():
+    """Dit ce qui est attendu **ensuite**, pas seulement ce qui fut.
+
+    Deux états possibles, et aucun n'est un laissez-passer :
+
+    - transition **en cours** — aucun tag courant encore posé : on exige alors
+      qu'il existe bien des tags historiques, sinon ce test ne prouverait rien ;
+    - transition **consommée** — dès qu'un tag courant existe, le tag le plus
+      récent du dépôt doit appartenir au namespace courant. Un retour à
+      l'ancien namespace après le renommage serait une régression silencieuse.
+    """
+    tags = _tags_exigibles()
+    courant = f"{_distribution_name()}-v"
+    en_courant = [t for t in tags if t.startswith(courant)]
+
+    if not en_courant:
+        assert [t for t in tags if _version(t) and t.startswith(PREFIXES_HISTORIQUES)], (
+            "ni tag courant ni tag historique : rien ne cadre le prochain tag"
+        )
+        return
+
+    dernier = _dernier_tag_conventionnel(tags, courant)
+    assert dernier is not None, "prémisse : au moins un tag conventionnel"
+    assert dernier.startswith(courant), (
+        f"le tag le plus récent est {dernier!r} : après le renommage, "
+        f"le prochain tag attendu est {courant}X.Y.Z"
+    )
+
+
+def test_the_latest_tag_ignores_the_out_of_convention_tag():
+    """Contre-épreuve du piège qui aurait cassé au premier tag du nouveau nom.
+
+    ``legacy-i3f-mcp-v1.0`` porte une version ``1.0`` supérieure à tout le
+    versionnage réel du produit (``0.x``). Sans exclusion, il serait le
+    « dernier tag » pour toujours, et le contrôle exigerait qu'il commence par
+    le préfixe courant — un échec garanti le jour où l'on pose
+    ``audit-bim-mcp-v0.11.0``.
+    """
+    courant = f"{_distribution_name()}-v"
+    apres_le_premier_tag = [
+        "v0.8.0",
+        "audit-bim-i3f-v0.10.0",
+        "legacy-i3f-mcp-v1.0",
+        f"{courant}0.11.0",
+    ]
+    assert _dernier_tag_conventionnel(apres_le_premier_tag, courant) == f"{courant}0.11.0"
+
+    # Et le contrôle doit rester capable de voir une VRAIE régression :
+    # un retour à l'ancien namespace après le renommage.
+    regression = ["audit-bim-i3f-v0.12.0", "legacy-i3f-mcp-v1.0", f"{courant}0.11.0"]
+    assert _dernier_tag_conventionnel(regression, courant) == "audit-bim-i3f-v0.12.0"
+
+
+@pytest.mark.parametrize("doc", DOCS, ids=lambda p: str(p.relative_to(REPO)))
+def test_documented_tag_commands_use_the_current_namespace(doc):
+    """Ce qu'on lit avant de taguer doit nommer le namespace courant.
+
+    Le lecteur d'une procédure ne vérifie pas le workflow : il copie la
+    commande. Une commande restée sur l'ancien préfixe poserait un tag que le
+    déclencheur ignore — la panne exacte que ce fichier existe pour empêcher.
+    """
+    if not doc.exists():
+        pytest.skip(f"{doc.name} absent")
+    courant = f"{_distribution_name()}-v"
+    offenders = [
+        ligne.strip()
+        for ligne in doc.read_text(encoding="utf-8").splitlines()
+        if re.search(r"git (tag|push origin)\b", ligne)
+        and re.search(r"\baudit-bim-[\w.-]*v", ligne)
+        and courant not in ligne
+    ]
+    assert not offenders, f"commande de tag sur un namespace périmé dans {doc.name} : {offenders}"
 
 
 @pytest.mark.parametrize("doc", DOCS, ids=lambda p: str(p.relative_to(REPO)))
@@ -245,5 +436,5 @@ def test_the_documentation_guard_is_not_vacuous():
     for ligne in ("git tag vX.Y.Z", "git push origin v0.9.0"):
         assert re.search(r"git (tag|push origin) v[X0-9]", ligne), ligne
     # Et laisser passer la forme correcte, sinon le contrôle interdirait tout.
-    for ligne in ("git tag -a audit-bim-i3f-vX.Y.Z", "git push origin audit-bim-i3f-v0.10.0"):
+    for ligne in ("git tag -a audit-bim-mcp-vX.Y.Z", "git push origin audit-bim-mcp-v0.11.0"):
         assert not re.search(r"git (tag|push origin) v[X0-9]", ligne), ligne

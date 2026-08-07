@@ -218,7 +218,7 @@ def parse_doe_pdf_ocr(
     Raises:
         FileNotFoundError: Si le PDF n'existe pas.
         ImportError: Si ``pytesseract``, ``pdf2image`` ou ``Pillow`` ne
-            sont pas installés (``pip install audit-bim-i3f[ocr]``).
+            sont pas installés (``pip install audit-bim-mcp[ocr]``).
         RuntimeError: Si le binaire Tesseract n'est pas trouvé sur la
             machine (cf. doc d'installation en tête de module).
     """
