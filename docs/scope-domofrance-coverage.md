@@ -76,15 +76,26 @@ champs dont dépendent les verdicts, et laisse le reste au contrat.
 
 ### Provenance du producteur : avertir, jamais refuser
 
-Le rapport affiche la version du producteur lue dans `source.version`, et
-signale deux situations **sans jamais refuser le document** :
+Le rapport affiche le producteur **réellement déclaré** — jamais `ifc-geometry`
+en dur, ce qui présenterait un document tiers comme venant du nôtre.
 
-| `source.version` | Comportement |
-|---|---|
-| ≥ `0.6.0` | accepté, aucun avertissement |
-| < `0.6.0` | accepté, `producer_version_below_minimum` — « à régénérer pour lever l'avertissement » |
-| absent ou illisible | accepté, `source_version_unknown` — avertissement plus fort |
-| *payload invalide* | **refusé** par la validation du contrat, quelle que soit la version |
+Deux axes **indépendants** sont contrôlés, parce que **la version seule ne
+prouve pas l'identité** : un document déclarant `version: "0.6.0"` satisfait le
+seuil de fraîcheur sans qu'aucun lien ne le rattache à `ifc-geometry`.
+
+| Axe | Situation | Comportement |
+|---|---|---|
+| **Identité** | `producer` = `ifc-geometry` **et** `tool` = `extract_spatial_evidence` | accepté, silencieux |
+| | l'un des deux absent ou différent | accepté, `producer_unexpected` |
+| **Fraîcheur** | `version` ≥ `0.6.0` | accepté, silencieux |
+| | `version` < `0.6.0` | accepté, `producer_version_below_minimum` — « à régénérer pour lever l'avertissement » |
+| | `version` absente ou illisible | accepté, `source_version_unknown` |
+| — | *payload invalide* | **refusé** par la validation du contrat, quelle que soit la provenance |
+
+Les deux axes se cumulent : un producteur tiers **et** ancien porte les deux
+avertissements. `source.version` est rendu **tel qu'il est déclaré**, même
+illisible — le rapport doit montrer ce que le document prétend, pas le masquer ;
+c'est `_parse_version` qui tranche la lisibilité, sans jamais deviner.
 
 Le choix d'avertir plutôt que de refuser est **mesuré, pas prudent**. Le
 document de référence produit par `0.5.1` a été régénéré avec `0.6.0` sur la
@@ -173,9 +184,12 @@ deux listes divergeraient sans que rien ne le signale.
 ## Mesure sur la maquette de référence
 
 Document : `250613_MN_BAT_spatial_evidence.json`, produit par `ifc-geometry`
-**0.5.1** (antérieur au tag v0.6.0 ; le garde-fou `source.version >= 0.6.0` est
-reporté avec l'adoption). 12 classes présentes, 316 `IfcSpace` dont **246
-convexes**, 300 `IfcDoor` dont 300 avec `opening_width_m`.
+**0.5.1** — antérieur au tag v0.6.0, donc **accepté avec l'avertissement**
+`producer_version_below_minimum`. Régénéré avec `0.6.0` sur la même maquette, le
+document est identique hors `created_at` et `source.version` : les compteurs
+ci-dessous ne dépendent pas de la version du producteur. 12 classes présentes,
+316 `IfcSpace` dont **246 convexes**, 300 `IfcDoor` dont 300 avec
+`opening_width_m`.
 
 > Cette maquette n'est **pas** un bâtiment Domofrance : c'est le fichier de
 > référence disponible. Les compteurs ci-dessous montrent le mécanisme sur un
@@ -292,9 +306,12 @@ paraîtrait complet.
 ## Ce que ce lot ne fait pas
 
 - Aucun statut de conformité, aucune maquette jugée.
-- Aucun profil ni outil MCP ; aucune dépendance nouvelle.
-- **Aucune adoption de `bim-core>=0.4`** — reportée au fan-out first-party.
-- Aucun garde-fou `source.version` : il viendra avec l'adoption.
+- Aucun profil ni outil MCP.
+- Aucun **refus** fondé sur la provenance : la version et l'identité du
+  producteur produisent des avertissements, jamais un rejet. Seul un payload
+  invalide est refusé, et c'est le contrat qui le refuse.
+- Aucune mesure d'axe médian : trancher une largeur de circulation sur forme
+  quelconque reste hors périmètre.
 
 ## Fichiers
 

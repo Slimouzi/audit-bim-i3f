@@ -196,11 +196,16 @@ class EvidenceFacts:
     counted: dict[str, int]
     n_spaces_convex: int
     n_spaces_with_width: int
-    #: Version du producteur lue dans ``source.version``, ``None`` si absente
-    #: ou illisible. Purement informatif : aucun compteur n'en dépend.
-    source_version: str | None = None
+    #: Origine déclarée du document — producteur, outil, version, bruts.
+    #: Purement informatif : aucun compteur n'en dépend.
+    provenance: Provenance | None = None
     #: Avertissements de provenance, jamais des refus. Cf. :func:`producer_warnings`.
     warnings: tuple[str, ...] = ()
+
+    @property
+    def source_version(self) -> str | None:
+        """Raccourci de lecture ; l'identité vit dans :attr:`provenance`."""
+        return self.provenance.version if self.provenance else None
 
     def has_field(self, ifc_class: str, field: str) -> bool:
         return self.filled.get((ifc_class, field), 0) > 0
@@ -231,9 +236,16 @@ _BBOX_KEYS = ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
 #: ``ifc-geometry-mcp-v0.6.0``, celle qui accompagne ``spatial_evidence/v1``.
 MIN_PRODUCER_VERSION = (0, 6, 0)
 
+#: Producteur et outil attendus. La version seule ne prouve pas l'identité :
+#: un document tiers déclarant ``version: "0.6.0"`` passerait pour un
+#: ``ifc-geometry`` à jour alors que rien ne le rattache à ce producteur.
+EXPECTED_PRODUCER = "ifc-geometry"
+EXPECTED_TOOL = "extract_spatial_evidence"
+
 #: Clés d'avertissement — **jamais** des motifs de refus.
 WARN_PRODUCER_BELOW_MINIMUM = "producer_version_below_minimum"
 WARN_SOURCE_VERSION_UNKNOWN = "source_version_unknown"
+WARN_PRODUCER_UNEXPECTED = "producer_unexpected"
 
 
 def _parse_version(text: object) -> tuple[int, ...] | None:
@@ -258,12 +270,37 @@ def _parse_version(text: object) -> tuple[int, ...] | None:
     return tuple(segments) or None
 
 
-def producer_warnings(document: dict) -> tuple[str | None, tuple[str, ...]]:
-    """Provenance du document : version lue, et avertissements éventuels.
+@dataclass(frozen=True)
+class Provenance:
+    """Ce que le document déclare de son origine, tel quel.
+
+    Les trois champs sont rendus **bruts** : le rapport doit afficher le
+    producteur réel, jamais un nom supposé. Écrire ``ifc-geometry`` en dur ferait
+    présenter un document tiers comme s'il venait de notre producteur.
+    """
+
+    producer: str | None
+    tool: str | None
+    version: str | None
+
+    def label(self) -> str:
+        """Libellé d'affichage, sans jamais inventer de producteur."""
+        return f"{self.producer or '(producteur inconnu)'} {self.version or '(version inconnue)'}"
+
+
+def producer_warnings(document: dict) -> tuple[Provenance, tuple[str, ...]]:
+    """Provenance du document, et avertissements éventuels.
 
     **N'émet jamais de refus.** Un payload invalide est rejeté par la validation
-    du contrat, indépendamment de sa version ; ici on ne fait que qualifier la
-    provenance d'un document déjà tenu pour valide.
+    du contrat, indépendamment de sa provenance ; ici on ne fait que qualifier
+    l'origine d'un document déjà tenu pour valide.
+
+    Deux axes indépendants, parce que **la version seule ne prouve pas
+    l'identité** : un document tiers déclarant ``version: "0.6.0"`` satisferait
+    le seuil sans qu'aucun lien ne le rattache à ``ifc-geometry``.
+
+    - *identité* : ``producer`` et ``tool`` doivent être ceux attendus ;
+    - *fraîcheur* : ``version`` doit atteindre :data:`MIN_PRODUCER_VERSION`.
 
     Le choix d'avertir plutôt que de refuser est mesuré, pas prudent : le
     document de référence produit par ``0.5.1`` a été comparé à celui de
@@ -272,22 +309,45 @@ def producer_warnings(document: dict) -> tuple[str | None, tuple[str, ...]]:
     qu'il est équivalent coûterait la seule référence exploitable sans rien
     gagner en sûreté.
     """
-    brute = (document.get("source") or {}).get("version")
-    lue = _parse_version(brute)
+    source = document.get("source") or {}
+
+    def texte(cle: str) -> str | None:
+        """Champ de provenance, ``None`` si absent ou non textuel."""
+        valeur = source.get(cle) if isinstance(source, dict) else None
+        return valeur if isinstance(valeur, str) else None
+
+    provenance = Provenance(
+        producer=texte("producer"), tool=texte("tool"), version=texte("version")
+    )
+    avertissements: list[str] = []
+
+    # Identité — indépendante de la version.
+    if provenance.producer != EXPECTED_PRODUCER or provenance.tool != EXPECTED_TOOL:
+        avertissements.append(
+            f"{WARN_PRODUCER_UNEXPECTED} : document déclaré produit par "
+            f"{provenance.producer!r} / {provenance.tool!r}, attendu "
+            f"{EXPECTED_PRODUCER!r} / {EXPECTED_TOOL!r}. Accepté — mais les "
+            "mesures ne viennent pas du producteur de référence."
+        )
+
+    # Fraîcheur — indépendante de l'identité.
+    lue = _parse_version(provenance.version)
     if lue is None:
-        return None, (
+        avertissements.append(
             f"{WARN_SOURCE_VERSION_UNKNOWN} : `source.version` absent ou illisible "
-            f"({brute!r}) — provenance du document inconnue, mesures acceptées "
-            "telles quelles.",
+            f"({provenance.version!r}) — fraîcheur du document inconnue, mesures "
+            "acceptées telles quelles."
         )
-    if lue < MIN_PRODUCER_VERSION:
+    elif lue < MIN_PRODUCER_VERSION:
         attendu = ".".join(str(n) for n in MIN_PRODUCER_VERSION)
-        return brute, (
-            f"{WARN_PRODUCER_BELOW_MINIMUM} : document produit par ifc-geometry "
-            f"{brute}, antérieur à {attendu}. Accepté car compatible — régénérer "
-            "le document pour lever l'avertissement.",
+        avertissements.append(
+            f"{WARN_PRODUCER_BELOW_MINIMUM} : document produit par "
+            f"{provenance.producer or '(producteur inconnu)'} {provenance.version}, "
+            f"antérieur à {attendu}. Accepté car compatible — régénérer le "
+            "document pour lever l'avertissement."
         )
-    return brute, ()
+
+    return provenance, tuple(avertissements)
 
 
 def _is_finite_number(value: object) -> bool:
@@ -418,7 +478,7 @@ def read_evidence(path: str) -> EvidenceFacts:
 
     # Provenance : lue APRÈS la validation, et sans effet sur elle. Un document
     # invalide est déjà refusé ; une version ancienne n'est qu'un avertissement.
-    source_version, avertissements = producer_warnings(document)
+    provenance, avertissements = producer_warnings(document)
 
     counted: Counter[str] = Counter()
     filled: Counter[tuple[str, str]] = Counter()
@@ -446,7 +506,7 @@ def read_evidence(path: str) -> EvidenceFacts:
         counted=dict(counted),
         n_spaces_convex=n_spaces_convex,
         n_spaces_with_width=n_spaces_with_width,
-        source_version=source_version,
+        provenance=provenance,
         warnings=avertissements,
     )
 
@@ -586,7 +646,12 @@ def print_report(assessments: list[Assessment], facts: EvidenceFacts, tables) ->
 
     print("DOCUMENT DE PREUVES")
     print(f"  schéma                     : {facts.schema}")
-    print(f"  producteur                 : ifc-geometry {facts.source_version or '(inconnu)'}")
+    # Le producteur RÉEL, jamais un nom supposé : afficher « ifc-geometry »
+    # en dur présenterait un document tiers comme venant de notre producteur.
+    print(
+        f"  producteur                 : "
+        f"{facts.provenance.label() if facts.provenance else '(inconnu)'}"
+    )
     print(f"  classes présentes          : {len(facts.classes_present)}")
     print(
         f"  espaces convexes (≥ {CONVEXITY_RATIO_MIN:.2f}) : "
