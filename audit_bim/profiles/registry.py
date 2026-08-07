@@ -322,7 +322,86 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
     ),
 )
 
-_PROFILES: tuple[McpProfile, ...] = (_I3F_PROFILE, _BIM_IN_MOTION_PROFILE)
+_DOMOFRANCE_PROFILE = McpProfile(
+    id="domofrance",
+    label="AMO Domofrance",
+    owner_name="Domofrance",
+    audience=("Équipe confrontant une maquette au référentiel de contrôle d'un bailleur social."),
+    prompt_key="amo_bim_domofrance",
+    default_catalog_label=None,
+    default_classification_system=None,
+    # Volontairement absents, comme pour tout profil tiers : un référentiel ou
+    # un narratif hérité imprimerait dans le rapport d'un maître d'ouvrage le
+    # vocabulaire d'un autre.
+    reference_framework=None,
+    report_narrative=None,
+    classification_narrative=None,
+    report_structure=None,
+    enabled_generic_modules=_ALL_GENERIC_KEYS,
+    report_packs=(),
+    # Deux modules propres, aucun copié d'un profil frère. Le socle partagé
+    # fournit les cinq outils de session ; `tools_profiles` ajoute l'outil
+    # transverse. Total exposé : 8 outils.
+    tool_modules=(
+        "audit_bim.tools_shared.session",
+        "audit_bim.profiles.domofrance.tools_session",
+        "audit_bim.profiles.domofrance.tools_coverage",
+    ),
+    prompt_module="audit_bim.profiles.domofrance.prompts",
+    # Les aliases LEGACY sont une dette d'I3F : un profil neuf n'en hérite pas.
+    legacy_alias_module=None,
+    target_tool_name="set_active_target",
+    specializations=(
+        ClientSpecialization(
+            key="controls_domofrance",
+            label="Référentiel de contrôle Domofrance",
+            current_location="audit_bim/profiles/domofrance/controls.py",
+            status="ready",
+            responsibility=(
+                "Décrire le classeur du maître d'ouvrage : lignes, doublons, "
+                "signaux lexicaux et tables de surfaces. Aucune maquette lue."
+            ),
+        ),
+        ClientSpecialization(
+            key="coverage_domofrance",
+            label="Évaluabilité mesurée Domofrance",
+            current_location="audit_bim/profiles/domofrance/coverage.py",
+            status="ready",
+            responsibility=(
+                "Croiser le référentiel avec un document de preuves géométriques "
+                "et dire ce qui pourra être tranché — jamais ce qui est conforme."
+            ),
+        ),
+        ClientSpecialization(
+            key="prompt_domofrance",
+            label="Prompt AMO Domofrance",
+            current_location="audit_bim/profiles/domofrance/prompts.py",
+            status="ready",
+            responsibility=(
+                "Décrire la posture de diagnostic d'évaluabilité et interdire "
+                "tout verdict de conformité dans les réponses."
+            ),
+        ),
+        ClientSpecialization(
+            key="report_pack_domofrance",
+            label="Packs de rapports Domofrance",
+            current_location=None,
+            status="planned",
+            responsibility=(
+                "Composer un livrable depuis le socle reporting générique, le "
+                "jour où un besoin réel existera."
+            ),
+        ),
+    ),
+    notes=(
+        "Profil de diagnostic : il mesure l'évaluabilité, il ne juge pas.",
+        "Aucun statut de conformité, aucune écriture dans le classeur du client.",
+        "Le document de preuves géométriques est fourni par l'appelant ; ce "
+        "profil ne le fabrique pas.",
+    ),
+)
+
+_PROFILES: tuple[McpProfile, ...] = (_I3F_PROFILE, _BIM_IN_MOTION_PROFILE, _DOMOFRANCE_PROFILE)
 
 
 def list_generic_modules() -> tuple[GenericModule, ...]:

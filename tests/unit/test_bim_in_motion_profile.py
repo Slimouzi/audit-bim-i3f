@@ -295,7 +295,11 @@ def test_the_tools_answer_without_any_i3f_module_loaded():
 
 @pytest.mark.parametrize(
     ("profile_id", "expected"),
-    [("bim_in_motion", "set_active_target"), ("i3f", "set_active_model")],
+    [
+        ("bim_in_motion", "set_active_target"),
+        ("i3f", "set_active_model"),
+        ("domofrance", "set_active_target"),
+    ],
 )
 def test_missing_target_names_a_tool_of_the_active_profile(profile_id, expected):
     """Le message d'erreur ne doit pas renvoyer vers un outil d'un autre profil.
@@ -425,15 +429,26 @@ def _tool_universe() -> set[str]:
     return names
 
 
-def test_no_tool_description_names_a_tool_absent_from_the_active_profile():
+@pytest.mark.parametrize(
+    ("profile_id", "temoins"),
+    [
+        ("i3f", {"set_active_target", "analyze_mrn_model_coverage"}),
+        ("bim_in_motion", {"set_active_model", "full_audit", "generate_avp_i3f_pack"}),
+        ("domofrance", {"set_active_model", "full_audit", "analyze_mrn_model_coverage"}),
+    ],
+)
+def test_no_tool_description_names_a_tool_absent_from_the_active_profile(profile_id, temoins):
     """Les descriptions MCP sont des instructions, et sont lues comme telles.
 
-    Le socle partagé nommait ``set_active_model`` dans trois docstrings. Sous
-    BIM in Motion, le modèle recevait donc la consigne d'appeler un outil que
-    son serveur n'expose pas — plausible, et sans issue. Le contrôle ne vise pas
-    trois noms connus : il rejette **tout** nom d'outil du dépôt qui ne serait
-    pas dans la surface du profil actif, pour que la prochaine fuite échoue
-    aussi.
+    Le socle partagé nommait ``set_active_model`` dans trois docstrings. Sous un
+    profil tiers, le modèle recevait donc la consigne d'appeler un outil que son
+    serveur n'expose pas — plausible, et sans issue. Le contrôle ne vise pas
+    trois noms connus : il rejette **tout** nom d'outil du dépôt absent de la
+    surface du profil actif, pour que la prochaine fuite échoue aussi.
+
+    Appliqué aux **trois** profils. Le réserver aux profils tiers supposerait
+    qu'I3F ne peut pas citer un outil qui ne lui appartient plus — or c'est
+    précisément ce qui arrive quand un outil migre vers un profil frère.
     """
     probe = (
         "import anyio, json\n"
@@ -447,7 +462,7 @@ def test_no_tool_description_names_a_tool_absent_from_the_active_profile():
         capture_output=True,
         text=True,
         cwd=REPO,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(REPO), ACTIVE_PROFILE_ENV: "bim_in_motion"},
+        env={"PATH": "/usr/bin:/bin", "HOME": str(REPO), ACTIVE_PROFILE_ENV: profile_id},
         timeout=180,
     )
     assert result.returncode == 0, result.stderr[-2000:]
@@ -456,7 +471,9 @@ def test_no_tool_description_names_a_tool_absent_from_the_active_profile():
     universe = _tool_universe()
     assert len(universe) > len(descriptions), "prémisse : d'autres outils existent ailleurs"
     forbidden = universe - set(descriptions)
-    assert {"set_active_model", "full_audit", "generate_avp_i3f_pack"} <= forbidden
+    # Témoins : sans eux, un univers mal construit rendrait `forbidden` vide et
+    # le contrôle passerait sur n'importe quel texte.
+    assert temoins <= forbidden, f"témoins absents de l'interdit : {temoins - forbidden}"
 
     offenders = [
         f"{tool} cite {name}"
