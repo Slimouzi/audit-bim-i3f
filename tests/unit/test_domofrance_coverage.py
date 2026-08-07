@@ -279,7 +279,8 @@ def test_table_sans_colonne_largeur_ne_fabrique_pas_de_seuil_opposable():
 def test_document_d_un_autre_schema_est_refuse(tmp_path):
     doc = tmp_path / "autre.json"
     doc.write_text('{"schema": "envelope_quantities/v1"}', encoding="utf-8")
-    with pytest.raises(ValueError, match="ne déclare pas"):
+    # Refus exigé dans les deux modes ; le libellé appartient au validateur actif.
+    with pytest.raises(ValueError):
         cov.read_evidence(str(doc))
 
 
@@ -287,7 +288,7 @@ def test_document_absurde_est_refuse_proprement(tmp_path):
     """Sans ce repli, un `objects: 42` plantait sur un AttributeError illisible."""
     doc = tmp_path / "absurde.json"
     doc.write_text('{"schema": "spatial_evidence/v1", "objects": 42}', encoding="utf-8")
-    with pytest.raises(ValueError, match="doit être une liste"):
+    with pytest.raises(ValueError):
         cov.read_evidence(str(doc))
 
 
@@ -319,7 +320,11 @@ def test_metrique_non_numerique_est_refusee(tmp_path, valeur):
         facts = cov.read_evidence(path)
         assert not facts.has_field("IfcDoor", "opening_width_m")
         return
-    with pytest.raises(ValueError, match="nombre fini attendu"):
+    # Le libellé n'est PAS asserté : selon que bim-core porte le contrat ou non,
+    # le refus vient du contrat ou du filtre local. Ce qui doit tenir dans les
+    # deux modes, c'est le refus lui-même. Les messages propres au filtre local
+    # sont assertés là où lui seul mord (ifc_class vide, booléen).
+    with pytest.raises(ValueError):
         cov.read_evidence(path)
 
 
@@ -341,7 +346,7 @@ def test_bbox_partielle_est_refusee(tmp_path):
         '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
         ' "ifc_class": "IfcStair", "bbox": {"x_min": 0, "x_max": 1}}]}',
     )
-    with pytest.raises(ValueError, match="bornes manquantes"):
+    with pytest.raises(ValueError):
         cov.read_evidence(path)
 
 
@@ -351,7 +356,7 @@ def test_bbox_vide_est_refusee(tmp_path):
         '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
         ' "ifc_class": "IfcStair", "bbox": {}}]}',
     )
-    with pytest.raises(ValueError, match="bornes manquantes"):
+    with pytest.raises(ValueError):
         cov.read_evidence(path)
 
 
@@ -382,8 +387,78 @@ def test_le_chemin_du_fichier_est_nomme_dans_l_erreur(tmp_path):
         '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
         ' "ifc_class": "IfcDoor", "opening_width_m": "large"}]}',
     )
-    with pytest.raises(ValueError, match="preuves.json"):
+    with pytest.raises(ValueError, match="preuves"):
         cov.read_evidence(path)
+
+
+@pytest.fixture
+def contrat_permissif(monkeypatch):
+    """Simule ``bim-core>=0.4`` présent, avec un contrat qui accepte tout.
+
+    Reproduit le mode que ce dépôt aura après le fan-out, quel que soit le
+    ``bim-core`` réellement installé — donc le test vaut aussi bien en CI
+    (``bim-core<0.4``, mode dégradé) que sur un poste déjà adopté.
+
+    Le faux contrat **compte ses appels** : sans ça, une simulation qui ne
+    prendrait pas laisserait le test passer par le chemin dégradé et ne
+    prouverait rien.
+    """
+    import types
+
+    appels = []
+    faux = types.ModuleType("bim_core.contracts")
+    faux.parse_spatial_evidence = lambda doc, **kw: appels.append(doc) or doc
+    monkeypatch.setitem(sys.modules, "bim_core.contracts", faux)
+    return appels
+
+
+@pytest.mark.parametrize(
+    ("champ", "valeur"),
+    (("ifc_class", '"  "'), ("opening_width_m", "true")),
+)
+def test_les_gardefous_locaux_mordent_meme_contrat_present(
+    tmp_path, contrat_permissif, champ, valeur
+):
+    """**Non-vacuité du mode adopté.** Mesuré sur bim-core 0.4.0, le contrat
+    accepte ces deux valeurs : ``ifc_class`` n'est qu'un ``str`` sans contrainte
+    de longueur, et ``True`` est un ``int`` que pydantic coerce en ``1.0`` —
+    une largeur de porte née d'un booléen.
+
+    Ne rejouer le filtre local que dans le mode dégradé ferait donc **perdre**
+    ces deux garde-fous au moment précis où le dépôt adopte ``bim-core>=0.4``.
+    """
+    base = '"global_id": "A", "ifc_class": "IfcDoor"'
+    corps = base if champ == "opening_width_m" else '"global_id": "A"'
+    path = _write(
+        tmp_path,
+        f'{{"schema": "spatial_evidence/v1", "objects": [{{{corps}, "{champ}": {valeur}}}]}}',
+    )
+    with pytest.raises(ValueError):
+        cov.read_evidence(path)
+    assert contrat_permissif, "le faux contrat n'a pas été appelé : simulation sans effet"
+
+
+def test_le_contrat_permissif_accepterait_seul_ces_documents(tmp_path, contrat_permissif):
+    """Contre-épreuve : sans le filtre local, ces documents passeraient.
+
+    Sans elle, le test précédent pourrait réussir pour une raison étrangère au
+    filtre — par exemple si le document était refusé plus tôt.
+    """
+    path = _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
+        ' "ifc_class": "IfcDoor", "opening_width_m": true}]}',
+    )
+    monkey = cov._validate_consumed_fields
+    try:
+        cov._validate_consumed_fields = lambda *a, **k: None
+        facts = cov.read_evidence(path)
+    finally:
+        cov._validate_consumed_fields = monkey
+    assert contrat_permissif, "le faux contrat n'a pas été appelé"
+    assert facts.has_field("IfcDoor", "opening_width_m"), (
+        "sans le filtre local, un booléen serait compté comme une largeur"
+    )
 
 
 def test_un_document_valide_reste_accepte(tmp_path):
