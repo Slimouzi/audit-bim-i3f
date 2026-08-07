@@ -10,7 +10,11 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 ### CI
 
 - `release.yml` est désormais déclenchable manuellement (`workflow_dispatch`)
-  pour un **dry-run**, et `create-release` est conditionné à une ref de tag.
+  pour un **dry-run**, et `create-release` est conditionné à
+  `github.event_name == 'push'` **et** au préfixe de tag de release.
+  Une première version de cette garde ne testait que la ref : un dispatch
+  lancé sur une ref de tag (`gh workflow run --ref <tag>`) l'aurait satisfaite
+  et aurait publié. Tester l'événement est donc nécessaire, pas décoratif.
   Le workflow n'avait plus tourné depuis v0.8.0 : le prochain tag aurait été sa
   première exécution réelle depuis des semaines.
   **Limite explicite** : le dry-run exécute toute la recette *sauf* la

@@ -34,7 +34,7 @@ pip install https://github.com/Slimouzi/audit-bim-mcp/releases/download/audit-bi
 |---|---|
 | `lint` / `test` / `integration` / `security-audit` (×2) | Gates qualité dupliqués de `ci.yml` (besoin de garantir que le commit taggé est validé, sans dépendre du `workflow_run`) |
 | `build` | `python -m build` + `twine check` — produit sdist + wheel uploadés en artifact |
-| `create-release` | Crée la GitHub Release avec les artifacts + release notes auto-générées. **Conditionné à `startsWith(github.ref, 'refs/tags/')`** |
+| `create-release` | Crée la GitHub Release avec les artifacts + release notes auto-générées. **Conditionné à `github.event_name == 'push' && startsWith(github.ref, 'refs/tags/audit-bim-i3f-v')`** |
 
 ### Dry-run — et sa limite, qui n'est pas un détail
 
@@ -43,9 +43,19 @@ gates, les pins first-party, le build, `twine check`, l'installation du wheel
 en venv vierge, `pip check` et le smoke CLI.
 
 `create-release` est **exclu par construction**, pas par prudence de
-l'opérateur : `softprops/action-gh-release` déduit le nom de la release de
-`github.ref`, et un dispatch de branche a `refs/heads/…`. Le job est donc
-`skipped`, ce qui est vérifiable sur le run.
+l'opérateur. La condition teste **l'événement autant que la ref** :
+
+```yaml
+if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/audit-bim-i3f-v')
+```
+
+Tester la seule ref ne suffisait pas, et c'est un piège qui s'est refermé une
+fois : `gh workflow run --ref` accepte **une branche ou un tag**. Un dispatch
+lancé sur `audit-bim-i3f-v0.10.0` aurait satisfait un
+`startsWith(github.ref, 'refs/tags/')` — le chemin censé ne jamais publier
+aurait publié. Une garde peut être présente, lisible, et fausse.
+
+Sur un dispatch, le job est donc `skipped`, ce qui est vérifiable sur le run.
 
 **Ce que le dry-run ne prouvera jamais.** Un `create-release` qui tourne n'est
 plus un dry-run, c'est une publication. Trois énoncés à tenir ensemble :
