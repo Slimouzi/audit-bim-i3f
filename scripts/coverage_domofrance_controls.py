@@ -20,12 +20,14 @@ contrôles d'emmarchement en « géométrie manquante » quand les ``IfcStair`` 
 maquette n'ont aucune boîte englobante — au lieu de les annoncer évaluables
 parce que la phrase contient « giron ≥ 28 cm ».
 
-**Contrat publié, non encore adopté par ce dépôt.** ``spatial_evidence/v1``
-existe dans ``bim-core-v0.4.0`` et son producteur dans
-``ifc-geometry-mcp-v0.6.0``, mais ``audit-bim-mcp`` épingle
-``bim-core>=0.3.0,<0.4`` : l'adoption est un fan-out first-party, pas un bump.
-Ici et en CI, la validation du document est donc **dégradée** — cf.
-:func:`read_evidence`. Le script fonctionne, en le disant.
+**Contrat publié et adopté par ce dépôt.** ``spatial_evidence/v1`` vit dans
+``bim-core-v0.4.0`` et son producteur dans ``ifc-geometry-mcp-v0.6.0`` ;
+``audit-bim-mcp`` épingle désormais ``bim-core>=0.4.0,<0.5``. La validation
+complète du document par le contrat est donc le **chemin nominal**.
+
+Le filtre local sur les champs consommés reste appliqué **après** le contrat :
+celui-ci ne tranche ni un ``ifc_class`` vide ni un booléen coercé en nombre.
+Cf. :func:`read_evidence`.
 
 Usage::
 
@@ -319,16 +321,20 @@ def _validate_entry_fields(entry: dict, where: str) -> None:
 def read_evidence(path: str) -> EvidenceFacts:
     """Lit un ``spatial_evidence/v1`` et relève ce qui y est effectivement rempli.
 
-    La validation passe par ``bim_core`` **quand il porte le contrat** — un
-    document invalide doit être refusé ici plutôt que de fonder une couverture.
+    **Chemin nominal** : ``audit-bim-mcp`` épingle ``bim-core>=0.4.0,<0.5``,
+    donc ``parse_spatial_evidence`` est disponible et valide la structure du
+    document — un document invalide doit être refusé ici plutôt que de fonder
+    une couverture.
 
-    Ce n'est pas le cas dans ce dépôt aujourd'hui : ``audit-bim-mcp`` épingle
-    ``bim-core>=0.3.0,<0.4``, et ``spatial_evidence/v1`` n'apparaît qu'en 0.4.0.
-    Sur cette configuration — celle de la CI — l'import échoue et la validation
-    est **dégradée**. Le repli fait donc lui-même les vérifications de structure
-    minimales, sinon un document étiqueté correctement mais absurde plantait sur
-    un ``AttributeError`` illisible au lieu d'être refusé. Il ne remplace pas le
-    contrat : il refuse proprement ce qui n'est manifestement pas exploitable.
+    ``_validate_shape_degraded`` est un **repli de compatibilité**, pour un
+    environnement où ``bim-core`` serait absent ou antérieur à 0.4. Il fait
+    alors les mêmes vérifications de structure, sinon un document étiqueté
+    correctement mais absurde planterait sur un ``AttributeError`` illisible au
+    lieu d'être refusé. Il ne remplace pas le contrat.
+
+    Dans **les deux cas**, :func:`_validate_consumed_fields` s'applique ensuite :
+    le contrat ne tranche ni un ``ifc_class`` vide ni un booléen coercé en
+    nombre, et ces deux valeurs produiraient une fausse évaluabilité.
     """
     document = json.loads(Path(path).read_text(encoding="utf-8"))
     try:
