@@ -7,6 +7,18 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+### CI
+
+- `release.yml` est désormais déclenchable manuellement (`workflow_dispatch`)
+  pour un **dry-run**, et `create-release` est conditionné à une ref de tag.
+  Le workflow n'avait plus tourné depuis v0.8.0 : le prochain tag aurait été sa
+  première exécution réelle depuis des semaines.
+  **Limite explicite** : le dry-run exécute toute la recette *sauf* la
+  publication. Un push de tag `audit-bim-i3f-v*` reste le seul chemin vers
+  `create-release`, et **le prochain vrai tag sera encore le premier test réel
+  de la création de GitHub Release**. Le risque est réduit à ce job, pas
+  supprimé.
+
 ## [0.10.0] - 2026-08-06
 
 **Aucun changement de surface MCP pour I3F** : 46 outils, mêmes noms, mêmes
