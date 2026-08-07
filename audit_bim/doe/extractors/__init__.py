@@ -38,7 +38,7 @@ def parse_doe(
         path: Chemin (str ou Path) vers le fichier DOE (xlsx, xlsm ou pdf).
         ocr_fallback: Si ``True`` (défaut), bascule sur l'OCR Tesseract
             quand le PDF est détecté comme scanné (peu de texte natif).
-            Nécessite l'install ``audit-bim-i3f[ocr]`` ET le binaire
+            Nécessite l'install ``audit-bim-mcp[ocr]`` ET le binaire
             Tesseract.
         ocr_lang: Langue Tesseract si OCR utilisé (défaut ``"fra"``).
 

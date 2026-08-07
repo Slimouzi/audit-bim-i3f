@@ -182,7 +182,7 @@ def _query_offenders(source: str, package: str) -> list[str]:
 
 
 def test_no_local_query_facade_is_reintroduced():
-    """``audit-bim-i3f`` consomme ``bim-query`` par son API publique, sans couche locale.
+    """``audit-bim-mcp`` consomme ``bim-query`` par son API publique, sans couche locale.
 
     La façade ``audit_bim.query`` a été supprimée une fois le paquet stabilisé.
     Une couche locale « pour dépanner » la reconstituerait sans que rien ne

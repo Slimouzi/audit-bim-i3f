@@ -2,11 +2,11 @@ name: Release
 
 on:
   push:
-    # Le préfixe est celui de la DISTRIBUTION (`audit-bim-i3f`), pas du dépôt :
+    # Le préfixe est celui de la DISTRIBUTION (`audit-bim-mcp`), pas du dépôt :
     # `v*` ne matchait aucun tag réel depuis v0.8.0, et le workflow ne se
     # déclenchait donc plus — sans jamais échouer, puisqu'il ne partait pas.
     tags:
-      - "audit-bim-i3f-v*"
+      - "audit-bim-mcp-v*"
   # Dry-run contrôlé. Ce workflow n'a plus tourné depuis v0.8.0 : le prochain
   # tag aurait été sa première exécution réelle depuis des semaines, découverte
   # un jour de release. Le déclenchement manuel permet de l'éprouver d'abord.
@@ -44,6 +44,12 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Les tags, et tout l'historique. `test_release_trigger.py` confronte
+          # le déclencheur aux tags RÉELLEMENT posés : sans eux, ces contrôles
+          # se contentent de `skip`, et la CI est verte parce qu'ils ne
+          # s'exécutent pas. Un checkout par défaut est superficiel et sans tags.
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
@@ -206,15 +212,15 @@ jobs:
     # Publier n'a de sens que sur un **push de tag de release**.
     #
     # Tester la seule ref ne suffit pas : ``workflow_dispatch`` accepte une ref
-    # de tag (``gh workflow run --ref audit-bim-i3f-v0.10.0``), qui satisferait
+    # de tag (``gh workflow run --ref audit-bim-mcp-v0.11.0``), qui satisferait
     # un ``startsWith(github.ref, 'refs/tags/')`` et publierait — alors même
     # que le dispatch est censé être le chemin qui ne publie pas. D'où le test
     # de l'ÉVÉNEMENT, et pas seulement de la ref.
     #
-    # Le préfixe est complet (``refs/tags/audit-bim-i3f-v``) : un tag nu
+    # Le préfixe est complet (``refs/tags/audit-bim-mcp-v``) : un tag nu
     # ``v0.10.0``, qui ne déclenche déjà pas le workflow, ne doit pas non plus
     # ouvrir cette porte s'il y arrivait autrement.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/audit-bim-i3f-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/audit-bim-mcp-v')
     # Distribution via GitHub Releases uniquement (le projet n'est pas
     # publié sur PyPI). Les artefacts sdist + wheel produits par
     # ``build`` sont attachés à la release GitHub. L'installation

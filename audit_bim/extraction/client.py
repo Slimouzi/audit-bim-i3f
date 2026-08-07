@@ -8,7 +8,7 @@ ne fait plus que câbler le fallback ``config.*`` (``.env``) — aucun transport
 ``_post`` brut ici.
 
 Les garde-fous d'intention (``WritePlan``, ``dry_run``, journal, sandbox,
-``ensure_writes_allowed``) et la logique métier I3F restent dans ``audit-bim-i3f``.
+``ensure_writes_allowed``) et la logique métier I3F restent dans ``audit-bim-mcp``.
 """
 
 from __future__ import annotations

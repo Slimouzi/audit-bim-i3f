@@ -318,7 +318,7 @@ _BIM_IN_MOTION_PROFILE = McpProfile(
         "Profil minimal : il ne doit pas activer le pack AVP I3F.",
         "Second consommateur réel des briques neutres — c'est ce qui rend "
         "mesurable ce qui est vraiment générique.",
-        "Le nouveau MCP doit dépendre des briques génériques, pas de audit-bim-i3f.",
+        "Le nouveau MCP doit dépendre des briques génériques, pas des modules du profil I3F.",
     ),
 )
 

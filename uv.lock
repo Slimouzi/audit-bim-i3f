@@ -79,7 +79,7 @@ wheels = [
 ]
 
 [[package]]
-name = "audit-bim-i3f"
+name = "audit-bim-mcp"
 version = "0.10.0"
 source = { editable = "." }
 dependencies = [
