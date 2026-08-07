@@ -1,4 +1,4 @@
-"""Intégration audit-bim-i3f dans CrewAI.
+"""Intégration audit-bim-mcp dans CrewAI.
 
 Pré-requis :
     pip install crewai crewai-tools mcp

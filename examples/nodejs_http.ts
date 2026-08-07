@@ -1,5 +1,5 @@
 /**
- * Intégration audit-bim-i3f en Node.js via HTTP (transport streamable-http).
+ * Intégration audit-bim-mcp en Node.js via HTTP (transport streamable-http).
  *
  * Côté serveur, dans un terminal séparé :
  *   python -m audit_bim.mcp --transport streamable-http --host 0.0.0.0 --port 8765

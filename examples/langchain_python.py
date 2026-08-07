@@ -1,4 +1,4 @@
-"""Intégration audit-bim-i3f dans LangChain (via langchain-mcp-adapters).
+"""Intégration audit-bim-mcp dans LangChain (via langchain-mcp-adapters).
 
 Pré-requis :
     pip install langchain-mcp-adapters langchain-openai langgraph
@@ -12,7 +12,7 @@ from langgraph.prebuilt import create_react_agent
 async def main():
     client = MultiServerMCPClient(
         {
-            "audit-bim-i3f": {
+            "audit-bim-mcp": {
                 "command": "python",
                 "args": ["-m", "audit_bim.mcp"],
                 "cwd": "/Users/stani/code/MCP/audit-bim-i3f",

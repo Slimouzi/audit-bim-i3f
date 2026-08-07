@@ -1,5 +1,5 @@
 /**
- * Intégration audit-bim-i3f en Node.js / TypeScript via stdio.
+ * Intégration audit-bim-mcp en Node.js / TypeScript via stdio.
  *
  * Prérequis :
  *   npm install @modelcontextprotocol/sdk
