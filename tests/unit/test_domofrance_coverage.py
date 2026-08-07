@@ -7,9 +7,12 @@ d'abord sur la seconde — c'est elle qui distingue Domo-2 d'un classeur de
 mots-clés, et c'est elle qu'une régression ferait sauter en silence.
 
 Tout tourne en CI : les ``EvidenceFacts`` sont construits à la main, aucun
-document ``spatial_evidence/v1`` réel n'est requis. C'est également le mode où
-la validation est **dégradée**, ``bim-core<0.4`` ne portant pas encore le
-contrat — la dégradation est donc éprouvée dans les conditions où elle sert.
+document ``spatial_evidence/v1`` réel n'est requis.
+
+Ce dépôt a **adopté** ``bim-core>=0.4.0,<0.5``, donc la validation complète par
+le contrat est le chemin nominal, ici comme en CI. Les tests qui portent sur le
+**repli de compatibilité** ou sur le **mode adopté** ne dépendent pas du
+``bim-core`` installé : ils simulent explicitement le mode qu'ils éprouvent.
 """
 
 from __future__ import annotations
@@ -272,7 +275,7 @@ def test_table_sans_colonne_largeur_ne_fabrique_pas_de_seuil_opposable():
 
 
 # --------------------------------------------------------------------------
-# Validation dégradée — le mode réel de ce dépôt (bim-core<0.4)
+# Validation des champs consommés — dans les deux modes
 # --------------------------------------------------------------------------
 
 
@@ -395,9 +398,9 @@ def test_le_chemin_du_fichier_est_nomme_dans_l_erreur(tmp_path):
 def contrat_permissif(monkeypatch):
     """Simule ``bim-core>=0.4`` présent, avec un contrat qui accepte tout.
 
-    Reproduit le mode que ce dépôt aura après le fan-out, quel que soit le
-    ``bim-core`` réellement installé — donc le test vaut aussi bien en CI
-    (``bim-core<0.4``, mode dégradé) que sur un poste déjà adopté.
+    Reproduit le mode adopté quel que soit le ``bim-core`` réellement
+    installé — le test vaut donc aussi bien sur un environnement de repli que
+    sur celui, nominal, de ce dépôt.
 
     Le faux contrat **compte ses appels** : sans ça, une simulation qui ne
     prendrait pas laisserait le test passer par le chemin dégradé et ne
@@ -424,8 +427,8 @@ def test_les_gardefous_locaux_mordent_meme_contrat_present(
     de longueur, et ``True`` est un ``int`` que pydantic coerce en ``1.0`` —
     une largeur de porte née d'un booléen.
 
-    Ne rejouer le filtre local que dans le mode dégradé ferait donc **perdre**
-    ces deux garde-fous au moment précis où le dépôt adopte ``bim-core>=0.4``.
+    Ne rejouer le filtre local que dans le repli ferait donc **perdre** ces
+    deux garde-fous — et ce dépôt a adopté ``bim-core>=0.4``.
     """
     base = '"global_id": "A", "ifc_class": "IfcDoor"'
     corps = base if champ == "opening_width_m" else '"global_id": "A"'
@@ -459,6 +462,175 @@ def test_le_contrat_permissif_accepterait_seul_ces_documents(tmp_path, contrat_p
     assert facts.has_field("IfcDoor", "opening_width_m"), (
         "sans le filtre local, un booléen serait compté comme une largeur"
     )
+
+
+# --------------------------------------------------------------------------
+# Provenance du producteur — avertir, jamais refuser
+# --------------------------------------------------------------------------
+
+
+def _doc_version(tmp_path, source: str) -> str:
+    return _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", ' + source + ', "objects": [{"global_id": "A",'
+        ' "ifc_class": "IfcDoor", "opening_width_m": 0.93}], "spaces": []}',
+    )
+
+
+_SOURCE_OK = '"source": {"producer": "ifc-geometry", "tool": "extract_spatial_evidence", '
+
+
+def test_producteur_a_jour_est_silencieux(tmp_path):
+    """0.6.0, producteur et outil attendus : rien à signaler."""
+    facts = cov.read_evidence(_doc_version(tmp_path, _SOURCE_OK + '"version": "0.6.0"}'))
+    assert facts.source_version == "0.6.0"
+    assert facts.provenance.producer == "ifc-geometry"
+    assert facts.provenance.tool == "extract_spatial_evidence"
+    assert facts.warnings == ()
+
+
+def test_un_autre_producteur_a_jour_est_averti_pas_silencieux(tmp_path):
+    """**Non-vacuité de l'identité.** La version seule ne prouve rien.
+
+    Un document tiers déclarant `0.6.0` satisfait le seuil de fraîcheur sans
+    qu'aucun lien ne le rattache à notre producteur. Sans ce contrôle, il
+    passerait en silence — et le rapport l'aurait présenté comme un
+    `ifc-geometry` à jour.
+    """
+    facts = cov.read_evidence(
+        _doc_version(tmp_path, '"source": {"producer": "other", "tool": "x", "version": "0.6.0"}')
+    )
+    assert facts.provenance.producer == "other"
+    assert len(facts.warnings) == 1
+    assert cov.WARN_PRODUCER_UNEXPECTED in facts.warnings[0]
+    # Accepté : les mesures restent exploitables.
+    assert facts.has_field("IfcDoor", "opening_width_m")
+
+
+def test_le_rapport_n_invente_jamais_le_producteur(tmp_path):
+    """Le libellé affiché doit porter le producteur déclaré, pas le nôtre."""
+    facts = cov.read_evidence(
+        _doc_version(tmp_path, '"source": {"producer": "other", "tool": "x", "version": "0.6.0"}')
+    )
+    assert "other" in facts.provenance.label()
+    assert "ifc-geometry" not in facts.provenance.label()
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        '"source": {"producer": "ifc-geometry", "version": "0.6.0"}',
+        '"source": {"tool": "extract_spatial_evidence", "version": "0.6.0"}',
+        '"source": {"producer": "ifc-geometry", "tool": "autre_outil", "version": "0.6.0"}',
+    ),
+)
+def test_producteur_ou_outil_manquant_est_averti(tmp_path, source):
+    """L'identité demande les DEUX champs : l'un sans l'autre ne suffit pas."""
+    facts = cov.read_evidence(_doc_version(tmp_path, source))
+    assert any(cov.WARN_PRODUCER_UNEXPECTED in a for a in facts.warnings)
+
+
+def test_identite_et_fraicheur_sont_deux_axes_independants(tmp_path):
+    """Un producteur tiers ET ancien cumule les deux avertissements."""
+    facts = cov.read_evidence(
+        _doc_version(tmp_path, '"source": {"producer": "other", "tool": "x", "version": "0.5.1"}')
+    )
+    cles = " ".join(facts.warnings)
+    assert cov.WARN_PRODUCER_UNEXPECTED in cles
+    assert cov.WARN_PRODUCER_BELOW_MINIMUM in cles
+    assert len(facts.warnings) == 2
+
+
+def test_producteur_anterieur_est_averti_mais_accepte(tmp_path):
+    """0.5.1 est **prouvé équivalent** à 0.6.0 sur la maquette de référence :
+    le refuser détruirait la seule référence exploitable sans gain de sûreté."""
+    facts = cov.read_evidence(_doc_version(tmp_path, _SOURCE_OK + '"version": "0.5.1"}'))
+    assert facts.source_version == "0.5.1"
+    # Identité correcte : seul l'axe fraîcheur parle.
+    assert len(facts.warnings) == 1
+    assert cov.WARN_PRODUCER_BELOW_MINIMUM in facts.warnings[0]
+    assert "régénérer" in facts.warnings[0]
+    # Accepté : les mesures restent exploitables.
+    assert facts.has_field("IfcDoor", "opening_width_m")
+
+
+@pytest.mark.parametrize(
+    ("version", "declaree"),
+    (('"version": null', None), ('"version": "n/a"', "n/a")),
+)
+def test_version_absente_ou_illisible_est_avertie_plus_fort(tmp_path, version, declaree):
+    """Identité correcte, fraîcheur inconnue : un seul avertissement, le bon.
+
+    `source_version` rend la valeur **déclarée**, même illisible : le rapport
+    doit montrer ce que le document prétend, pas le masquer. C'est
+    `_parse_version` qui tranche la lisibilité.
+    """
+    facts = cov.read_evidence(_doc_version(tmp_path, _SOURCE_OK + version + "}"))
+    assert facts.source_version == declaree
+    assert cov._parse_version(facts.source_version) is None
+    assert len(facts.warnings) == 1
+    assert cov.WARN_SOURCE_VERSION_UNKNOWN in facts.warnings[0]
+    assert facts.has_field("IfcDoor", "opening_width_m")
+
+
+@pytest.mark.parametrize("source", ('"source": {}', '"x": 1'))
+def test_source_absente_cumule_identite_et_fraicheur(tmp_path, source):
+    """Sans `source`, ni l'identité ni la fraîcheur ne sont connues."""
+    facts = cov.read_evidence(_doc_version(tmp_path, source))
+    assert facts.source_version is None
+    cles = " ".join(facts.warnings)
+    assert cov.WARN_PRODUCER_UNEXPECTED in cles
+    assert cov.WARN_SOURCE_VERSION_UNKNOWN in cles
+    assert facts.has_field("IfcDoor", "opening_width_m")
+
+
+def test_payload_invalide_est_refuse_quelle_que_soit_la_version(tmp_path):
+    """La version ne rattrape jamais un document invalide."""
+    for version in ('"0.6.0"', '"0.5.1"', "null"):
+        path = _write(
+            tmp_path,
+            '{"schema": "spatial_evidence/v1", "source": {"version": ' + version + "},"
+            ' "objects": [{"global_id": "A", "ifc_class": "IfcDoor",'
+            ' "opening_width_m": true}]}',
+        )
+        with pytest.raises(ValueError):
+            cov.read_evidence(path)
+
+
+@pytest.mark.parametrize(
+    ("texte", "attendu"),
+    (
+        ("0.6.0", (0, 6, 0)),
+        ("0.6.1", (0, 6, 1)),
+        ("1.0.0", (1, 0, 0)),
+        ("0.6.0rc1", (0, 6, 0)),
+        ("0.5.1", (0, 5, 1)),
+        ("", None),
+        ("n/a", None),
+        (None, None),
+        (0.6, None),
+    ),
+)
+def test_lecture_de_version_tolerante_mais_honnete(texte, attendu):
+    """Un suffixe ne doit pas rendre la version illisible ; un texte non
+    numérique ne doit pas être deviné."""
+    assert cov._parse_version(texte) == attendu
+
+
+def test_la_provenance_ne_deplace_aucun_compteur(tmp_path):
+    """Critère du lot : seul le rapport gagne un avertissement.
+
+    Deux documents identiques au seul `source.version` près doivent produire
+    exactement les mêmes faits mesurés.
+    """
+    dossier_a, dossier_b = tmp_path / "a", tmp_path / "b"
+    dossier_a.mkdir()
+    dossier_b.mkdir()
+    a = cov.read_evidence(_doc_version(dossier_a, _SOURCE_OK + '"version": "0.6.0"}'))
+    b = cov.read_evidence(_doc_version(dossier_b, _SOURCE_OK + '"version": "0.5.1"}'))
+    assert (a.classes_present, a.filled, a.counted) == (b.classes_present, b.filled, b.counted)
+    assert (a.n_spaces_convex, a.n_spaces_with_width) == (b.n_spaces_convex, b.n_spaces_with_width)
+    assert a.warnings == () and len(b.warnings) == 1
 
 
 def test_un_document_valide_reste_accepte(tmp_path):
