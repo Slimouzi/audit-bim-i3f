@@ -25,22 +25,19 @@ resolver ou imposerait un `[tool.uv.override]` — c'est-à-dire exactement la
 dette soldée volontairement. Elle est donc reportée au moment où `audit_bim/`
 consommera réellement `spatial_evidence`.
 
-**Conséquence assumée : la validation est dégradée.** Dans ce dépôt et en CI,
-`from bim_core.contracts import parse_spatial_evidence` échoue, et
+**Conséquence assumée : la validation de structure est dégradée.** Dans ce dépôt
+et en CI, `from bim_core.contracts import parse_spatial_evidence` échoue, et
 `read_evidence` se rabat sur `_validate_shape_degraded`. Le jour où
 `bim-core>=0.4` est installé, la validation complète reprend sans changer une
 ligne d'appel.
 
-### Ce que le repli valide, et pourquoi il n'est pas seulement structurel
+### Deux validations distinctes, pas une
 
-Une première version ne vérifiait que la forme des conteneurs : schéma déclaré,
-`objects`/`spaces` listes de dicts. C'était insuffisant, et pas théoriquement :
-`read_evidence` compte un champ comme renseigné dès qu'il n'est pas `None`.
-Un document portant `opening_width_m: "large"` ou `bbox: {}` aurait donc rendu
-un contrôle **« évaluable » sans qu'aucune mesure exploitable existe** — dans le
-seul mode de validation actuellement disponible.
+Le repli valide **la structure** : schéma déclaré, `objects`/`spaces` listes de
+dicts. C'est exactement le travail que `parse_spatial_evidence` fait à sa place
+quand il est disponible — donc il ne s'exécute que dans le mode dégradé.
 
-Le repli valide donc aussi **les champs réellement consommés** :
+Un **filtre local séparé valide les champs consommés, dans les deux modes** :
 
 | Vérification | Règle |
 |---|---|
@@ -49,14 +46,30 @@ Le repli valide donc aussi **les champs réellement consommés** :
 | `bbox` | si présente : six bornes, toutes numériques finies |
 | Message | nomme le fichier, la collection, l'index et le champ |
 
-Un champ **absent ou `null` reste licite** : c'est une mesure manquante, pas un
-document invalide — et c'est précisément ce que le rapport doit pouvoir compter
-(`non_evaluable_geometry_missing`). Le booléen est exclu explicitement : en
-Python `True` est un `int`, et `opening_width_m: true` passerait pour une
-largeur de 1 m.
+Ce filtre existe parce que `read_evidence` compte un champ comme renseigné dès
+qu'il n'est pas `None` : un document portant `opening_width_m: "large"` ou
+`bbox: {}` rendrait un contrôle **« évaluable » sans qu'aucune mesure
+exploitable existe**.
 
-Ce repli **ne réimplémente pas le schéma**. Il ferme la fausse évaluabilité sur
-les champs dont dépendent les verdicts, et laisse le reste au contrat.
+**Pourquoi il ne peut pas être réservé au mode dégradé.** Mesuré sur
+`bim-core 0.4.0`, `parse_spatial_evidence` **accepte** deux valeurs que le
+rapport ne doit jamais compter comme des mesures :
+
+| Valeur | Contrat `bim-core 0.4` | Filtre local |
+|---|---|---|
+| `ifc_class: "  "` | **accepté** — typé `str`, sans contrainte de longueur | **refusé** |
+| `opening_width_m: true` | **accepté** — `True` est un `int`, coercé en `1.0` | **refusé** |
+
+Une largeur de porte née d'un booléen. Ne rejouer ce filtre que dans le repli
+aurait donc fait **perdre** ces deux garde-fous au moment précis de l'adoption.
+
+**Ce filtre est conservé après adoption de `bim-core>=0.4`** : il s'applique
+après la validation complète comme après le repli, et un test de non-vacuité
+injecte un contrat permissif — en comptant ses appels — pour vérifier qu'il
+mord encore dans le mode adopté.
+
+Il **ne réimplémente pas le schéma**. Il ferme la fausse évaluabilité sur les
+champs dont dépendent les verdicts, et laisse le reste au contrat.
 
 ## Le point du lot : deux conditions, pas une
 
