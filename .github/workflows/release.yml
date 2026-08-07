@@ -203,11 +203,18 @@ jobs:
     name: Create GitHub Release
     needs: [smoke-install]
     runs-on: ubuntu-latest
-    # Publier n'a de sens que sur un tag. ``softprops/action-gh-release``
-    # déduit le nom de la release de ``github.ref`` : sur un dispatch de
-    # branche, il n'y a pas de tag à publier. La garde rend donc le dry-run
-    # sûr par construction plutôt que par précaution de l'opérateur.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Publier n'a de sens que sur un **push de tag de release**.
+    #
+    # Tester la seule ref ne suffit pas : ``workflow_dispatch`` accepte une ref
+    # de tag (``gh workflow run --ref audit-bim-i3f-v0.10.0``), qui satisferait
+    # un ``startsWith(github.ref, 'refs/tags/')`` et publierait — alors même
+    # que le dispatch est censé être le chemin qui ne publie pas. D'où le test
+    # de l'ÉVÉNEMENT, et pas seulement de la ref.
+    #
+    # Le préfixe est complet (``refs/tags/audit-bim-i3f-v``) : un tag nu
+    # ``v0.10.0``, qui ne déclenche déjà pas le workflow, ne doit pas non plus
+    # ouvrir cette porte s'il y arrivait autrement.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/audit-bim-i3f-v')
     # Distribution via GitHub Releases uniquement (le projet n'est pas
     # publié sur PyPI). Les artefacts sdist + wheel produits par
     # ``build`` sont attachés à la release GitHub. L'installation

@@ -80,9 +80,34 @@ def _job_block(workflow: Path, job: str) -> str:
     return "\n".join(corps)
 
 
-#: Garde attendue sur le job qui publie. Une ref de branche
-#: (``refs/heads/…``) ne doit jamais y satisfaire.
-_GARDE_TAG = re.compile(r"if:\s*startsWith\(\s*github\.ref\s*,\s*'refs/tags/'\s*\)")
+#: Condition de publication, lue dans le workflow puis **évaluée**.
+#:
+#: Tester la présence d'une chaîne ne prouve rien sur ce que la condition
+#: autorise. Une garde sur la seule ref — ``startsWith(github.ref,
+#: 'refs/tags/')`` — semble correcte et laisse pourtant publier : un
+#: ``workflow_dispatch`` accepte une ref de tag, donc le chemin censé ne
+#: jamais publier publierait. On extrait l'événement et le préfixe attendus,
+#: et on les confronte à des couples (événement, ref) réalistes.
+_CONDITION = re.compile(
+    r"if:\s*github\.event_name\s*==\s*'(?P<event>\w+)'\s*&&\s*"
+    r"startsWith\(\s*github\.ref\s*,\s*'(?P<prefixe>[^']+)'\s*\)"
+)
+
+
+def _condition_de_publication(workflow: Path) -> tuple[str, str]:
+    """``(événement, préfixe de ref)`` exigés par le job qui publie."""
+    match = _CONDITION.search(_job_block(workflow, "create-release"))
+    assert match, (
+        "create-release ne teste pas (événement ET préfixe de ref) : "
+        "une garde portant sur la seule ref laisse publier un dispatch sur un tag"
+    )
+    return match.group("event"), match.group("prefixe")
+
+
+def _publierait(condition: tuple[str, str], *, event_name: str, ref: str) -> bool:
+    """Évalue la condition du workflow pour un couple (événement, ref)."""
+    event_attendu, prefixe = condition
+    return event_name == event_attendu and ref.startswith(prefixe)
 
 
 def test_the_release_workflow_can_be_dry_run():
@@ -98,31 +123,59 @@ def test_the_release_workflow_can_be_dry_run():
     )
 
 
-def test_the_publishing_job_is_gated_on_a_tag_ref():
-    """Un déclenchement manuel ne doit jamais publier de Release.
+def test_the_publishing_condition_is_derived_from_the_distribution():
+    """La condition doit viser l'événement ``push`` et le préfixe réel."""
+    event, prefixe = _condition_de_publication(RELEASE_WORKFLOW)
+    assert event == "push", event
+    # Préfixe dérivé de la distribution, pas recopié : un renommage qui
+    # oublierait cette ligne échouerait ici.
+    assert prefixe == f"refs/tags/{_distribution_name()}-v", prefixe
 
-    C'est ce qui rend le dry-run sûr **par construction**. Sans cette garde,
-    la sûreté reposerait sur le fait que l'opérateur pense à ne pas lancer le
-    workflow — exactement le genre de garantie qui tient jusqu'au jour où elle
-    ne tient plus.
+
+@pytest.mark.parametrize(
+    ("event_name", "ref", "publie"),
+    [
+        # Le seul chemin autorisé.
+        ("push", "refs/tags/audit-bim-i3f-v0.10.0", True),
+        # Dry-run sur une branche.
+        ("workflow_dispatch", "refs/heads/master", False),
+        # Dry-run lancé SUR UN TAG : `gh workflow run --ref` l'accepte, et
+        # c'est le cas qu'une garde portant sur la seule ref laissait passer.
+        ("workflow_dispatch", "refs/tags/audit-bim-i3f-v0.10.0", False),
+        # Push de branche, et tag nu hors convention.
+        ("push", "refs/heads/master", False),
+        ("push", "refs/tags/v0.10.0", False),
+    ],
+)
+def test_only_a_pushed_release_tag_publishes(event_name, ref, publie):
+    """Un push de tag de release est le **seul** chemin vers la publication.
+
+    C'est la promesse écrite dans ``.github/workflows/README.md``. Elle doit
+    être vérifiée par évaluation de la condition, pas par la présence d'une
+    chaîne : la version précédente de cette garde était présente, lisible, et
+    laissait publier un dispatch lancé sur une ref de tag.
     """
-    assert _GARDE_TAG.search(_job_block(RELEASE_WORKFLOW, "create-release")), (
-        "create-release n'est pas conditionné à une ref de tag"
-    )
+    condition = _condition_de_publication(RELEASE_WORKFLOW)
+    assert _publierait(condition, event_name=event_name, ref=ref) is publie
 
 
 def test_the_publishing_guard_is_not_vacuous():
-    """Le contrôle doit voir l'absence de garde, et refuser une garde trop large."""
-    sans_garde = "    name: Create GitHub Release\n    needs: [smoke-install]\n"
-    assert not _GARDE_TAG.search(sans_garde)
+    """L'évaluateur doit autoriser le cas légitime et voir les gardes faibles.
 
-    # Une garde qui accepterait aussi les branches ne doit pas passer pour
-    # équivalente : c'est précisément le cas qu'on veut exclure.
-    trop_large = "    if: startsWith(github.ref, 'refs/')\n"
-    assert not _GARDE_TAG.search(trop_large)
+    Sans le premier point, une garde qui refuse *tout* passerait chaque test
+    de refus ci-dessus — et la publication ne marcherait jamais.
+    """
+    legitime = ("push", "refs/tags/audit-bim-i3f-v")
+    assert _publierait(legitime, event_name="push", ref="refs/tags/audit-bim-i3f-v0.10.0")
 
-    # Et la forme réelle du fichier doit bien être reconnue.
-    assert _GARDE_TAG.search("    if: startsWith(github.ref, 'refs/tags/')\n")
+    # La garde faible réellement écrite en premier : sans test d'événement,
+    # elle publie sur un dispatch lancé depuis un tag.
+    faible = re.compile(r"if:\s*startsWith\(\s*github\.ref\s*,\s*'refs/tags/'\s*\)")
+    assert not _CONDITION.search("    if: startsWith(github.ref, 'refs/tags/')\n")
+    assert faible.search("    if: startsWith(github.ref, 'refs/tags/')\n")
+
+    # Et une condition absente ne doit pas être lue comme une condition.
+    assert not _CONDITION.search("    name: Create GitHub Release\n")
 
 
 def test_the_release_trigger_matches_the_distribution_name():
