@@ -2,8 +2,11 @@ name: Release
 
 on:
   push:
+    # Le préfixe est celui de la DISTRIBUTION (`audit-bim-i3f`), pas du dépôt :
+    # `v*` ne matchait aucun tag réel depuis v0.8.0, et le workflow ne se
+    # déclenchait donc plus — sans jamais échouer, puisqu'il ne partait pas.
     tags:
-      - "v*"
+      - "audit-bim-i3f-v*"
 
 permissions:
   contents: read

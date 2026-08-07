@@ -12,14 +12,19 @@ Déclenché sur **push** vers `master` et sur **pull request**.
 
 ## `release.yml` — GitHub Release
 
-Déclenché sur **tag `v*`** (ex: `v0.2.1`).
+Déclenché sur **tag `audit-bim-i3f-v*`** (ex: `audit-bim-i3f-v0.10.0`).
+
+Le préfixe est celui de la **distribution**, pas du dépôt. Le workflow a
+longtemps écouté `v*`, qui ne matchait plus aucun tag réel : il ne se
+déclenchait pas, et ne signalait rien — un workflow qui ne part pas n'échoue
+jamais.
 
 **Distribution exclusivement via GitHub Releases** — le projet n'est pas
 publié sur PyPI. Les artefacts sdist + wheel sont attachés à la release
 GitHub et installables soit via téléchargement direct, soit via :
 
 ```bash
-pip install https://github.com/Slimouzi/audit-bim-mcp/releases/download/v0.2.1/audit_bim_i3f-0.2.1-py3-none-any.whl
+pip install https://github.com/Slimouzi/audit-bim-mcp/releases/download/audit-bim-i3f-vX.Y.Z/audit_bim_i3f-X.Y.Z-py3-none-any.whl
 ```
 
 ### Jobs
@@ -40,8 +45,8 @@ vim CHANGELOG.md            # nouvelle section [X.Y.Z]
 git commit -am "chore(release): X.Y.Z"
 git push                    # ouvrir une PR vers master, merger
 git checkout master && git pull --ff-only
-git tag vX.Y.Z
-git push origin vX.Y.Z
+git tag -a audit-bim-i3f-vX.Y.Z -m "audit-bim-i3f X.Y.Z"
+git push origin audit-bim-i3f-vX.Y.Z
 ```
 
 Le workflow `release.yml` se déclenche sur le push du tag, exécute les
