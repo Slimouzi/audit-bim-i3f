@@ -8,34 +8,36 @@ Aucun profil MCP, aucun outil MCP, aucune lecture de maquette : le script lit un
 classeur et un JSON. Suite de Domo-0
 (`docs/scope-domofrance-controls.md`).
 
-## Contrat publié, non encore adopté par ce dépôt
+## Contrat publié **et adopté** par ce dépôt
 
-`spatial_evidence/v1` existe et est publié :
+`spatial_evidence/v1` est publié et consommable ici :
 
 | Brique | Tag | État |
 |---|---|---|
 | Contrat | `bim-core-v0.4.0` | publié, 89 tests |
 | Producteur `extract_spatial_evidence` | `ifc-geometry-mcp-v0.6.0` | publié, 101 tests |
-| **Consommateur `audit-bim-mcp`** | — | **non adopté**, épingle `bim-core>=0.3.0,<0.4` |
+| **Consommateur `audit-bim-mcp`** | — | **adopté**, épingle `bim-core>=0.4.0,<0.5` |
 
-L'adoption n'est pas un bump : cinq paquets first-party
+L'adoption n'a pas été un bump : cinq paquets first-party
 (`bimdata-read`, `bim-query`, `bim-publication`, `bim-audit-engine`,
-`bimdata-write`) contraignent `bim-core<0.4`. La faire maintenant casserait le
-resolver ou imposerait un `[tool.uv.override]` — c'est-à-dire exactement la
-dette soldée volontairement. Elle est donc reportée au moment où `audit_bim/`
-consommera réellement `spatial_evidence`.
+`bimdata-write`) contraignaient `bim-core<0.4`, domaine disjoint de `>=0.4.0`.
+Il a fallu un **fan-out** — bump et retag des cinq — avant de pouvoir adopter
+ici, sous peine de faire échouer le resolver ou d'imposer un
+`[tool.uv.override]`, dette soldée volontairement.
 
-**Conséquence assumée : la validation de structure est dégradée.** Dans ce dépôt
-et en CI, `from bim_core.contracts import parse_spatial_evidence` échoue, et
-`read_evidence` se rabat sur `_validate_shape_degraded`. Le jour où
-`bim-core>=0.4` est installé, la validation complète reprend sans changer une
-ligne d'appel.
+**La validation complète est le chemin nominal.**
+`from bim_core.contracts import parse_spatial_evidence` réussit, et c'est le
+contrat qui valide la structure du document.
+`_validate_shape_degraded` reste un **repli de compatibilité**, pour un
+environnement où `bim-core` serait absent ou antérieur à 0.4 — il n'est plus
+le chemin courant, ni ici ni en CI.
 
 ### Deux validations distinctes, pas une
 
-Le repli valide **la structure** : schéma déclaré, `objects`/`spaces` listes de
-dicts. C'est exactement le travail que `parse_spatial_evidence` fait à sa place
-quand il est disponible — donc il ne s'exécute que dans le mode dégradé.
+La **structure** est validée par `parse_spatial_evidence` : c'est le chemin
+nominal. `_validate_shape_degraded` fait le même travail — schéma déclaré,
+`objects`/`spaces` listes de dicts — uniquement quand le contrat est absent,
+en repli de compatibilité.
 
 Un **filtre local séparé valide les champs consommés, dans les deux modes** :
 
@@ -61,7 +63,8 @@ rapport ne doit jamais compter comme des mesures :
 | `opening_width_m: true` | **accepté** — `True` est un `int`, coercé en `1.0` | **refusé** |
 
 Une largeur de porte née d'un booléen. Ne rejouer ce filtre que dans le repli
-aurait donc fait **perdre** ces deux garde-fous au moment précis de l'adoption.
+aurait donc fait **perdre** ces deux garde-fous au moment précis de l'adoption —
+c'est-à-dire maintenant, la validation complète étant devenue le chemin nominal.
 
 **Ce filtre est conservé après adoption de `bim-core>=0.4`** : il s'applique
 après la validation complète comme après le repli, et un test de non-vacuité
