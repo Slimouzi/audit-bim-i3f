@@ -16,7 +16,7 @@ def test_list_mcp_profiles_tool_payload():
     out = list_mcp_profiles()
     assert out["status"] == "ok"
     assert out["default_profile_id"] == "i3f"
-    assert {p["id"] for p in out["profiles"]} == {"i3f", "bim_in_motion"}
+    assert {p["id"] for p in out["profiles"]} == {"i3f", "bim_in_motion", "domofrance"}
     assert any(m["key"] == "reporting" for m in out["generic_modules"])
 
 
@@ -30,7 +30,7 @@ def test_list_mcp_profiles_unknown_profile_is_structured_error():
     out = list_mcp_profiles("nope")
     assert out["status"] == "error"
     assert out["error"] == "unknown_profile"
-    assert out["available_profile_ids"] == ["i3f", "bim_in_motion"]
+    assert out["available_profile_ids"] == ["i3f", "bim_in_motion", "domofrance"]
 
 
 def test_list_mcp_profiles_is_registered():
@@ -49,7 +49,9 @@ def test_operational_profile_prompt_keys_are_registered():
     valider qu'un seul profil — et ferait passer les autres pour absents.
 
     Ce contrôle annonçait couvrir `bim_in_motion` le jour où sa spécialisation
-    prompt passerait `ready`. C'est arrivé en E5.
+    prompt passerait `ready`. C'est arrivé en E5, puis pour `domofrance` : la
+    liste n'est pas écrite ici, elle se déduit du registre — un profil ajouté
+    est donc couvert sans qu'on y pense.
     """
     ready = [
         profile
@@ -59,7 +61,7 @@ def test_operational_profile_prompt_keys_are_registered():
         ]
         if spec is not None and spec.status == "ready"
     ]
-    assert {p.id for p in ready} == {"i3f", "bim_in_motion"}, [p.id for p in ready]
+    assert {p.id for p in ready} == {"i3f", "bim_in_motion", "domofrance"}, [p.id for p in ready]
 
     repo = Path(__file__).resolve().parents[2]
     for profile in ready:

@@ -36,6 +36,7 @@ import pytest
 GOLDEN_BY_PROFILE = {
     "i3f": Path(__file__).parent / "golden" / "mcp_surface.json",
     "bim_in_motion": Path(__file__).parent / "golden" / "mcp_surface_bim_in_motion.json",
+    "domofrance": Path(__file__).parent / "golden" / "mcp_surface_domofrance.json",
 }
 PROFILES = sorted(GOLDEN_BY_PROFILE)
 
@@ -129,6 +130,53 @@ def test_the_third_party_profile_surface_is_explicit():
         "verify_active_model",
     ]
     assert surface["prompts"] == ["amo_bim_in_motion"]
+
+
+def test_the_domofrance_profile_surface_is_explicit():
+    """Même exigence pour le troisième profil, et pour la même raison.
+
+    Les sept premiers outils sont ceux du socle et le transverse : seul
+    `analyze_domofrance_model_coverage` distingue cette surface de celle du
+    profil frère. Compter huit ne le verrait pas.
+    """
+    surface = _golden_surface("domofrance")
+    assert sorted(surface["tools"]) == [
+        "analyze_domofrance_model_coverage",
+        "check_bimdata_access",
+        "download_model_ifc",
+        "extract_model_snapshot",
+        "list_mcp_profiles",
+        "parse_bimdata_target",
+        "set_active_target",
+        "verify_active_model",
+    ]
+    assert surface["prompts"] == ["amo_bim_domofrance"]
+
+
+def test_the_three_profiles_share_only_the_common_base():
+    """Ce que chaque profil ajoute lui est propre — vérifié, pas supposé.
+
+    Sans ce contrôle, deux profils pourraient converger outil par outil jusqu'à
+    devenir indiscernables, chacun restant conforme à son propre golden.
+    """
+    surfaces = {p: set(_golden_surface(p)["tools"]) for p in PROFILES}
+    commun = set.intersection(*surfaces.values())
+    assert commun == {
+        "check_bimdata_access",
+        "download_model_ifc",
+        "extract_model_snapshot",
+        "list_mcp_profiles",
+        "parse_bimdata_target",
+        "verify_active_model",
+    }, "le socle commun aux trois profils a changé"
+
+    propre = {p: surfaces[p] - commun for p in PROFILES}
+    assert propre["bim_in_motion"] & propre["domofrance"] == {"set_active_target"}, (
+        "hors socle, les deux profils tiers ne doivent partager que leur outil de cible"
+    )
+    assert "analyze_mrn_model_coverage" not in surfaces["domofrance"]
+    assert "analyze_domofrance_model_coverage" not in surfaces["bim_in_motion"]
+    assert "analyze_domofrance_model_coverage" not in surfaces["i3f"]
 
 
 def test_the_two_profiles_do_not_expose_the_same_surface():
