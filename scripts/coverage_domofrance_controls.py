@@ -232,24 +232,15 @@ def _is_finite_number(value: object) -> bool:
 
 
 def _validate_shape_degraded(document: object, path: str) -> None:
-    """Vérifications minimales quand ``bim_core`` ne porte pas encore le contrat.
+    """Vérifications de **structure**, quand ``bim_core`` ne porte pas le contrat.
 
     Volontairement pauvre : c'est un garde-fou, pas une réimplémentation du
     schéma. Il attrape ce qui ferait planter la suite de façon illisible, et
-    nomme le fichier fautif.
+    nomme le fichier fautif. Quand ``parse_spatial_evidence`` est disponible,
+    c'est lui qui fait ce travail — cette fonction n'est alors pas appelée.
 
-    Il valide en revanche **les champs réellement consommés**, et pas seulement
-    la forme des conteneurs. Sans cela, ``opening_width_m: "large"`` ou
-    ``bbox: {}`` seraient comptés comme renseignés par :func:`read_evidence` —
-    qui ne teste que ``is not None`` — et rendraient un contrôle « évaluable »
-    sans qu'aucune mesure exploitable existe. Tant que ``audit-bim-mcp`` épingle
-    ``bim-core<0.4``, ce repli **est** le seul chemin de validation : le laisser
-    permissif sur ces champs-là reviendrait à fonder une couverture sur du
-    texte libre.
-
-    Un champ **absent** ou ``null`` reste licite — c'est une mesure manquante,
-    pas un document invalide, et c'est précisément ce que le rapport doit
-    pouvoir compter.
+    Les champs **consommés**, eux, sont vérifiés dans les deux modes : voir
+    :func:`_validate_consumed_fields`.
     """
     if not isinstance(document, dict):
         raise ValueError(f"{path} : objet JSON attendu, reçu {type(document).__name__}.")
@@ -265,11 +256,37 @@ def _validate_shape_degraded(document: object, path: str) -> None:
                 raise ValueError(
                     f"{path} : `{key}[{index}]` doit être un objet, reçu {type(entry).__name__}."
                 )
-            _validate_entry_degraded(entry, f"{path} : `{key}[{index}]`")
 
 
-def _validate_entry_degraded(entry: dict, where: str) -> None:
-    """Valide les champs consommés d'une entrée. Voir :func:`_validate_shape_degraded`."""
+def _validate_consumed_fields(document: dict, path: str) -> None:
+    """Filtre local sur les champs consommés — appliqué dans **les deux modes**.
+
+    Ce filtre ne double pas le contrat, il le complète là où le contrat ne
+    tranche pas. Mesuré sur ``bim-core 0.4.0``, ``parse_spatial_evidence``
+    **accepte** deux valeurs que le rapport ne doit pourtant jamais compter
+    comme des mesures :
+
+    - ``ifc_class: "  "`` — typé ``str`` sans contrainte de longueur. L'entrée
+      serait comptée sous une classe vide et fausserait tous les ratios.
+    - ``opening_width_m: true`` — en Python ``True`` est un ``int``, donc
+      coercé en ``1.0``. Une largeur de porte de 1 m sortie d'un booléen.
+
+    Ne pas rejouer ce filtre après la validation complète ferait donc
+    **perdre** ces deux garde-fous au moment précis où le dépôt adopte
+    ``bim-core>=0.4`` — une régression silencieuse, et sur l'axe qui compte :
+    la fausse évaluabilité.
+
+    Un champ **absent** ou ``null`` reste licite : c'est une mesure manquante,
+    pas un document invalide, et c'est ce que le rapport doit pouvoir compter.
+    """
+    for key in ("objects", "spaces"):
+        for index, entry in enumerate(document.get(key, []) or []):
+            if isinstance(entry, dict):
+                _validate_entry_fields(entry, f"{path} : `{key}[{index}]`")
+
+
+def _validate_entry_fields(entry: dict, where: str) -> None:
+    """Valide les champs consommés d'une entrée. Voir :func:`_validate_consumed_fields`."""
     ifc_class = entry.get("ifc_class")
     if not isinstance(ifc_class, str) or not ifc_class.strip():
         raise ValueError(f"{where}.ifc_class : chaîne non vide attendue, reçu {ifc_class!r}.")
@@ -320,6 +337,10 @@ def read_evidence(path: str) -> EvidenceFacts:
         _validate_shape_degraded(document, path)
     else:
         parse_spatial_evidence(document, origin=path)
+    # Dans LES DEUX modes. Le contrat ne tranche ni `ifc_class` vide ni le
+    # booléen coercé en nombre : ne pas rejouer ce filtre après la validation
+    # complète ferait perdre ces garde-fous en adoptant bim-core>=0.4.
+    _validate_consumed_fields(document, path)
 
     counted: Counter[str] = Counter()
     filled: Counter[tuple[str, str]] = Counter()
