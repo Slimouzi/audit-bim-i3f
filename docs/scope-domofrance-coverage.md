@@ -74,6 +74,29 @@ mord encore dans le mode adopté.
 Il **ne réimplémente pas le schéma**. Il ferme la fausse évaluabilité sur les
 champs dont dépendent les verdicts, et laisse le reste au contrat.
 
+### Provenance du producteur : avertir, jamais refuser
+
+Le rapport affiche la version du producteur lue dans `source.version`, et
+signale deux situations **sans jamais refuser le document** :
+
+| `source.version` | Comportement |
+|---|---|
+| ≥ `0.6.0` | accepté, aucun avertissement |
+| < `0.6.0` | accepté, `producer_version_below_minimum` — « à régénérer pour lever l'avertissement » |
+| absent ou illisible | accepté, `source_version_unknown` — avertissement plus fort |
+| *payload invalide* | **refusé** par la validation du contrat, quelle que soit la version |
+
+Le choix d'avertir plutôt que de refuser est **mesuré, pas prudent**. Le
+document de référence produit par `0.5.1` a été régénéré avec `0.6.0` sur la
+même maquette : les deux payloads sont **identiques hors `created_at` et
+`source.version`**, `coverage` identique champ par champ, 3362 objets et 316
+espaces de part et d'autre, et les compteurs Domo-2 strictement inchangés.
+Refuser un document dont on a la preuve qu'il est équivalent coûterait la seule
+référence exploitable sans rien gagner en sûreté.
+
+Aucun compteur ne dépend de la provenance : elle qualifie **d'où viennent** les
+mesures, jamais **ce qu'elles valent**.
+
 ## Le point du lot : deux conditions, pas une
 
 Un contrôle n'est déclaré évaluable qu'après **deux** portes :

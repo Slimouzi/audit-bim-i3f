@@ -196,6 +196,11 @@ class EvidenceFacts:
     counted: dict[str, int]
     n_spaces_convex: int
     n_spaces_with_width: int
+    #: Version du producteur lue dans ``source.version``, ``None`` si absente
+    #: ou illisible. Purement informatif : aucun compteur n'en dépend.
+    source_version: str | None = None
+    #: Avertissements de provenance, jamais des refus. Cf. :func:`producer_warnings`.
+    warnings: tuple[str, ...] = ()
 
     def has_field(self, ifc_class: str, field: str) -> bool:
         return self.filled.get((ifc_class, field), 0) > 0
@@ -220,6 +225,69 @@ _NUMERIC_FIELDS = (
 )
 
 _BBOX_KEYS = ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
+
+#: Version de producteur à partir de laquelle un document ne porte aucun
+#: avertissement. C'est la première version publiée sous le tag
+#: ``ifc-geometry-mcp-v0.6.0``, celle qui accompagne ``spatial_evidence/v1``.
+MIN_PRODUCER_VERSION = (0, 6, 0)
+
+#: Clés d'avertissement — **jamais** des motifs de refus.
+WARN_PRODUCER_BELOW_MINIMUM = "producer_version_below_minimum"
+WARN_SOURCE_VERSION_UNKNOWN = "source_version_unknown"
+
+
+def _parse_version(text: object) -> tuple[int, ...] | None:
+    """``"0.6.0"`` → ``(0, 6, 0)``. ``None`` si ce n'est pas lisible.
+
+    Tolérant sur les suffixes (``0.6.0rc1``) : seuls les segments purement
+    numériques de tête sont retenus. Une version illisible n'est pas une erreur,
+    c'est une provenance inconnue — et elle s'annonce comme telle.
+    """
+    if not isinstance(text, str):
+        return None
+    segments: list[int] = []
+    for part in text.strip().split("."):
+        chiffres = ""
+        for c in part:
+            if not c.isdigit():
+                break
+            chiffres += c
+        if not chiffres:
+            break
+        segments.append(int(chiffres))
+    return tuple(segments) or None
+
+
+def producer_warnings(document: dict) -> tuple[str | None, tuple[str, ...]]:
+    """Provenance du document : version lue, et avertissements éventuels.
+
+    **N'émet jamais de refus.** Un payload invalide est rejeté par la validation
+    du contrat, indépendamment de sa version ; ici on ne fait que qualifier la
+    provenance d'un document déjà tenu pour valide.
+
+    Le choix d'avertir plutôt que de refuser est mesuré, pas prudent : le
+    document de référence produit par ``0.5.1`` a été comparé à celui de
+    ``0.6.0`` sur la même maquette, et les deux payloads sont **identiques** hors
+    ``created_at`` et ``source.version``. Refuser un document dont on a la preuve
+    qu'il est équivalent coûterait la seule référence exploitable sans rien
+    gagner en sûreté.
+    """
+    brute = (document.get("source") or {}).get("version")
+    lue = _parse_version(brute)
+    if lue is None:
+        return None, (
+            f"{WARN_SOURCE_VERSION_UNKNOWN} : `source.version` absent ou illisible "
+            f"({brute!r}) — provenance du document inconnue, mesures acceptées "
+            "telles quelles.",
+        )
+    if lue < MIN_PRODUCER_VERSION:
+        attendu = ".".join(str(n) for n in MIN_PRODUCER_VERSION)
+        return brute, (
+            f"{WARN_PRODUCER_BELOW_MINIMUM} : document produit par ifc-geometry "
+            f"{brute}, antérieur à {attendu}. Accepté car compatible — régénérer "
+            "le document pour lever l'avertissement.",
+        )
+    return brute, ()
 
 
 def _is_finite_number(value: object) -> bool:
@@ -348,6 +416,10 @@ def read_evidence(path: str) -> EvidenceFacts:
     # complète ferait perdre ces garde-fous en adoptant bim-core>=0.4.
     _validate_consumed_fields(document, path)
 
+    # Provenance : lue APRÈS la validation, et sans effet sur elle. Un document
+    # invalide est déjà refusé ; une version ancienne n'est qu'un avertissement.
+    source_version, avertissements = producer_warnings(document)
+
     counted: Counter[str] = Counter()
     filled: Counter[tuple[str, str]] = Counter()
     n_spaces_convex = n_spaces_with_width = 0
@@ -374,6 +446,8 @@ def read_evidence(path: str) -> EvidenceFacts:
         counted=dict(counted),
         n_spaces_convex=n_spaces_convex,
         n_spaces_with_width=n_spaces_with_width,
+        source_version=source_version,
+        warnings=avertissements,
     )
 
 
@@ -512,11 +586,17 @@ def print_report(assessments: list[Assessment], facts: EvidenceFacts, tables) ->
 
     print("DOCUMENT DE PREUVES")
     print(f"  schéma                     : {facts.schema}")
+    print(f"  producteur                 : ifc-geometry {facts.source_version or '(inconnu)'}")
     print(f"  classes présentes          : {len(facts.classes_present)}")
     print(
         f"  espaces convexes (≥ {CONVEXITY_RATIO_MIN:.2f}) : "
         f"{facts.n_spaces_convex} / {facts.n_spaces_with_width}"
     )
+
+    # Avertissements de provenance. Aucun compteur n'en dépend : ils qualifient
+    # d'où viennent les mesures, jamais ce qu'elles valent.
+    for avertissement in facts.warnings:
+        print(f"  /!\\ {avertissement}")
 
     controls = [a.control for a in distinct.values()]
     print()

@@ -461,6 +461,99 @@ def test_le_contrat_permissif_accepterait_seul_ces_documents(tmp_path, contrat_p
     )
 
 
+# --------------------------------------------------------------------------
+# Provenance du producteur — avertir, jamais refuser
+# --------------------------------------------------------------------------
+
+
+def _doc_version(tmp_path, source: str) -> str:
+    return _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", ' + source + ', "objects": [{"global_id": "A",'
+        ' "ifc_class": "IfcDoor", "opening_width_m": 0.93}], "spaces": []}',
+    )
+
+
+def test_producteur_a_jour_est_silencieux(tmp_path):
+    """0.6.0 : rien à signaler."""
+    facts = cov.read_evidence(_doc_version(tmp_path, '"source": {"version": "0.6.0"}'))
+    assert facts.source_version == "0.6.0"
+    assert facts.warnings == ()
+
+
+def test_producteur_anterieur_est_averti_mais_accepte(tmp_path):
+    """0.5.1 est **prouvé équivalent** à 0.6.0 sur la maquette de référence :
+    le refuser détruirait la seule référence exploitable sans gain de sûreté."""
+    facts = cov.read_evidence(_doc_version(tmp_path, '"source": {"version": "0.5.1"}'))
+    assert facts.source_version == "0.5.1"
+    assert len(facts.warnings) == 1
+    assert cov.WARN_PRODUCER_BELOW_MINIMUM in facts.warnings[0]
+    assert "régénérer" in facts.warnings[0]
+    # Accepté : les mesures restent exploitables.
+    assert facts.has_field("IfcDoor", "opening_width_m")
+
+
+@pytest.mark.parametrize(
+    "source",
+    ('"source": {}', '"source": {"version": null}', '"source": {"version": "n/a"}', '"x": 1'),
+)
+def test_version_absente_ou_illisible_est_avertie_plus_fort(tmp_path, source):
+    facts = cov.read_evidence(_doc_version(tmp_path, source))
+    assert facts.source_version is None
+    assert len(facts.warnings) == 1
+    assert cov.WARN_SOURCE_VERSION_UNKNOWN in facts.warnings[0]
+    assert facts.has_field("IfcDoor", "opening_width_m")
+
+
+def test_payload_invalide_est_refuse_quelle_que_soit_la_version(tmp_path):
+    """La version ne rattrape jamais un document invalide."""
+    for version in ('"0.6.0"', '"0.5.1"', "null"):
+        path = _write(
+            tmp_path,
+            '{"schema": "spatial_evidence/v1", "source": {"version": ' + version + "},"
+            ' "objects": [{"global_id": "A", "ifc_class": "IfcDoor",'
+            ' "opening_width_m": true}]}',
+        )
+        with pytest.raises(ValueError):
+            cov.read_evidence(path)
+
+
+@pytest.mark.parametrize(
+    ("texte", "attendu"),
+    (
+        ("0.6.0", (0, 6, 0)),
+        ("0.6.1", (0, 6, 1)),
+        ("1.0.0", (1, 0, 0)),
+        ("0.6.0rc1", (0, 6, 0)),
+        ("0.5.1", (0, 5, 1)),
+        ("", None),
+        ("n/a", None),
+        (None, None),
+        (0.6, None),
+    ),
+)
+def test_lecture_de_version_tolerante_mais_honnete(texte, attendu):
+    """Un suffixe ne doit pas rendre la version illisible ; un texte non
+    numérique ne doit pas être deviné."""
+    assert cov._parse_version(texte) == attendu
+
+
+def test_la_provenance_ne_deplace_aucun_compteur(tmp_path):
+    """Critère du lot : seul le rapport gagne un avertissement.
+
+    Deux documents identiques au seul `source.version` près doivent produire
+    exactement les mêmes faits mesurés.
+    """
+    dossier_a, dossier_b = tmp_path / "a", tmp_path / "b"
+    dossier_a.mkdir()
+    dossier_b.mkdir()
+    a = cov.read_evidence(_doc_version(dossier_a, '"source": {"version": "0.6.0"}'))
+    b = cov.read_evidence(_doc_version(dossier_b, '"source": {"version": "0.5.1"}'))
+    assert (a.classes_present, a.filled, a.counted) == (b.classes_present, b.filled, b.counted)
+    assert (a.n_spaces_convex, a.n_spaces_with_width) == (b.n_spaces_convex, b.n_spaces_with_width)
+    assert a.warnings == () and len(b.warnings) == 1
+
+
 def test_un_document_valide_reste_accepte(tmp_path):
     """Le garde-fou ne doit pas devenir un refus généralisé."""
     path = _write(
