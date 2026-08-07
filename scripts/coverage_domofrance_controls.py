@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 import sys
 from collections import Counter
@@ -78,11 +79,19 @@ _ADVISORY = re.compile("|".join(SIGNALS["manual_only"]))
 
 #: Objets que les maquettes de logement ne portent pas : aucune classe IFC ne
 #: leur correspond, donc aucune preuve géométrique ne les décrira jamais.
+#:
+#: **« Rampe d'accès » n'est PAS dans cette liste**, bien qu'elle y ait figuré :
+#: ``IfcRamp`` existe, et une rampe se modélise. La ranger ici affirmait qu'aucune
+#: classe ne peut la porter — une erreur de fond, pas une approximation. Faute de
+#: champ donnant la largeur d'un objet quelconque dans ``spatial_evidence/v1``
+#: (``opening_width_m`` ne vaut que pour les menuiseries), aucune règle ne la
+#: revendique aujourd'hui : elle retombe donc sur le défaut, qui dit qu'il reste
+#: un objet à mapper. Voir ``docs/scope-domofrance-coverage.md``.
 _UNMODELLED = re.compile(
     "miroir|tableau d.affichage|corbeille|essuie.pieds|paillasson|boites? aux lettres|"
     "extincteur|jardiniere|luminaire|interphone|visiophone|thermostat|radiateur|"
     "emetteur|robinet|lave.linge|seche.linge|hotte|plan de travail|evier|cuvette|"
-    "lavabo|rampes? d.acces"
+    "lavabo"
 )
 
 
@@ -185,12 +194,51 @@ class EvidenceFacts:
         return self.filled.get((ifc_class, field), 0) / total
 
 
+#: Champs **consommés** par le registre de règles, plus ``min_rect_width_m`` qui
+#: sert au calcul de convexité. Ce sont exactement ceux dont une valeur absurde
+#: produirait une fausse évaluabilité.
+_NUMERIC_FIELDS = (
+    "opening_width_m",
+    "clear_height_m",
+    "area_declared_m2",
+    "inscribed_diameter_m",
+    "occupancy_area_m2",
+    "min_rect_width_m",
+)
+
+_BBOX_KEYS = ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
+
+
+def _is_finite_number(value: object) -> bool:
+    """Un nombre réel exploitable — ni booléen, ni ``nan``, ni ``inf``.
+
+    ``bool`` est exclu explicitement : en Python ``True`` est un ``int``, et
+    ``opening_width_m: true`` passerait pour une largeur de 1 m.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value)
+
+
 def _validate_shape_degraded(document: object, path: str) -> None:
     """Vérifications minimales quand ``bim_core`` ne porte pas encore le contrat.
 
     Volontairement pauvre : c'est un garde-fou, pas une réimplémentation du
     schéma. Il attrape ce qui ferait planter la suite de façon illisible, et
     nomme le fichier fautif.
+
+    Il valide en revanche **les champs réellement consommés**, et pas seulement
+    la forme des conteneurs. Sans cela, ``opening_width_m: "large"`` ou
+    ``bbox: {}`` seraient comptés comme renseignés par :func:`read_evidence` —
+    qui ne teste que ``is not None`` — et rendraient un contrôle « évaluable »
+    sans qu'aucune mesure exploitable existe. Tant que ``audit-bim-mcp`` épingle
+    ``bim-core<0.4``, ce repli **est** le seul chemin de validation : le laisser
+    permissif sur ces champs-là reviendrait à fonder une couverture sur du
+    texte libre.
+
+    Un champ **absent** ou ``null`` reste licite — c'est une mesure manquante,
+    pas un document invalide, et c'est précisément ce que le rapport doit
+    pouvoir compter.
     """
     if not isinstance(document, dict):
         raise ValueError(f"{path} : objet JSON attendu, reçu {type(document).__name__}.")
@@ -206,6 +254,38 @@ def _validate_shape_degraded(document: object, path: str) -> None:
                 raise ValueError(
                     f"{path} : `{key}[{index}]` doit être un objet, reçu {type(entry).__name__}."
                 )
+            _validate_entry_degraded(entry, f"{path} : `{key}[{index}]`")
+
+
+def _validate_entry_degraded(entry: dict, where: str) -> None:
+    """Valide les champs consommés d'une entrée. Voir :func:`_validate_shape_degraded`."""
+    ifc_class = entry.get("ifc_class")
+    if not isinstance(ifc_class, str) or not ifc_class.strip():
+        raise ValueError(f"{where}.ifc_class : chaîne non vide attendue, reçu {ifc_class!r}.")
+
+    for field in _NUMERIC_FIELDS:
+        if field not in entry or entry[field] is None:
+            continue
+        if not _is_finite_number(entry[field]):
+            raise ValueError(
+                f"{where}.{field} : nombre fini attendu, reçu {entry[field]!r} — "
+                "une mesure absente doit être `null`, jamais une valeur non numérique."
+            )
+
+    bbox = entry.get("bbox")
+    if bbox is None:
+        return
+    if not isinstance(bbox, dict):
+        raise ValueError(f"{where}.bbox : objet attendu, reçu {type(bbox).__name__}.")
+    missing = [k for k in _BBOX_KEYS if k not in bbox]
+    if missing:
+        raise ValueError(
+            f"{where}.bbox : bornes manquantes {missing} — une boîte partielle "
+            "ne mesure rien et serait comptée comme renseignée."
+        )
+    for k in _BBOX_KEYS:
+        if not _is_finite_number(bbox[k]):
+            raise ValueError(f"{where}.bbox.{k} : nombre fini attendu, reçu {bbox[k]!r}.")
 
 
 def read_evidence(path: str) -> EvidenceFacts:
@@ -397,10 +477,22 @@ def print_report(assessments: list[Assessment], facts: EvidenceFacts, tables) ->
     print("DIAGNOSTIC")
     print(f"  controls_total                  : {len(assessments)}")
     print(f"  logical_controls                : {len(distinct)}")
-    print(f"  metric_rule_candidates          : {len(metric_core(controls))}   (noyau Domo-0)")
+    core = {c.identity for c in metric_core(controls)}
+    evaluable_in_core = sum(
+        1
+        for a in distinct.values()
+        if a.status == "evaluable_by_spatial_evidence" and a.control.identity in core
+    )
+    print(f"  metric_rule_candidates          : {len(core)}   (noyau Domo-0)")
     print(f"  rules_claimed                   : {len(RULES)}   (registre)")
+    # Deux dénominateurs, tous deux publiés. Le noyau Domo-0 est la base de
+    # référence cadrée ; le total distinct compte en plus les contrôles qu'une
+    # règle revendique sans qu'ils portent de seuil chiffré. N'en publier qu'un
+    # ferait passer un changement de base pour un mouvement de couverture.
+    print(f"  geometry_evaluable_in_core      : {evaluable_in_core} / {len(core)}   (base cadrée)")
     print(
-        f"  geometry_evaluable_now          : {by_status_distinct['evaluable_by_spatial_evidence']}"
+        f"  geometry_evaluable_now          : "
+        f"{by_status_distinct['evaluable_by_spatial_evidence']} / {len(distinct)}"
     )
     print(
         f"  geometry_blocked_axis_required  : {by_status_distinct['non_evaluable_axis_required']}"

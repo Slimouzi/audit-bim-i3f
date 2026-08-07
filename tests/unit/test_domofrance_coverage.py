@@ -164,10 +164,21 @@ def test_placard_n_est_pas_traite_comme_du_mobilier():
     assert cov._UNMODELLED.search(_normalize("placard")) is None
 
 
-def test_rampe_d_acces_est_vue_malgre_l_apostrophe():
-    """La normalisation Domo-0 transforme « rampes d'accès » en « rampes d
-    acces » — le motif doit tolérer le séparateur."""
-    assert cov._UNMODELLED.search(_normalize("rampes d’accès")) is not None
+def test_rampe_d_acces_n_est_pas_declaree_non_modelisable():
+    """``IfcRamp`` existe : une rampe se modélise.
+
+    La ranger parmi les objets sans classe IFC affirmait le contraire — une
+    erreur de fond, pas une approximation. Faute de champ donnant la largeur
+    d'un objet quelconque dans le contrat, aucune règle ne la revendique
+    encore ; le statut honnête est donc « objet à mapper », jamais
+    « non modélisable ».
+    """
+    texte = "Les rampes d’accès auront une largeur minimale de 3,00 m"
+    assert cov._UNMODELLED.search(_normalize(texte)) is None
+
+    a = cov.assess(_control(texte), _facts())
+    assert a.status != "non_evaluable_not_modeled"
+    assert a.status == "evaluable_with_object_mapping"
 
 
 def test_sans_regle_applicable_le_defaut_est_la_relecture():
@@ -240,6 +251,115 @@ def test_document_absurde_est_refuse_proprement(tmp_path):
     doc.write_text('{"schema": "spatial_evidence/v1", "objects": 42}', encoding="utf-8")
     with pytest.raises(ValueError, match="doit être une liste"):
         cov.read_evidence(str(doc))
+
+
+def _write(tmp_path, body: str) -> str:
+    doc = tmp_path / "preuves.json"
+    doc.write_text(body, encoding="utf-8")
+    return str(doc)
+
+
+@pytest.mark.parametrize(
+    "valeur",
+    ('"large"', "{}", "[]", "true", "null_bis", '"1,20"'),
+)
+def test_metrique_non_numerique_est_refusee(tmp_path, valeur):
+    """Le cœur du repli : `read_evidence` ne compte que `is not None`.
+
+    Sans ce refus, ``opening_width_m: "large"`` serait compté comme renseigné et
+    rendrait le contrôle de largeur de porte « évaluable » — une fausse
+    évaluabilité, dans le seul mode de validation actuellement disponible.
+    """
+    brut = "null" if valeur == "null_bis" else valeur
+    path = _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
+        f' "ifc_class": "IfcDoor", "opening_width_m": {brut}}}]}}',
+    )
+    if valeur == "null_bis":
+        # Une mesure absente est licite : c'est ce que le rapport doit compter.
+        facts = cov.read_evidence(path)
+        assert not facts.has_field("IfcDoor", "opening_width_m")
+        return
+    with pytest.raises(ValueError, match="nombre fini attendu"):
+        cov.read_evidence(path)
+
+
+def test_une_largeur_texte_ne_rend_plus_un_controle_evaluable(tmp_path):
+    """Le scénario complet, de bout en bout, plutôt que la seule exception."""
+    path = _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
+        ' "ifc_class": "IfcDoor", "opening_width_m": "large"}]}',
+    )
+    with pytest.raises(ValueError):
+        cov.read_evidence(path)
+
+
+def test_bbox_partielle_est_refusee(tmp_path):
+    """Une boîte incomplète ne mesure rien mais passait pour renseignée."""
+    path = _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
+        ' "ifc_class": "IfcStair", "bbox": {"x_min": 0, "x_max": 1}}]}',
+    )
+    with pytest.raises(ValueError, match="bornes manquantes"):
+        cov.read_evidence(path)
+
+
+def test_bbox_vide_est_refusee(tmp_path):
+    path = _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
+        ' "ifc_class": "IfcStair", "bbox": {}}]}',
+    )
+    with pytest.raises(ValueError, match="bornes manquantes"):
+        cov.read_evidence(path)
+
+
+def test_ifc_class_vide_est_refusee(tmp_path):
+    """Sans classe, l'entrée serait comptée sous « ? » et fausserait les ratios."""
+    path = _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A", "ifc_class": "  "}]}',
+    )
+    with pytest.raises(ValueError, match="chaîne non vide attendue"):
+        cov.read_evidence(path)
+
+
+def test_un_booleen_n_est_pas_une_mesure(tmp_path):
+    """En Python ``True`` est un ``int`` : sans garde, une largeur de 1 m."""
+    path = _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
+        ' "ifc_class": "IfcDoor", "opening_width_m": true}]}',
+    )
+    with pytest.raises(ValueError, match="nombre fini attendu"):
+        cov.read_evidence(path)
+
+
+def test_le_chemin_du_fichier_est_nomme_dans_l_erreur(tmp_path):
+    path = _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
+        ' "ifc_class": "IfcDoor", "opening_width_m": "large"}]}',
+    )
+    with pytest.raises(ValueError, match="preuves.json"):
+        cov.read_evidence(path)
+
+
+def test_un_document_valide_reste_accepte(tmp_path):
+    """Le garde-fou ne doit pas devenir un refus généralisé."""
+    path = _write(
+        tmp_path,
+        '{"schema": "spatial_evidence/v1", "objects": [{"global_id": "A",'
+        ' "ifc_class": "IfcDoor", "opening_width_m": 0.93,'
+        ' "bbox": {"x_min": 0, "x_max": 1, "y_min": 0, "y_max": 1,'
+        ' "z_min": 0, "z_max": 2}}], "spaces": []}',
+    )
+    facts = cov.read_evidence(path)
+    assert facts.has_field("IfcDoor", "opening_width_m")
+    assert facts.has_field("IfcDoor", "bbox")
 
 
 def test_convexite_est_lue_comme_un_rapport_entre_les_deux_largeurs(tmp_path):
