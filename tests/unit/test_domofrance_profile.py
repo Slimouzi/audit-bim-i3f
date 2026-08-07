@@ -226,11 +226,22 @@ _PROBE = textwrap.dedent(
         "profile": registered_profile_id(),
         "tools": sorted(t.name for t in tools),
         "prompts": sorted(p.name for p in prompts),
-        "i3f_modules": sorted(m for m in sys.modules if "profiles.i3f" in m),
-        "bim_in_motion_modules": sorted(m for m in sys.modules if "profiles.bim_in_motion" in m),
+        "modules": {
+            nom: sorted(m for m in sys.modules if f"profiles.{nom}" in m)
+            for nom in ("i3f", "bim_in_motion", "domofrance")
+        },
     }))
     """
 )
+
+#: Ce que chaque profil doit servir. La sonde mesure **les trois** familles de
+#: modules quel que soit le profil actif : ne relever que celles des frères
+#: prouverait « Domofrance ne charge personne » sans jamais prouver l'inverse.
+PROFILE_PROMPTS = {
+    "i3f": "amo_bim_i3f",
+    "bim_in_motion": "amo_bim_in_motion",
+    "domofrance": "amo_bim_domofrance",
+}
 
 
 def _register_in_subprocess(profile: str) -> dict:
@@ -250,38 +261,35 @@ def _register_in_subprocess(profile: str) -> dict:
     return json.loads(proc.stdout)
 
 
-def test_registering_domofrance_loads_no_sibling_module():
-    """Le contrôle qu'aucune lecture statique ne remplace."""
-    mesure = _register_in_subprocess("domofrance")
-    assert mesure["profile"] == "domofrance"
-    assert mesure["i3f_modules"] == [], mesure["i3f_modules"]
-    assert mesure["bim_in_motion_modules"] == [], mesure["bim_in_motion_modules"]
-    assert mesure["prompts"] == ["amo_bim_domofrance"]
-    assert len(mesure["tools"]) == 8
+@pytest.mark.parametrize("profile", sorted(PROFILE_PROMPTS))
+def test_each_profile_loads_only_its_own_modules(profile):
+    """Isolation croisée à l'exécution, mesurée **dans les trois sens**.
 
+    Une sonde qui ne relèverait que les modules des frères de Domofrance
+    prouverait « Domofrance ne charge personne » et laisserait un frère charger
+    Domofrance sans bruit. Ici chaque profil est activé à son tour, et les trois
+    familles de modules sont relevées à chaque fois.
 
-def test_the_runtime_guard_is_not_vacuous():
-    """Sentinelle : la sonde doit VOIR les modules quand ils sont chargés.
-
-    Sans elle, une sonde qui ne mesurerait rien ferait passer les trois profils
-    pour isolés.
+    La **non-vacuité est intégrée** : on exige que le profil actif charge ses
+    propres modules. Sans cette ligne, une sonde muette ferait passer les trois
+    profils pour isolés.
     """
-    mesure = _register_in_subprocess("bim_in_motion")
-    assert mesure["bim_in_motion_modules"], (
-        "la sonde doit voir les modules du profil actif, sinon elle ne mesure rien"
+    mesure = _register_in_subprocess(profile)
+    assert mesure["profile"] == profile
+    assert mesure["prompts"] == [PROFILE_PROMPTS[profile]]
+    assert mesure["tools"] == sorted(_golden(profile)["tools"]), (
+        "la surface enregistrée doit être exactement celle du golden"
     )
-    assert mesure["i3f_modules"] == []
 
-
-def test_the_sibling_surfaces_are_unchanged():
-    """Ajouter un profil ne doit toucher ni I3F ni BIM in Motion."""
-    i3f = _register_in_subprocess("i3f")
-    assert len(i3f["tools"]) == 46
-    assert i3f["prompts"] == ["amo_bim_i3f"]
-
-    bim = _register_in_subprocess("bim_in_motion")
-    assert len(bim["tools"]) == 8
-    assert bim["prompts"] == ["amo_bim_in_motion"]
+    assert mesure["modules"][profile], (
+        "non-vacuité : la sonde doit voir les modules du profil actif, sinon elle ne mesure rien"
+    )
+    for autre in PROFILE_PROMPTS:
+        if autre == profile:
+            continue
+        assert mesure["modules"][autre] == [], (
+            f"le profil {profile} a chargé des modules de {autre} : {mesure['modules'][autre]}"
+        )
 
 
 # ── 4. Ce que le profil ne fait pas ───────────────────────────────────
