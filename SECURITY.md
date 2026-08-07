@@ -8,7 +8,7 @@ publique.
 
 ## Périmètre durci
 
-Le serveur MCP audit-bim-i3f a été passé à plusieurs revues de
+Le serveur MCP audit-bim-mcp a été passé à plusieurs revues de
 sécurité ; cf. `audit_bim/mcp/security.py` et `audit_bim/safe_paths.py`
 pour les détails. Les axes couverts :
 

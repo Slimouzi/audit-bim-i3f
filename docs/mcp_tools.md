@@ -1,6 +1,6 @@
 # Tools MCP — référence
 
-Le serveur `audit-bim-i3f` expose par défaut **46 tools MCP canoniques** répartis
+Le serveur `audit-bim-mcp` expose par défaut **46 tools MCP canoniques** répartis
 en 6 catégories. Les **8 aliases métier** sont désormais **LEGACY opt-in** (cf.
 [Aliases métier](#aliases-métier--compat-legacy-opt-in)) : absents par défaut, ils
 portent le total à **54** quand ils sont activés.

@@ -1,4 +1,4 @@
-"""Middlewares fastmcp du serveur audit-bim-i3f.
+"""Middlewares fastmcp du serveur audit-bim-mcp.
 
 - :class:`SessionBindingMiddleware` : bind la
   :data:`audit_bim.mcp.session.current_session` à la session du client

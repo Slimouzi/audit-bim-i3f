@@ -1,6 +1,6 @@
 # Exemples d'intégration
 
-Snippets prêts à l'emploi pour intégrer le MCP `audit-bim-i3f` depuis
+Snippets prêts à l'emploi pour intégrer le MCP `audit-bim-mcp` depuis
 différents environnements.
 
 | Fichier | Cible | Transport |

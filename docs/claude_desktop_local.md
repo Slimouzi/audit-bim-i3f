@@ -1,6 +1,6 @@
 # Claude Desktop — branchement local du MCP
 
-Procédure pour utiliser `audit-bim-i3f` depuis **Claude Desktop** en mode
+Procédure pour utiliser `audit-bim-mcp` depuis **Claude Desktop** en mode
 **stdio**. C'est le mode prévu pour un AMO BIM en interactif : un seul
 client (Claude), un canal IPC local, pas d'exposition réseau.
 
@@ -79,7 +79,7 @@ export AUDIT_BIM_ALLOW_WRITES=false
 ```json
 {
   "mcpServers": {
-    "audit-bim-i3f": {
+    "audit-bim-mcp": {
       "command": "/Users/stani/code/MCP/audit-bim-i3f/.venv/bin/audit-bim-mcp",
       "args": ["--transport", "stdio"],
       "cwd": "/Users/stani/code/MCP/audit-bim-i3f"
@@ -108,7 +108,7 @@ Pratique pour tester plusieurs profils sans toucher au `.env` :
 ```json
 {
   "mcpServers": {
-    "audit-bim-i3f": {
+    "audit-bim-mcp": {
       "command": "/Users/stani/code/MCP/audit-bim-i3f/.venv/bin/audit-bim-mcp",
       "args": ["--transport", "stdio"],
       "cwd": "/Users/stani/code/MCP/audit-bim-i3f",
@@ -145,7 +145,7 @@ recharge la config.
    relancer, et **rouvrir une conversation** — les outils ne sont énumérés qu'à
    son ouverture.
 
-2. « **Utilise audit-bim-i3f pour afficher les questions de contexte projet.** »
+2. « **Utilise audit-bim-mcp pour afficher les questions de contexte projet.** »
    Appelle `project_context_questions`. Renvoie les champs manquants
    pour cadrer l'audit (phase, classification, CCH, etc.).
 

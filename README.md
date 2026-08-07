@@ -5,12 +5,19 @@
 > produit. L'ancienne URL redirige, et les tags `audit-bim-i3f-vX.Y.Z` restent
 > résolvables tels quels.
 >
-> **Rien d'autre n'a été renommé, et c'est délibéré.** Le paquet Python reste
+> **Le serveur MCP s'annonce désormais `audit-bim-mcp`.** Il servait trois AMO
+> sous un nom qui n'en désignait qu'un : un profil Domofrance rendu par un
+> serveur se présentant « i3f » disait le premier client au lieu du produit.
+> Le changement est sans effet sur les configurations existantes — dans un
+> client MCP, la **clé** de `mcpServers` est choisie par l'utilisateur, et c'est
+> elle qui nomme le serveur côté agent. Les exemples ci-dessous l'alignent
+> néanmoins sur `audit-bim-mcp`.
+>
+> **Le reste n'a pas été renommé, et c'est délibéré.** Le paquet Python reste
 > `audit_bim`, la distribution `audit-bim-i3f`, l'exécutable `audit-bim-mcp`,
-> le préfixe d'environnement `AUDIT_BIM_*`, et surtout **le nom du serveur MCP
-> reste `audit-bim-i3f`** : il figure dans la configuration Claude de chaque
-> poste. Un nom de dépôt est une adresse ; un nom de serveur MCP est une API
-> utilisateur, et son changement demanderait une fenêtre de migration.
+> le préfixe d'environnement `AUDIT_BIM_*`, et le dossier local. Renommer la
+> distribution changerait le nom du wheel et le préfixe des tags : c'est une
+> migration à part, qui demande sa propre fenêtre.
 
 MCP qui automatise l'**audit de conformité** d'une maquette IFC hébergée sur
 [BIMData.io](https://bimdata.io) au **Cahier des Charges BIM I3F** (CCH V3.x).
@@ -372,7 +379,7 @@ ou `%APPDATA%\Claude\claude_desktop_config.json` (Windows), puis
 ```json
 {
   "mcpServers": {
-    "audit-bim-i3f": {
+    "audit-bim-mcp": {
       "command": "/Users/stani/code/MCP/audit-bim-i3f/.venv/bin/audit-bim-mcp",
       "args": ["--transport", "stdio"],
       "cwd": "/Users/stani/code/MCP/audit-bim-i3f"
@@ -405,7 +412,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 
 client = MultiServerMCPClient({
-    "audit-bim-i3f": {
+    "audit-bim-mcp": {
         "command": "python", "args": ["-m", "audit_bim.mcp"],
         "cwd": "/Users/stani/code/MCP/audit-bim-i3f", "transport": "stdio",
     }

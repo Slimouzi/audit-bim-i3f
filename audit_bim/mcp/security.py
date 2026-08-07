@@ -1,4 +1,4 @@
-"""Briques de sécurité du serveur MCP audit-bim-i3f.
+"""Briques de sécurité du serveur MCP audit-bim-mcp.
 
 Trois axes :
 

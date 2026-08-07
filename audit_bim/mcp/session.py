@@ -1,6 +1,6 @@
 """Isolation de l'état MCP par session client.
 
-Le serveur audit-bim-i3f conserve un état (catalogue d'exigences, client
+Le serveur audit-bim-mcp conserve un état (catalogue d'exigences, client
 BIMData authentifié, snapshot modèle, résultat d'audit). En transport
 ``stdio`` (mono-client), un état global suffit. En transport HTTP / SSE
 multi-clients, deux auditeurs distincts ne doivent pas se voir.

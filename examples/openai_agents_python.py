@@ -1,4 +1,4 @@
-"""Intégration audit-bim-i3f dans OpenAI Agents SDK.
+"""Intégration audit-bim-mcp dans OpenAI Agents SDK.
 
 Pré-requis :
     pip install openai-agents
