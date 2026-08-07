@@ -18,14 +18,11 @@ le contrat est le chemin nominal, ici comme en CI. Les tests qui portent sur le
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-
-import coverage_domofrance_controls as cov  # noqa: E402
-from inventory_domofrance_controls import (  # noqa: E402
+from audit_bim.profiles.domofrance import coverage as cov
+from audit_bim.profiles.domofrance.controls import (
     NUMERIC_THRESHOLD,
     Control,
     SurfaceTable,
@@ -167,7 +164,7 @@ def test_vocabulaire_d_appreciation_prime_sur_une_geometrie_mesurable():
 
 def test_le_vocabulaire_consultatif_est_celui_de_domo0():
     """Deux listes divergeraient sans que rien ne le signale."""
-    from inventory_domofrance_controls import SIGNALS
+    from audit_bim.profiles.domofrance.controls import SIGNALS
 
     for motif in SIGNALS["manual_only"]:
         assert cov._ADVISORY.search(f" {motif} ")
