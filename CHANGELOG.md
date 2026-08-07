@@ -7,6 +7,56 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-06
+
+**Aucun changement de surface MCP pour I3F** : 46 outils, mêmes noms, mêmes
+paramètres, même prompt `amo_bim_i3f`. Le profil **BIM in Motion** passe de 3 à
+8 outils et reçoit son premier livrable réel : la mesure de couverture du
+référentiel MRN.
+
+Cette version publie un **outil de diagnostic, pas un moteur de conformité**.
+La distinction est le résultat de la mesure, pas une prudence de langage : sur
+la maquette de référence, 136 exigences sur 1 013 sont évaluables (13,4 %). Un
+moteur qui trancherait « non conforme » sur ce qu'il ne peut pas évaluer
+produirait **877 faux constats** — un livrable chiffré, crédible et faux.
+
+### Added (profil BIM in Motion — référentiel MRN)
+
+- `analyze_mrn_model_coverage` : mesure la couverture du référentiel MRN sur la
+  maquette BIMData active. Renvoie `false_non_conformity_risk` — le nombre de
+  faux constats qu'aurait produits un moteur de conformité. **N'écrit jamais**
+  dans la grille de contrôle du client et n'émet aucun statut de conformité.
+  Le porteur actif (`active_carriers`) est déclaré par l'appelant, jamais déduit
+  du nom de la maquette.
+- Inventaire du gabarit de grille MRN : 96 lignes de contrôle, 26 sections,
+  1 chapitre racine, dernière ligne 134. La section n'est jamais inférée par
+  position — les sections du fichier réel ne sont pas ordonnées.
+- Parsing de la table des attributs, **layout-aware par feuille** : 1 013
+  exigences, 4 620 cellules d'applicabilité. Les feuilles techniques portent la
+  propriété attendue en colonne G, la feuille Généralités en D ; lire D partout
+  ne voyait que 178 exigences.
+- Diagnostic des Psets manquants (`diagnose_pset_gap`) : 197 exigences bloquées,
+  **21** dont la propriété exacte est retrouvée sur une classe compatible, 176
+  sans candidat. Un candidat porte sur **une exigence**, jamais sur un couple de
+  Psets — voir `docs/scope-mrn-pset-mapping.md`.
+
+### Removed
+
+- Ré-exports `server.<tool>` : les appels passent par les modules d'outils.
+- Façade `audit_bim/query` : les imports visent directement `bim_query`.
+- Façade `reporting/bimdata_brand` conservée après mesure — elle **définit** le
+  chemin de recherche du logo ; la retirer aurait fait disparaître la marque des
+  livrables sans lever d'erreur.
+
+### Changed
+
+- Dépôt renommé `Slimouzi/audit-bim-i3f` → **`Slimouzi/audit-bim-mcp`**.
+  L'identité produit est inchangée : distribution `audit-bim-i3f`, exécutable
+  `audit-bim-mcp`, préfixe `AUDIT_BIM_*`, serveur MCP `audit-bim-i3f`. Les tags
+  restent préfixés `audit-bim-i3f-`.
+- Le registre de profils et la documentation annoncent la surface réellement
+  exposée.
+
 ## [0.9.0] - 2026-08-05
 
 **Aucun changement de surface MCP pour I3F** : 46 outils, mêmes noms, mêmes
