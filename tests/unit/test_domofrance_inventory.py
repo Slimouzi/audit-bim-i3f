@@ -27,14 +27,11 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-
-import inventory_domofrance_controls as inv  # noqa: E402
+from audit_bim.profiles.domofrance import controls as inv
 
 #: Le classeur du client, hors dépôt. Surchargeable pour ne pas figer le poste
 #: de celui qui a écrit le test.

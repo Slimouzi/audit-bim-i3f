@@ -149,7 +149,8 @@ nombre ; `2,5*` en est un, l'astérisque étant un renvoi de note.
 
 | Fichier | Rôle |
 |---|---|
-| `scripts/inventory_domofrance_controls.py` | inventaire — `--summary` (défaut) et `--csv` |
+| `audit_bim/profiles/domofrance/controls.py` | la logique : lecture du classeur, signaux, tables de surfaces, rendu |
+| `scripts/inventory_domofrance_controls.py` | point d'entrée CLI — `--summary` (défaut) et `--csv` |
 | `tests/unit/test_domofrance_inventory.py` | 25 tests : 22 `[CI]` + 3 `[CLASSEUR]` |
 | `tests/unit/domofrance_controls_shape.json` | forme anonymisée du classeur |
 | `docs/scope-domofrance-controls.md` | ce document |

@@ -317,6 +317,7 @@ paraîtrait complet.
 
 | Fichier | Rôle |
 |---|---|
-| `scripts/coverage_domofrance_controls.py` | couverture — `--csv` pour relecture |
+| `audit_bim/profiles/domofrance/coverage.py` | la logique : registre de règles, statuts, provenance, rendu |
+| `scripts/coverage_domofrance_controls.py` | point d'entrée CLI — `--csv` pour relecture |
 | `tests/unit/test_domofrance_coverage.py` | 33 tests, **tous en CI**, sans fichier client |
 | `docs/scope-domofrance-coverage.md` | ce document |
