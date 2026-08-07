@@ -110,6 +110,13 @@ class Rule:
     ifc_class: str
     needs_convexity: bool = False
     note: str = ""
+    #: Non vide ⇒ la famille est revendiquée **pour la traçabilité seulement** :
+    #: aucun champ du contrat ne la mesure, et ``field`` n'en est qu'une
+    #: approximation insuffisante. Le contrôle est alors non évaluable quoi que
+    #: porte la maquette. Sans ce verrou, une valeur *correcte* mais qui n'est
+    #: pas la *bonne preuve* rendrait le contrôle évaluable — la même fausse
+    #: évaluabilité que sur une valeur absurde, mais sur l'axe sémantique.
+    insufficient_reason: str = ""
 
     def matches(self, text: str) -> bool:
         return bool(re.search(self.pattern, text))
@@ -161,6 +168,10 @@ RULES: tuple[Rule, ...] = (
         pattern="emmarchement|giron|hauteur de marche|nez de marche|marches",
         field="bbox",
         ifc_class="IfcStair",
+        insufficient_reason=(
+            "giron et hauteur de marche absents de spatial_evidence/v1 ; "
+            "la bbox de l'escalier ne les mesure pas"
+        ),
         note="Demanderait la géométrie des marches, pas la boîte de l'escalier.",
     ),
     Rule(
@@ -379,6 +390,14 @@ def assess(control: Control, facts: EvidenceFacts) -> Assessment:
     for rule in RULES:
         if not rule.matches(text):
             continue
+        # Avant toute lecture de la maquette : si le contrat n'a pas de champ qui
+        # mesure cette famille, aucun état du modèle ne peut rendre le contrôle
+        # évaluable. Ce blocage prime donc sur la présence de la classe — dire
+        # « classe absente » suggérerait qu'il suffirait de la modéliser.
+        if rule.insufficient_reason:
+            return Assessment(
+                control, "non_evaluable_geometry_missing", rule.key, rule.insufficient_reason
+            )
         if rule.ifc_class not in facts.classes_present:
             return Assessment(
                 control,
@@ -514,12 +533,22 @@ def print_report(assessments: list[Assessment], facts: EvidenceFacts, tables) ->
     print("RÈGLES DU REGISTRE — ce que chacune revendique")
     for rule in RULES:
         claimed = sum(1 for a in distinct.values() if a.rule == rule.key)
-        available = (
-            "disponible" if facts.has_field(rule.ifc_class, rule.field) else "ABSENT du document"
-        )
+        if rule.insufficient_reason:
+            # Ne jamais afficher « disponible » pour une famille que le contrat
+            # ne mesure pas : le champ peut être renseigné sans être la preuve.
+            available = "INSUFFISANT (contrat)"
+        elif facts.has_field(rule.ifc_class, rule.field):
+            available = "disponible"
+        else:
+            available = "ABSENT du document"
         print(
             f"  {rule.key:24} {claimed:4} contrôles  {rule.ifc_class}.{rule.field:22} {available}"
         )
+
+    print()
+    print("SEUILS DU CLASSEUR — indicatifs vs opposables")
+    for nature in surface_natures(tables):
+        print(f"  {nature['table']:22} {nature['nature']:26} {nature['portee']}")
 
     print()
     print("AUTO-AUDIT — le noyau Domo-0 qu'aucune règle ne revendique")

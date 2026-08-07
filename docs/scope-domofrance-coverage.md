@@ -78,10 +78,37 @@ sont revendiqués par la règle `emmarchement`. Le classement lexical les
 annoncerait évaluables : la phrase porte une grandeur et un seuil chiffré.
 
 Le document dit autre chose. Il contient bien **24 `IfcStair`** — donc « pas
-d'escalier dans la maquette » est faux — mais `bbox` y est renseignée sur
-**0** d'entre eux. Statut rendu : `non_evaluable_geometry_missing`, et non
-`non_evaluable_not_modeled`. Les deux causes n'appellent pas la même action :
-l'une est une lacune de maquette, l'autre un périmètre d'extraction à élargir.
+d'escalier dans la maquette » est faux — mais `bbox` n'y est renseignée sur
+aucun. La distinction `non_evaluable_geometry_missing` / `non_evaluable_not_modeled`
+est ce qui sépare une lacune de maquette d'un périmètre d'extraction à élargir.
+
+### Troisième porte : un champ renseigné n'est pas forcément la bonne preuve
+
+La seconde porte vérifie qu'un champ est **rempli**. Elle ne vérifie pas qu'il
+**mesure la bonne chose**. Sur l'emmarchement, la note de la règle le dit
+elle-même : la boîte englobante de l'escalier ne donne ni giron ni hauteur de
+marche. Or une maquette dont les `IfcStair` portent une bbox aurait rendu ces
+contrôles `evaluable_by_spatial_evidence` — une valeur correcte, mais qui n'est
+pas la preuve demandée. Même défaut que la fausse évaluabilité sur une valeur
+absurde, sur l'axe **sémantique** au lieu de l'axe des valeurs.
+
+Une règle peut donc porter `insufficient_reason`. Quand c'est le cas, elle reste
+dans le registre — la traçabilité est le but : sans elle, les cinq contrôles
+disparaîtraient dans `manual_review_required` et le manque serait invisible —
+mais le contrôle est **non évaluable quoi que porte la maquette** :
+
+```
+emmarchement  5 contrôles  IfcStair.bbox   INSUFFISANT (contrat)
+```
+
+Le verrou est placé **avant** le test de présence de la classe. Répondre
+« classe absente » suggérerait qu'il suffirait de modéliser les escaliers ; c'est
+faux, le contrat n'a pas le champ. Un test de **non-vacuité** l'éprouve avec
+`IfcStair.bbox` renseignée sur 100 % des objets — sans lui, le bon statut ne
+sortirait que par accident, la bbox étant vide sur cette maquette.
+
+Une règle `emmarchement` deviendra évaluable le jour où `spatial_evidence/v1`
+portera la géométrie des marches — pas avant.
 
 ## Les sept statuts
 
@@ -182,7 +209,7 @@ Six règles, chacune nommant le champ qu'elle lirait — donc chacune réfutable
 | `hauteur_sous_plafond` | `clear_height_m` | `IfcSpace` | 2 | disponible |
 | `surface_local` | `area_declared_m2` | `IfcSpace` | 6 | disponible |
 | `largeur_espace` | `inscribed_diameter_m` | `IfcSpace` | 1 | disponible |
-| `emmarchement` | `bbox` | `IfcStair` | 5 | **ABSENT** |
+| `emmarchement` | `bbox` | `IfcStair` | 5 | **INSUFFISANT (contrat)** — verrou `insufficient_reason` |
 | `encombrement_local` | `occupancy_area_m2` | `IfcSpace` | 2 | disponible |
 
 `largeur_espace` porte `needs_convexity` : le cercle inscrit ne vaut la largeur
@@ -235,5 +262,5 @@ paraîtrait complet.
 | Fichier | Rôle |
 |---|---|
 | `scripts/coverage_domofrance_controls.py` | couverture — `--csv` pour relecture |
-| `tests/unit/test_domofrance_coverage.py` | 30 tests, **tous en CI**, sans fichier client |
+| `tests/unit/test_domofrance_coverage.py` | 33 tests, **tous en CI**, sans fichier client |
 | `docs/scope-domofrance-coverage.md` | ce document |

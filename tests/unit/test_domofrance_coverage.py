@@ -92,17 +92,55 @@ def test_champ_prevu_mais_vide_bloque_l_evaluabilite():
 
 
 def test_classe_absente_du_document_est_distinguee_du_champ_vide():
-    """« Pas d'escalier dans la maquette » ≠ « escaliers sans géométrie »."""
-    a = cov.assess(_control(MARCHE), _facts())
-    assert a.status == "non_evaluable_not_modeled"
-    assert a.rule == "emmarchement"
-    assert "IfcStair" in a.reason
+    """« Pas de porte dans la maquette » ≠ « portes sans largeur mesurée ».
 
-    b = cov.assess(
-        _control(MARCHE),
-        _facts(classes=("IfcStair",), filled={}, counted={"IfcStair": 24}),
+    Démontré sur `porte_largeur_passage` et non sur l'emmarchement : cette
+    dernière est verrouillée `insufficient_reason`, donc elle ne peut plus
+    illustrer la distinction — elle rend toujours le même statut.
+    """
+    absente = cov.assess(_control(PORTE), _facts(classes=("IfcSpace",), filled={}))
+    assert absente.status == "non_evaluable_not_modeled"
+    assert absente.rule == "porte_largeur_passage"
+    assert "IfcDoor" in absente.reason
+
+    vide = cov.assess(_control(PORTE), _facts(filled={}))
+    assert vide.status == "non_evaluable_geometry_missing"
+    assert "0 objet" in vide.reason
+
+
+def test_emmarchement_reste_non_evaluable_meme_avec_bbox_renseignee():
+    """Test de **non-vacuité** : le verrou ne doit pas dépendre d'un champ vide.
+
+    Sur la maquette de référence, `IfcStair.bbox` n'est renseigné sur aucun
+    objet — le statut correct sort donc « par accident ». Ici la bbox est
+    renseignée sur 100 % des escaliers, et le contrôle doit **rester** non
+    évaluable : une valeur correcte existe, mais ce n'est pas la bonne preuve.
+    Le giron ne se déduit pas d'une boîte englobante.
+    """
+    facts = _facts(
+        classes=("IfcStair",),
+        filled={("IfcStair", "bbox"): 24},
+        counted={"IfcStair": 24},
     )
-    assert b.status == "non_evaluable_geometry_missing"
+    a = cov.assess(_control(MARCHE), facts)
+    assert a.status == "non_evaluable_geometry_missing"
+    assert a.rule == "emmarchement"
+    assert "giron" in a.reason
+    assert "bbox" in a.reason
+
+
+def test_emmarchement_reste_dans_le_registre_pour_la_tracabilite():
+    """La famille est revendiquée : c'est ce qui rend le manque visible."""
+    emmarchement = next(r for r in cov.RULES if r.key == "emmarchement")
+    assert emmarchement.insufficient_reason
+    assert cov.assess(_control(MARCHE), _facts()).rule == "emmarchement"
+
+
+def test_une_regle_suffisante_reste_evaluable():
+    """Contre-épreuve : le verrou ne gèle pas tout le registre."""
+    porte = next(r for r in cov.RULES if r.key == "porte_largeur_passage")
+    assert not porte.insufficient_reason
+    assert cov.assess(_control(PORTE), _facts()).status == "evaluable_by_spatial_evidence"
 
 
 def test_le_document_ne_decide_jamais_de_la_conformite():
