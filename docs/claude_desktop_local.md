@@ -7,7 +7,7 @@ client (Claude), un canal IPC local, pas d'exposition réseau.
 ## Pré-requis
 
 ```bash
-cd /Users/stani/code/MCP/audit-bim-i3f
+cd /Users/stani/code/MCP/audit-bim-mcp
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e ".[test,ocr]"
@@ -80,9 +80,9 @@ export AUDIT_BIM_ALLOW_WRITES=false
 {
   "mcpServers": {
     "audit-bim-mcp": {
-      "command": "/Users/stani/code/MCP/audit-bim-i3f/.venv/bin/audit-bim-mcp",
+      "command": "/Users/stani/code/MCP/audit-bim-mcp/.venv/bin/audit-bim-mcp",
       "args": ["--transport", "stdio"],
-      "cwd": "/Users/stani/code/MCP/audit-bim-i3f"
+      "cwd": "/Users/stani/code/MCP/audit-bim-mcp"
     }
   }
 }
@@ -109,15 +109,15 @@ Pratique pour tester plusieurs profils sans toucher au `.env` :
 {
   "mcpServers": {
     "audit-bim-mcp": {
-      "command": "/Users/stani/code/MCP/audit-bim-i3f/.venv/bin/audit-bim-mcp",
+      "command": "/Users/stani/code/MCP/audit-bim-mcp/.venv/bin/audit-bim-mcp",
       "args": ["--transport", "stdio"],
-      "cwd": "/Users/stani/code/MCP/audit-bim-i3f",
+      "cwd": "/Users/stani/code/MCP/audit-bim-mcp",
       "env": {
         "BIMDATA_API_KEY": "REPLACE_ME",
         "BIMDATA_CLOUD_ID": "REPLACE_ME",
         "BIMDATA_PROJECT_ID": "REPLACE_ME",
         "BIMDATA_MODEL_ID": "REPLACE_ME",
-        "AUDIT_OUTPUT_DIR": "/Users/stani/code/MCP/audit-bim-i3f/out"
+        "AUDIT_OUTPUT_DIR": "/Users/stani/code/MCP/audit-bim-mcp/out"
       }
     }
   }
@@ -182,7 +182,7 @@ après revue).
 | Symptôme | Cause probable | Correctif |
 |---|---|---|
 | Claude ne voit pas le serveur MCP | Config pas rechargée | **Quitter** Claude Desktop (menu Claude → Quit), pas juste fermer la fenêtre, puis relancer. |
-| `command not found: audit-bim-mcp` | Chemin venv incorrect dans la config | Vérifier le chemin absolu `~/code/MCP/audit-bim-i3f/.venv/bin/audit-bim-mcp` (existe + est exécutable). |
+| `command not found: audit-bim-mcp` | Chemin venv incorrect dans la config | Vérifier le chemin absolu `~/code/MCP/audit-bim-mcp/.venv/bin/audit-bim-mcp` (existe + est exécutable). |
 | Erreur d'auth BIMData (401/403) | `BIMDATA_API_KEY` manquante / périmée / mauvais scope | Régénérer la clé depuis l'interface BIMData du cloud cible. Vérifier `BIMDATA_CLOUD_ID` / `..._PROJECT_ID` / `..._MODEL_ID`. |
 | `Aucune adresse exploitable` | `I3F_CCH_PDF` / `I3F_DATA_SPEC_XLSX` / `I3F_NAMING_SPEC_XLSX` non définis ou chemins invalides | Mettre des chemins **absolus** existants dans `.env` ou env inline. |
 | `OCR Tesseract not found` | Binaire `tesseract` manquant | `brew install tesseract poppler` (macOS) ou équivalent Linux. |

@@ -16,7 +16,7 @@ async function main() {
   const transport = new StdioClientTransport({
     command: "python",
     args: ["-m", "audit_bim.mcp"],
-    cwd: "/Users/stani/code/MCP/audit-bim-i3f",
+    cwd: "/Users/stani/code/MCP/audit-bim-mcp",
   });
 
   const client = new Client(

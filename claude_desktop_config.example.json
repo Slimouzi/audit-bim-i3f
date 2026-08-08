@@ -4,25 +4,24 @@
     "pour exposer plusieurs AMO, déclarer plusieurs serveurs, chacun avec son",
     "AUDIT_BIM_PROFILE. Le serveur principal, sans variable, sert le profil par",
     "défaut i3f et ses 46 outils.",
-    "Le chemin `cwd` est celui du dépôt local, dont le nom de dossier n'a pas ete",
-    "renomme."
+    "Le chemin `cwd` est celui du depot local. Adaptez-le a votre machine."
   ],
   "mcpServers": {
     "audit-bim-mcp": {
       "command": "python",
       "args": ["-m", "audit_bim.mcp"],
-      "cwd": "/Users/stani/code/MCP/audit-bim-i3f"
+      "cwd": "/Users/stani/code/MCP/audit-bim-mcp"
     },
     "audit-bim-mcp-bim-in-motion": {
       "command": "python",
       "args": ["-m", "audit_bim.mcp"],
-      "cwd": "/Users/stani/code/MCP/audit-bim-i3f",
+      "cwd": "/Users/stani/code/MCP/audit-bim-mcp",
       "env": { "AUDIT_BIM_PROFILE": "bim_in_motion" }
     },
     "audit-bim-mcp-domofrance": {
       "command": "python",
       "args": ["-m", "audit_bim.mcp"],
-      "cwd": "/Users/stani/code/MCP/audit-bim-i3f",
+      "cwd": "/Users/stani/code/MCP/audit-bim-mcp",
       "env": { "AUDIT_BIM_PROFILE": "domofrance" }
     }
   }
