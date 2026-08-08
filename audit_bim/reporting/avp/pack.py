@@ -303,7 +303,35 @@ def write_avp_i3f_report_pack(
     if contamines:
         raise AvpQaError(contamines, kind="external_tool_mention")
 
+    # ── QA gate : anti-enveloppe calculée sans filtre I3F ───────────────
+    # Le contrat d'enveloppe déclare le filtre RÉELLEMENT appliqué
+    # (``diagnostics.filters.mode``). En mode ``geometric``, le backend retient
+    # les murs sur un critère purement géométrique : sur une maquette ArchiCAD
+    # I3F, il compte des cloisons et des refends que le gabarit n'attend pas, et
+    # rejette au passage des types d'enveloppe légitimes.
+    #
+    # Le livrable produit alors des chiffres plausibles et faux — un total façade
+    # gonflé, des lignes métier en trop, et un type attendu manquant. C'est la
+    # forme la plus coûteuse d'erreur : elle ne se voit pas à la lecture du
+    # fichier, seulement en le comparant au modèle de référence.
+    #
+    # Le mode attendu pour un pack I3F est ``layer_type_filter`` (calque + type).
+    mode_env = _qa_envelope_filter_mode(sources.enveloppe if sources else None)
+    if mode_env == "geometric":
+        raise AvpQaError(["Extraction surface enveloppe"], kind="envelope_filter_mode")
+
     return pack
+
+
+def _qa_envelope_filter_mode(env) -> str | None:
+    """Mode de filtrage déclaré par le contrat d'enveloppe, ou ``None``.
+
+    ``None`` couvre deux cas qu'on ne doit PAS refuser : pas d'enveloppe du
+    tout, et une enveloppe qui ne vient pas d'un contrat structuré (repli
+    snapshot ou .xlsx source). Le refus ne vise que le cas mesurable — un
+    contrat qui dit lui-même avoir été calculé sans filtre.
+    """
+    return getattr(env, "filter_mode", None)
 
 
 def _multisheet_is_empty(multi) -> bool:
