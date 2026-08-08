@@ -12,8 +12,16 @@ Le rapport croise donc trois sources, parce qu'aucune ne suffit :
    la branche et par elle seule ;
 3. les **worktrees** attachés, qu'une suppression de branche casserait.
 
+**Si la source PR est indisponible, le rapport le dit et ne conclut pas.** Une
+branche sans PR connue et une branche dont on n'a pas pu lire la PR ne sont pas
+la même chose : les confondre transformerait un silence en mesure, et ferait
+supprimer du travail publié — ou garder du bruit — pour de mauvaises raisons.
+
 Usage :
-    python scripts/branch_hygiene_report.py [--repo owner/name]
+    python scripts/branch_hygiene_report.py [--repo owner/name] [--json]
+
+Code de sortie : ``0`` si la source PR a répondu, ``2`` si elle est
+indisponible (le rapport reste lisible, mais aucun verdict n'engage).
 """
 
 from __future__ import annotations
@@ -21,10 +29,16 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parents[1]
+
+#: Verdicts possibles.
+INDETERMINE = "INDÉTERMINÉ"
+A_VERIFIER = "À VÉRIFIER"
+SUPPRIMABLE = "SUPPRIMABLE"
+GARDER = "GARDER"
 
 
 def _git(*args: str) -> str:
@@ -34,8 +48,33 @@ def _git(*args: str) -> str:
     return r.stdout
 
 
-def _prs(repo: str) -> dict[str, dict]:
-    """État des PR par branche source. Vide si ``gh`` est indisponible."""
+def worktrees_par_branche(porcelain: str) -> dict[str, str]:
+    """``{branche: chemin}`` depuis ``git worktree list --porcelain``.
+
+    Le nom de branche s'obtient en retirant **le seul préfixe ``refs/heads/``**.
+    Découper sur ``/`` et garder le dernier segment réduirait
+    ``refs/heads/review/199`` à ``199`` : la branche ne serait alors pas
+    reconnue comme attachée, et le rapport proposerait de supprimer une branche
+    dont un worktree dépend.
+    """
+    resultat: dict[str, str] = {}
+    chemin: str | None = None
+    for ligne in porcelain.splitlines():
+        if ligne.startswith("worktree "):
+            chemin = ligne.split(" ", 1)[1]
+        elif ligne.startswith("branch ") and chemin:
+            ref = ligne.split(" ", 1)[1].strip()
+            resultat[ref.removeprefix("refs/heads/")] = chemin
+    return resultat
+
+
+def lire_prs(repo: str) -> dict[str, dict] | None:
+    """PR par branche source, ou ``None`` si la source est **indisponible**.
+
+    Le ``None`` est le point important : un dictionnaire vide dirait « aucune
+    PR n'existe », ce qui est une affirmation. On ne peut pas la faire quand
+    ``gh`` n'a pas répondu.
+    """
     try:
         brut = subprocess.run(
             [
@@ -55,11 +94,14 @@ def _prs(repo: str) -> dict[str, dict]:
             text=True,
             timeout=180,
         )
-        if brut.returncode != 0:
-            return {}
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if brut.returncode != 0:
+        return None
+    try:
         return {p["headRefName"]: p for p in json.loads(brut.stdout or "[]")}
-    except (OSError, ValueError):
-        return {}
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -72,46 +114,74 @@ class Branche:
     raison: str
 
 
-def analyse(repo: str) -> list[Branche]:
-    courante = _git("rev-parse", "--abbrev-ref", "HEAD").strip()
-    prs = _prs(repo)
-    worktrees: dict[str, str] = {}
-    chemin = None
-    for ligne in _git("worktree", "list", "--porcelain").splitlines():
-        if ligne.startswith("worktree "):
-            chemin = ligne.split(" ", 1)[1]
-        elif ligne.startswith("branch ") and chemin:
-            worktrees[ligne.split("/")[-1]] = chemin
+@dataclass
+class Rapport:
+    branches: list[Branche] = field(default_factory=list)
+    source_pr_disponible: bool = True
 
-    resultats: list[Branche] = []
+
+def verdict(
+    *,
+    nom: str,
+    courante: str,
+    worktree: str | None,
+    pr: dict | None,
+    source_pr_disponible: bool,
+    commits_propres: int,
+) -> tuple[str, str]:
+    """Classement d'une branche. Fonction pure, pour être testable.
+
+    L'ordre compte : ce qui protège (branche courante, worktree) passe avant
+    l'indisponibilité de la source, qui passe avant tout verdict tiré de l'état
+    d'une PR qu'on n'a pas pu lire.
+    """
+    if nom == courante:
+        return GARDER, "branche courante"
+    if worktree:
+        return GARDER, f"worktree attaché : {worktree}"
+    if not source_pr_disponible:
+        return INDETERMINE, "source PR indisponible — aucun verdict possible"
+    if pr and pr["state"] == "OPEN":
+        return GARDER, "PR ouverte"
+    if pr and pr["state"] == "MERGED":
+        return SUPPRIMABLE, "PR mergée (squash) — travail publié"
+    if pr and pr["state"] == "CLOSED":
+        return SUPPRIMABLE, "PR fermée sans merge — travail abandonné"
+    if not commits_propres:
+        return SUPPRIMABLE, "aucun commit propre vs master"
+    return A_VERIFIER, f"{commits_propres} commit(s) propres, aucune PR"
+
+
+def analyse(repo: str) -> Rapport:
+    courante = _git("rev-parse", "--abbrev-ref", "HEAD").strip()
+    prs = lire_prs(repo)
+    disponible = prs is not None
+    worktrees = worktrees_par_branche(_git("worktree", "list", "--porcelain"))
+
+    rapport = Rapport(source_pr_disponible=disponible)
     for nom in _git("branch", "--format=%(refname:short)").split():
         if nom == "master":
             continue
-        # `git cherry` liste les commits de la branche SANS équivalent dans
-        # master — les `-` sont déjà repris, y compris via un squash.
         sorties = _git("cherry", "master", nom).splitlines()
         propres = [ligne for ligne in sorties if ligne.startswith("+")]
-        pr = prs.get(nom)
-        etat_pr = f"#{pr['number']} {pr['state']}" if pr else "aucune PR"
-        wt = worktrees.get(nom)
-
-        if nom == courante:
-            verdict, raison = "GARDER", "branche courante"
-        elif wt:
-            verdict, raison = "GARDER", f"worktree attaché : {wt}"
-        elif pr and pr["state"] == "OPEN":
-            verdict, raison = "GARDER", "PR ouverte"
-        elif pr and pr["state"] == "MERGED":
-            verdict, raison = "SUPPRIMABLE", "PR mergée (squash) — travail publié"
-        elif pr and pr["state"] == "CLOSED":
-            verdict, raison = "SUPPRIMABLE", "PR fermée sans merge — travail abandonné"
-        elif not propres:
-            verdict, raison = "SUPPRIMABLE", "aucun commit propre vs master"
+        pr = (prs or {}).get(nom)
+        if not disponible:
+            etat_pr = "source indispo."
+        elif pr:
+            etat_pr = f"#{pr['number']} {pr['state']}"
         else:
-            verdict, raison = "À VÉRIFIER", f"{len(propres)} commit(s) propres, aucune PR"
-
-        resultats.append(Branche(nom, etat_pr, len(propres), wt, verdict, raison))
-    return resultats
+            etat_pr = "aucune PR"
+        wt = worktrees.get(nom)
+        v, raison = verdict(
+            nom=nom,
+            courante=courante,
+            worktree=wt,
+            pr=pr,
+            source_pr_disponible=disponible,
+            commits_propres=len(propres),
+        )
+        rapport.branches.append(Branche(nom, etat_pr, len(propres), wt, v, raison))
+    return rapport
 
 
 def main() -> int:
@@ -120,24 +190,43 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="sortie machine")
     args = ap.parse_args()
 
-    lignes = analyse(args.repo)
+    rapport = analyse(args.repo)
     if args.json:
-        print(json.dumps([b.__dict__ for b in lignes], ensure_ascii=False, indent=2))
-        return 0
+        print(
+            json.dumps(
+                {
+                    "source_pr": "disponible" if rapport.source_pr_disponible else "indisponible",
+                    "branches": [b.__dict__ for b in rapport.branches],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0 if rapport.source_pr_disponible else 2
 
-    ordre = {"À VÉRIFIER": 0, "SUPPRIMABLE": 1, "GARDER": 2}
-    for b in sorted(lignes, key=lambda x: (ordre[x.verdict], x.nom)):
+    if not rapport.source_pr_disponible:
+        print("source_pr = INDISPONIBLE — `gh` n'a pas répondu.")
+        print(
+            "Aucun verdict n'est rendu : « aucune PR » serait une affirmation "
+            "que rien ne soutient.\n"
+        )
+
+    ordre = {INDETERMINE: 0, A_VERIFIER: 1, SUPPRIMABLE: 2, GARDER: 3}
+    for b in sorted(rapport.branches, key=lambda x: (ordre[x.verdict], x.nom)):
         print(f"  {b.verdict:12} {b.nom:38} {b.pr:16} {b.raison}")
 
-    total = len(lignes)
-    for v in ("À VÉRIFIER", "SUPPRIMABLE", "GARDER"):
-        n = sum(1 for b in lignes if b.verdict == v)
-        print(f"\n{v:12} : {n}/{total}")
-    print(
-        "\nAucune suppression effectuée. Les « À VÉRIFIER » portent du travail "
-        "qu'aucune PR ne couvre : les regarder avant tout `git branch -D`."
-    )
-    return 0
+    total = len(rapport.branches)
+    for v in (INDETERMINE, A_VERIFIER, SUPPRIMABLE, GARDER):
+        n = sum(1 for b in rapport.branches if b.verdict == v)
+        if n:
+            print(f"\n{v:12} : {n}/{total}")
+    print("\nAucune suppression effectuée.")
+    if any(b.verdict == A_VERIFIER for b in rapport.branches):
+        print(
+            "Les « À VÉRIFIER » portent du travail qu'aucune PR ne couvre : "
+            "les regarder avant tout `git branch -D`."
+        )
+    return 0 if rapport.source_pr_disponible else 2
 
 
 if __name__ == "__main__":  # pragma: no cover
