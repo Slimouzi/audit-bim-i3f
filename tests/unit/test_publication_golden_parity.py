@@ -8,8 +8,16 @@ package qu'elle appelle — validation du *câblage*), ce test compare la sortie
 intégrale ⇒ l'extraction n'a **rien changé** aux payloads BCF / Smart Views ni aux
 plans.
 
-Golden régénérables via ``tests/unit/golden/_generate_golden.py`` exécuté depuis
-un worktree au commit af230e6.
+**Une déviation volontaire depuis le lot B3** : ``originating_system`` vaut
+``audit-bim-mcp`` dans les golden BCF, alors que le code pré-shim écrivait
+``audit-bim-i3f``. La provenance a changé *après* l'extraction, délibérément —
+elle nomme la distribution productrice, qui sert trois AMO.
+
+Conséquence pour qui régénère : ``tests/unit/golden/_generate_golden.py``
+exécuté depuis un worktree au commit af230e6 **réécrirait l'ancienne
+provenance** et annulerait B3 sur 28 lignes, sans que rien d'autre ne bouge. Il
+faut alors réappliquer la provenance courante — c'est le seul écart attendu
+entre les golden et ce que produit af230e6.
 """
 
 from __future__ import annotations

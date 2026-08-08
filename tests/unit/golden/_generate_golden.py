@@ -5,6 +5,13 @@ de l'implémentation historique (builders lisant ``reporting.theming``, prenant 
 ``AuditResult``). Les JSON produits servent de référence de parité pour
 ``bim-publication`` (comparaison intégrale côté master).
 
+**Attention — une valeur ne doit PAS être reprise telle quelle.** Depuis le lot
+B3, ``originating_system`` vaut ``audit-bim-mcp`` dans les golden BCF, alors
+que le code d'af230e6 écrit encore ``audit-bim-i3f``. Régénérer sans
+réappliquer la provenance courante annulerait B3 sur 28 lignes — et la
+seule chose qui le signalerait serait l'échec de
+``test_output_provenance.py::test_active_output_provenance_no_longer_mentions_old_distribution``.
+
 Usage :
     PYTHONPATH=<wt> AUDIT_OUTPUT_DIR=/tmp .venv/bin/python \
         tests/unit/golden/_generate_golden.py <dest_dir>

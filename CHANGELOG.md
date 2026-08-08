@@ -21,9 +21,15 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   prochain tag soit dans le namespace courant.
   Sans effet sur le code appelant : le paquet importé reste `audit_bim`,
   l'exécutable `audit-bim-mcp`, les variables `AUDIT_BIM_*` et les profils MCP
-  sont inchangés. La provenance inscrite dans les livrables produits porte
-  encore `audit-bim-i3f` — migration distincte (B3), parce qu'elle change des
-  fichiers déjà livrés.
+  sont inchangés.
+
+### Changed
+
+- **La provenance inscrite dans les livrables produits passe à `audit-bim-mcp`**
+  (lot B3) : payloads BCF via `bim-publication`, lignes de contrôle XLSX et
+  descriptions des property sets DOE poussés dans BIMData. Les fichiers déjà
+  livrés sous `audit-bim-i3f` restent historiques ; les nouvelles sorties
+  produites par cette version portent le nom générique.
 
 ### CI
 
@@ -36,7 +42,7 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
   Le workflow n'avait plus tourné depuis v0.8.0 : le prochain tag aurait été sa
   première exécution réelle depuis des semaines.
   **Limite explicite** : le dry-run exécute toute la recette *sauf* la
-  publication. Un push de tag `audit-bim-i3f-v*` reste le seul chemin vers
+  publication. Un push de tag `audit-bim-mcp-v*` reste le seul chemin vers
   `create-release`, et **le prochain vrai tag sera encore le premier test réel
   de la création de GitHub Release**. Le risque est réduit à ce job, pas
   supprimé.

@@ -134,7 +134,7 @@ requires-dist = [
     { name = "bim-audit-engine", git = "https://github.com/Slimouzi/bim-audit-engine.git?tag=bim-audit-engine-v0.1.6" },
     { name = "bim-core", git = "https://github.com/Slimouzi/bim-core.git?tag=bim-core-v0.4.0" },
     { name = "bim-mcp-runtime", git = "https://github.com/Slimouzi/bim-mcp-runtime.git?tag=bim-mcp-runtime-v0.1.2" },
-    { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.6" },
+    { name = "bim-publication", git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.7" },
     { name = "bim-query", git = "https://github.com/Slimouzi/bim-query.git?tag=bim-query-v0.1.7" },
     { name = "bim-reporting", git = "https://github.com/Slimouzi/bim-reporting.git?tag=bim-reporting-v0.2.0" },
     { name = "bimdata-read", git = "https://github.com/Slimouzi/bimdata-read.git?tag=bimdata-read-v0.1.10" },
@@ -221,8 +221,8 @@ source = { git = "https://github.com/Slimouzi/bim-mcp-runtime.git?tag=bim-mcp-ru
 
 [[package]]
 name = "bim-publication"
-version = "0.1.6"
-source = { git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.6#487f92a27d5a893f4202c7f103dd283f1589dd99" }
+version = "0.1.7"
+source = { git = "https://github.com/Slimouzi/bim-publication.git?tag=bim-publication-v0.1.7#f954eac0f94fecd798c1f5365b4097d3a77076e3" }
 dependencies = [
     { name = "bim-core" },
     { name = "bim-query" },

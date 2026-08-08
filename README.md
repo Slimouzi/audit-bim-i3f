@@ -24,9 +24,8 @@
 > `import audit_bim` fonctionne à l'identique — de même que l'exécutable
 > `audit-bim-mcp`, le préfixe d'environnement `AUDIT_BIM_*`, les profils MCP et
 > le dossier local. La provenance inscrite dans les livrables produits (BCF,
-> XLSX, property sets poussés dans la maquette) porte encore `audit-bim-i3f` :
-> c'est une migration distincte, parce qu'elle change des fichiers déjà livrés
-> à des clients.
+> XLSX, property sets poussés dans la maquette) porte désormais `audit-bim-mcp`.
+> Les fichiers déjà livrés sous l'ancienne provenance restent historiques.
 
 MCP qui automatise l'**audit de conformité** d'une maquette IFC hébergée sur
 [BIMData.io](https://bimdata.io) au référentiel de son maître d'ouvrage.
@@ -87,7 +86,7 @@ pip install "git+https://github.com/Slimouzi/bim-core.git@bim-core-v0.4.0"
 pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.10"
 pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.6"
 pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.7"
-pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.6"
+pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.7"
 pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.6"
 pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
 pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
@@ -104,7 +103,7 @@ pip install -e ".[test]"   # ``[test]`` ajoute pytest, ruff, etc.
 > pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.10"
 > pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.6"
 > pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.7"
-> pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.6"
+> pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.7"
 > pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.6"
 > pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
 > pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"

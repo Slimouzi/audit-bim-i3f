@@ -2,7 +2,7 @@
 
 ## Objectif
 
-Tout rapport Word, Excel, PDF ou livrable visuel généré par `audit-bim-i3f` doit respecter la charte BIMData.
+Tout rapport Word, Excel, PDF ou livrable visuel généré par `audit-bim-mcp` doit respecter la charte BIMData.
 
 Chaque réalisation doit refléter au moins deux attributs de marque :
 

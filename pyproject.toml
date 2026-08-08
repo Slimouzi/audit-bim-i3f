@@ -69,7 +69,7 @@ dependencies = [
     "bimdata-read>=0.1.10,<0.2",
     "bimdata-write>=0.1.6,<0.2",
     "bim-query>=0.1.7,<0.2",
-    "bim-publication>=0.1.6,<0.2",
+    "bim-publication>=0.1.7,<0.2",
     # Cœur générique du moteur d'audit (Rule/run_audit/AuditResult). Consommé
     # par la façade audit_bim.audit.engine (PR shims ultérieure ; cette PR est
     # infra-only). v0.1.1 = summary() JSON-safe + py.typed + contrat de
@@ -133,7 +133,7 @@ bim-core = { git = "https://github.com/Slimouzi/bim-core.git", tag = "bim-core-v
 bimdata-read = { git = "https://github.com/Slimouzi/bimdata-read.git", tag = "bimdata-read-v0.1.10" }
 bimdata-write = { git = "https://github.com/Slimouzi/bimdata-write.git", tag = "bimdata-write-v0.1.6" }
 bim-query = { git = "https://github.com/Slimouzi/bim-query.git", tag = "bim-query-v0.1.7" }
-bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag = "bim-publication-v0.1.6" }
+bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag = "bim-publication-v0.1.7" }
 bim-audit-engine = { git = "https://github.com/Slimouzi/bim-audit-engine.git", tag = "bim-audit-engine-v0.1.6" }
 bim-reporting = { git = "https://github.com/Slimouzi/bim-reporting.git", tag = "bim-reporting-v0.2.0" }
 bim-mcp-runtime = { git = "https://github.com/Slimouzi/bim-mcp-runtime.git", tag = "bim-mcp-runtime-v0.1.2" }

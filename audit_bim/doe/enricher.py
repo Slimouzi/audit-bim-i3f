@@ -19,6 +19,7 @@ from collections.abc import Iterable
 
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot
+from ..provenance import ORIGINATING_SYSTEM
 from .conflicts import (
     ConflictReport,
     ConflictType,
@@ -41,7 +42,7 @@ def _infer_value_type(value) -> str:
 def _build_pset_payload(pset_name: str, props: dict) -> dict:
     return {
         "name": pset_name,
-        "description": "Enrichissement automatique depuis DOE (agent audit-bim-i3f)",
+        "description": f"Enrichissement automatique depuis DOE (agent {ORIGINATING_SYSTEM})",
         "properties": [
             {
                 "definition": {
