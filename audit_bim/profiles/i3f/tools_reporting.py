@@ -202,6 +202,32 @@ def _contract_mismatch_payload(exc) -> dict:
 ContractOrigin = Literal["parametre", "detecte", "calcule"]
 
 
+def _geometry_failure_response(exc, *, error: str) -> dict:
+    """Refus commun quand le calcul géométrique ne peut pas aboutir.
+
+    Les deux contrats — enveloppe et quantités calculées — échouent de la même
+    façon sur ``GeometryInputMissing`` / ``GeometryBackendUnavailable`` : il
+    manque une entrée, et la seule chose à dire à l'appelant est laquelle.
+    Seule la clé ``error`` distingue les deux.
+
+    ``missing`` est calculé **une fois** puis réemployé pour la liste et pour
+    la question : les deux doivent désigner la même chose, et deux ``getattr``
+    séparés laissaient la porte ouverte à ce qu'ils divergent.
+
+    Ce helper est un raccourci d'écriture, **pas une promesse d'uniformité** :
+    si l'un des deux contrats a besoin un jour d'un message d'aide propre, il
+    reprend son payload plutôt que d'ajouter un paramètre ici.
+    """
+    missing = getattr(exc, "missing", "geometry_backend")
+    return {
+        "status": "needs_context",
+        "missing": [missing],
+        "error": error,
+        "message": str(exc),
+        "questions": [{"key": missing, "question": str(exc)}],
+    }
+
+
 def _resolve_contract_source(
     *,
     path: str | Path,
@@ -1174,15 +1200,7 @@ def generate_avp_i3f_pack(
             )
             envelope_json_used = auto_envelope["json_path"]
         except (GeometryInputMissing, GeometryBackendUnavailable) as exc:
-            return {
-                "status": "needs_context",
-                "missing": [getattr(exc, "missing", "geometry_backend")],
-                "error": "cannot_compute_envelope",
-                "message": str(exc),
-                "questions": [
-                    {"key": getattr(exc, "missing", "geometry_backend"), "question": str(exc)}
-                ],
-            }
+            return _geometry_failure_response(exc, error="cannot_compute_envelope")
         except ValueError as exc:
             # Mode de filtrage incohérent avec les motifs (le backend refuse
             # plutôt que de se rabattre en silence). C'est une erreur d'appel,
@@ -1256,18 +1274,7 @@ def generate_avp_i3f_pack(
                 model_ids=(_State.cloud_id, _State.project_id, _State.model_id),
             )
         except (GeometryInputMissing, GeometryBackendUnavailable) as exc:
-            return {
-                "status": "needs_context",
-                "missing": [getattr(exc, "missing", "geometry_backend")],
-                "error": "cannot_compute_quantities",
-                "message": str(exc),
-                "questions": [
-                    {
-                        "key": getattr(exc, "missing", "geometry_backend"),
-                        "question": str(exc),
-                    }
-                ],
-            }
+            return _geometry_failure_response(exc, error="cannot_compute_quantities")
         computed_quantities_json = auto_quantities["json_path"]
 
     if computed_quantities_json:
