@@ -304,4 +304,4 @@ def test_a_mixed_group_is_split_by_provenance():
     for ligne in lignes:
         assert ligne[6] == 1, ligne
         assert (ligne[3] is None) != (ligne[7] is None), ligne
-    assert {l[3] is None for l in lignes} == {True, False}
+    assert {ligne[3] is None for ligne in lignes} == {True, False}
