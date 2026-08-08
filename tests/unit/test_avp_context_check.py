@@ -20,6 +20,7 @@ from audit_bim.mcp.session import _Session, current_session
 from audit_bim.profiles.i3f.tools_reporting import (
     AvpContextCheck,
     AvpIdentityContext,
+    AvpPackBuildResult,
     _validate_avp_context,
 )
 
@@ -105,6 +106,7 @@ def test_a_non_identity_field_is_covered_by_confirm_context(session):
     force = _valider(auditor_name=None, confirm_context=True)
     assert force.response is None
     assert force.identity is not None
+    assert force.identity.auteur_controle is None
 
 
 def test_a_missing_snapshot_is_a_context_refusal(session):
@@ -126,4 +128,17 @@ def test_the_check_cannot_carry_both_or_neither():
         AvpContextCheck(
             identity=AvpIdentityContext("N", "C", "AVP", "A", None, None),
             response={"status": "needs_context"},
+        )
+
+
+def test_build_result_cannot_carry_both_or_neither(tmp_path):
+    """Même invariant pour la QA gate : un pack produit ou un refus, pas les deux."""
+    with pytest.raises(ValueError, match="exactement un pack OU un refus"):
+        AvpPackBuildResult(out_dir=tmp_path, pack=None, response=None)
+
+    with pytest.raises(ValueError, match="exactement un pack OU un refus"):
+        AvpPackBuildResult(
+            out_dir=tmp_path,
+            pack=object(),
+            response={"status": "error", "error": "empty_deliverable"},
         )
