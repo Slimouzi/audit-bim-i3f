@@ -902,19 +902,36 @@ def _build_avp_pack(
     return AvpPackBuildResult(out_dir=out_dir, pack=pack, response=None)
 
 
+@dataclass(frozen=True)
+class AvpContractTrace:
+    """Ce qu'il faut **dire** d'un contrat géométrique dans la réponse du pack.
+
+    À ne pas confondre avec :func:`_resolve_contract_source`, qui décide si un
+    contrat est *acceptable* : celui-ci relève de la sécurité et de la
+    provenance, celle-ci du reporting. Les mélanger ferait porter au garde de
+    provenance des champs qui n'existent pas encore au moment où il agit —
+    ``coverage`` n'est connu qu'**après** la fusion des quantités dans le
+    snapshot, bien après la résolution du chemin.
+
+    ``coverage`` reste donc optionnel : l'enveloppe n'en produit pas, les
+    quantités calculées si. C'est la seule asymétrie entre les deux traces, et
+    elle est portée par un défaut plutôt que par deux types.
+    """
+
+    json_used: str | None = None
+    source_ifc_file: str | None = None
+    auto_result: dict | None = None
+    coverage: dict | None = None
+
+
 def _format_avp_pack_response(
     *,
     out_dir: Path,
     pack: AvpReportPack,
     identity: AvpIdentityContext,
     controle_src: str | None,
-    envelope_json_used: str | None,
-    computed_json_used: str | None,
-    computed_coverage,
-    computed_source_ifc_file: str | None,
-    envelope_source_ifc_file: str | None,
-    auto_quantities,
-    auto_envelope,
+    envelope_trace: AvpContractTrace,
+    computed_trace: AvpContractTrace,
 ) -> dict:
     """Payload de succès du tool AVP, séparé de la QA gate."""
     return {
@@ -927,9 +944,9 @@ def _format_avp_pack_response(
         "project_code": identity.project_code,
         "phase": identity.phase,
         "controle_xlsx_used": controle_src,
-        "envelope_json_used": envelope_json_used,
-        "computed_quantities_json_used": computed_json_used,
-        "computed_quantities_coverage": computed_coverage,
+        "envelope_json_used": envelope_trace.json_used,
+        "computed_quantities_json_used": computed_trace.json_used,
+        "computed_quantities_coverage": computed_trace.coverage,
         # Traçabilité de cible : de quel modèle et de quel .ifc sortent réellement
         # les chiffres du pack. Sans ces champs, seul le nom de fichier des
         # contrats trahissait la cible — un contrôle de recette impossible à
@@ -940,11 +957,11 @@ def _format_avp_pack_response(
         "downloaded_ifc_path": (
             str(getattr(_State, "ifc_path", None)) if getattr(_State, "ifc_path", None) else None
         ),
-        "computed_source_ifc_file": computed_source_ifc_file,
-        "envelope_source_ifc_file": envelope_source_ifc_file,
+        "computed_source_ifc_file": computed_trace.source_ifc_file,
+        "envelope_source_ifc_file": envelope_trace.source_ifc_file,
         "auto_computed": {
-            "quantities": auto_quantities,
-            "envelope": auto_envelope,
+            "quantities": computed_trace.auto_result,
+            "envelope": envelope_trace.auto_result,
         },
     }
 
@@ -1314,18 +1331,28 @@ def generate_avp_i3f_pack(
     )
     if build.response is not None:
         return build.response
+    # Les deux traces sont assemblées ici, au seul endroit où toutes leurs
+    # composantes existent : le chemin retenu, la provenance déclarée, le
+    # résultat d'auto-calcul, et — pour les quantités seulement — la couverture
+    # issue de la fusion.
+    envelope_trace = AvpContractTrace(
+        json_used=envelope_json_used,
+        source_ifc_file=envelope_source_ifc_file,
+        auto_result=auto_envelope,
+    )
+    computed_trace = AvpContractTrace(
+        json_used=computed_json_used,
+        source_ifc_file=computed_source_ifc_file,
+        auto_result=auto_quantities,
+        coverage=computed_coverage,
+    )
     return _format_avp_pack_response(
         out_dir=build.out_dir,
         pack=build.pack,
         identity=identite,
         controle_src=controle_src,
-        envelope_json_used=envelope_json_used,
-        computed_json_used=computed_json_used,
-        computed_coverage=computed_coverage,
-        computed_source_ifc_file=computed_source_ifc_file,
-        envelope_source_ifc_file=envelope_source_ifc_file,
-        auto_quantities=auto_quantities,
-        auto_envelope=auto_envelope,
+        envelope_trace=envelope_trace,
+        computed_trace=computed_trace,
     )
 
 
