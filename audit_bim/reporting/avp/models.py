@@ -168,6 +168,15 @@ class AvpQaError(RuntimeError):
                 + ". Livraison refusée : le pack attribuerait le contrôle à un "
                 "logiciel que la chaîne BIMData n'emploie pas."
             )
+        elif kind == "envelope_filter_mode":
+            message = (
+                "Enveloppe calculée sans filtre de calque ni de type (mode "
+                "``geometric``) : "
+                + ", ".join(empty)
+                + ". Livraison refusée — sur une maquette I3F ce mode compte des "
+                "cloisons et des refends, et écarte des types d'enveloppe "
+                "attendus. Les chiffres seraient plausibles et faux."
+            )
         else:
             message = (
                 "Annexe(s) vide(s) malgré des données exploitables dans la maquette : "

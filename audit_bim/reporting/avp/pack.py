@@ -245,13 +245,11 @@ def write_avp_i3f_report_pack(
     if sans_quantites:
         raise AvpQaError(sans_quantites, kind="missing_quantities")
 
-    out.mkdir(parents=True, exist_ok=True)
-
     if snap is not None:
         # ``build_sources_from_snapshot`` est ré-exporté par la façade ``avp_i3f``
-        # et résolu via elle (point de patch historique des tests, inchangés dans
-        # cette PR). Import paresseux : la façade importe ``pack``, on évite ainsi
-        # le cycle à l'import (au runtime la façade est entièrement chargée).
+        # et résolu via elle (point de patch historique des tests). Import
+        # paresseux : la façade importe ``pack``, on évite ainsi le cycle à
+        # l'import (au runtime la façade est entièrement chargée).
         from .. import avp_i3f as _avp_i3f
 
         sources = _ifc_first_sources(
@@ -261,6 +259,23 @@ def write_avp_i3f_report_pack(
         )
     elif sources is None:
         sources = AvpSources()
+
+    # ── QA gate : anti-enveloppe calculée sans filtre I3F ────────────────
+    # AVANT ``out.mkdir()`` et avant tout builder : une gate qui refuse après
+    # génération laisse le livrable faux sur disque malgré le statut d'erreur.
+    # C'est la même règle que pour ``missing_quantities`` ci-dessus.
+    #
+    # Le contrat d'enveloppe déclare le filtre RÉELLEMENT appliqué
+    # (``diagnostics.filters.mode``). En mode ``geometric``, le backend retient
+    # les murs sur un critère purement géométrique : sur une maquette ArchiCAD
+    # I3F il compte des cloisons et des refends que le gabarit n'attend pas, et
+    # rejette au passage des types d'enveloppe légitimes. Le livrable est alors
+    # plausible ET faux — il ne se distingue qu'en le comparant au modèle.
+    mode_env = _qa_envelope_filter_mode(sources.enveloppe if sources else None)
+    if mode_env == "geometric":
+        raise AvpQaError(["Extraction surface enveloppe"], kind="envelope_filter_mode")
+
+    out.mkdir(parents=True, exist_ok=True)
 
     controle = _build_controle_maquettes_xlsx(out / fn_controle, result, sources, meta, snap)
     shab = build_shab_xlsx(out / fn_shab, (sources.shab if sources else None), meta)
@@ -302,23 +317,6 @@ def write_avp_i3f_report_pack(
     contamines = _qa_external_tool_mentions(pack)
     if contamines:
         raise AvpQaError(contamines, kind="external_tool_mention")
-
-    # ── QA gate : anti-enveloppe calculée sans filtre I3F ───────────────
-    # Le contrat d'enveloppe déclare le filtre RÉELLEMENT appliqué
-    # (``diagnostics.filters.mode``). En mode ``geometric``, le backend retient
-    # les murs sur un critère purement géométrique : sur une maquette ArchiCAD
-    # I3F, il compte des cloisons et des refends que le gabarit n'attend pas, et
-    # rejette au passage des types d'enveloppe légitimes.
-    #
-    # Le livrable produit alors des chiffres plausibles et faux — un total façade
-    # gonflé, des lignes métier en trop, et un type attendu manquant. C'est la
-    # forme la plus coûteuse d'erreur : elle ne se voit pas à la lecture du
-    # fichier, seulement en le comparant au modèle de référence.
-    #
-    # Le mode attendu pour un pack I3F est ``layer_type_filter`` (calque + type).
-    mode_env = _qa_envelope_filter_mode(sources.enveloppe if sources else None)
-    if mode_env == "geometric":
-        raise AvpQaError(["Extraction surface enveloppe"], kind="envelope_filter_mode")
 
     return pack
 

@@ -21,6 +21,8 @@ snapshot / .xlsx, ne déclare aucun mode et reste livrable.
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 from audit_bim.reporting.avp.models import AvpQaError
@@ -100,7 +102,10 @@ def _enveloppe_source(mode: str):
     [
         ("geometric", True),
         ("layer_type_filter", False),
-        ("type_filter", False),
+        # Mode RÉEL du backend, lu dans `_LIBELLE_MODE` : `type_filter` n'existe
+        # pas. Faire d'un mode inconnu une preuve de comportement valide aurait
+        # testé le garde-fou contre une situation impossible.
+        ("geometric_type_filter", False),
     ],
 )
 def test_the_pack_refuses_only_a_geometric_envelope(tmp_path, mode, leve):
@@ -133,3 +138,68 @@ def test_the_pack_refuses_only_a_geometric_envelope(tmp_path, mode, leve):
     else:
         pack = _generer()
         assert pack.enveloppe_xlsx.exists(), mode
+
+
+def test_a_refusal_leaves_no_file_behind(tmp_path):
+    """Un refus ne doit RIEN laisser sur disque.
+
+    La première version de cette gate refusait **après** avoir écrit les six
+    livrables : l'appel renvoyait une erreur et le fichier enveloppe faux
+    restait là, prêt à être envoyé. Le contrôle vit désormais avant
+    ``out.mkdir()``.
+    """
+    from audit_bim.reporting.avp_i3f import write_avp_i3f_report_pack
+    from audit_bim.reporting.avp_sources import AvpSources
+
+    sources = AvpSources()
+    sources.enveloppe = _enveloppe_source("geometric")
+    out = tmp_path / "sortie"
+
+    with pytest.raises(AvpQaError):
+        write_avp_i3f_report_pack(
+            None, out, sources=sources, project_name="C", project_code="0546L", export_pdf=False
+        )
+
+    produits = list(out.iterdir()) if out.exists() else []
+    assert not produits, f"le refus a laissé des fichiers : {[p.name for p in produits]}"
+
+
+def test_the_mcp_response_carries_its_own_error_code_and_next_step():
+    """Le refus doit arriver au client sous son propre nom, avec quoi relancer.
+
+    Sans code dédié, il tombait dans ``empty_deliverable`` : l'utilisateur
+    lisait « annexe vide » pour une enveloppe pleine mais mal filtrée — un
+    diagnostic qui envoie chercher au mauvais endroit.
+    """
+    from audit_bim.profiles.i3f.tools_reporting import _avp_qa_error_response
+
+    exc = AvpQaError(["Extraction surface enveloppe"], kind="envelope_filter_mode")
+    charge = _avp_qa_error_response(exc, out_dir=pathlib.Path("/tmp/inexistant-avp"))
+
+    assert charge["error"] == "envelope_filter_mode"
+    assert charge["expected_envelope_filter_mode"] == "layer_type_filter"
+
+    etape = charge["next_step"]
+    for attendu in (
+        "layer_type_filter",
+        "envelope_layer_pattern",
+        "envelope_type_pattern",
+        "force_recompute_envelope",
+    ):
+        assert attendu in etape, attendu
+
+
+def test_the_other_kinds_keep_their_own_codes():
+    """Contre-épreuve : le nouveau code ne doit pas déteindre sur les autres."""
+    from audit_bim.profiles.i3f.tools_reporting import _avp_qa_error_response
+
+    for kind, attendu in (
+        ("empty", "empty_deliverable"),
+        ("missing_quantities", "missing_quantities"),
+        ("external_tool_mention", "external_tool_mention"),
+    ):
+        charge = _avp_qa_error_response(
+            AvpQaError(["X"], kind=kind), out_dir=pathlib.Path("/tmp/inexistant-avp")
+        )
+        assert charge["error"] == attendu, kind
+        assert charge.get("expected_envelope_filter_mode") is None, kind
