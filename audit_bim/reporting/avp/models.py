@@ -137,7 +137,12 @@ class AvpQaError(RuntimeError):
     - ``kind="external_tool_mention"`` — un livrable cite un outil tiers hérité
       du classeur MOA de référence (``Solibri``, ``BimCollab*``). Le pack
       attribuerait alors le contrôle à un logiciel étranger à la chaîne BIMData,
-      et trahirait le chantier dont le template a été recyclé.
+      et trahirait le chantier dont le template a été recyclé ;
+    - ``kind="envelope_filter_mode"`` — l'enveloppe a été calculée en mode
+      ``geometric``, sans filtre de calque ni de type. Sur une maquette I3F le
+      livrable compte alors des cloisons et des refends, et écarte des types
+      d'enveloppe légitimes : les chiffres sont plausibles et faux. Refus le
+      plus discret des quatre, donc le plus nécessaire.
     """
 
     def __init__(self, empty: list[str], *, kind: str = "empty"):
@@ -162,6 +167,15 @@ class AvpQaError(RuntimeError):
                 + ", ".join(empty)
                 + ". Livraison refusée : le pack attribuerait le contrôle à un "
                 "logiciel que la chaîne BIMData n'emploie pas."
+            )
+        elif kind == "envelope_filter_mode":
+            message = (
+                "Enveloppe calculée sans filtre de calque ni de type (mode "
+                "``geometric``) : "
+                + ", ".join(empty)
+                + ". Livraison refusée — sur une maquette I3F ce mode compte des "
+                "cloisons et des refends, et écarte des types d'enveloppe "
+                "attendus. Les chiffres seraient plausibles et faux."
             )
         else:
             message = (

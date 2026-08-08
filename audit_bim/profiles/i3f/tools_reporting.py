@@ -839,6 +839,7 @@ def _avp_qa_error_response(exc, *, out_dir: Path) -> dict:
     _codes = {
         "missing_quantities": "missing_quantities",
         "external_tool_mention": "external_tool_mention",
+        "envelope_filter_mode": "envelope_filter_mode",
     }
     payload = {
         "status": "error",
@@ -846,6 +847,19 @@ def _avp_qa_error_response(exc, *, out_dir: Path) -> dict:
         "empty_deliverables": exc.empty,
         "message": str(exc),
     }
+    if exc.kind == "envelope_filter_mode":
+        payload["envelope_filter_mode"] = "geometric"
+        payload["expected_envelope_filter_mode"] = "layer_type_filter"
+        # Dire QUOI relancer, avec les paramètres exacts : un refus qui laisse
+        # deviner la commande fait recommencer à l'identique.
+        payload["next_step"] = (
+            "Le contrat d'enveloppe a été calculé sans filtre. Régénérer avec "
+            '``envelope_filter_mode="layer_type_filter"``, '
+            "``envelope_layer_pattern`` (ex. « Extérieurs périphériques »), "
+            "``envelope_type_pattern`` (ex. « ^ME(?:[\\s_]|$) ») et "
+            "``force_recompute_envelope=True`` — sans ce dernier, le contrat en "
+            "cache serait réutilisé tel quel."
+        )
     if exc.kind == "external_tool_mention":
         payload["contaminated_deliverables"] = exc.empty
         payload["next_step"] = (
