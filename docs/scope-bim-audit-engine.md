@@ -1,5 +1,10 @@
 # Scope — package `bim-audit-engine` (moteur d'audit générique)
 
+> **Document historique.** Rédigé quand la distribution s'appelait
+> `audit-bim-i3f` ; elle se nomme **`audit-bim-mcp`** depuis la 0.11.0
+> (2026-08-08). Les noms cités ci-dessous n'ont **pas** été réécrits : ce
+> document est une trace de décision, pas une consigne courante.
+
 Document d'architecture **figé avant tout code**. Il cartographie le **moteur
 d'audit** existant d'`audit-bim-i3f` (`audit_bim/audit/*` + les schémas de
 `audit_bim/requirements/models.py`), fixe la frontière **moteur générique vs

@@ -1,7 +1,7 @@
 # Workflow AMO BIM — référence
 
 Ce document décrit le **workflow cible** d'un AMO BIM I3F utilisant
-`audit-bim-i3f` via Claude (ou tout autre client MCP). Chaque étape est
+`audit-bim-mcp` via Claude (ou tout autre client MCP). Chaque étape est
 explicitement lecture seule ou écriture contrôlée, sans surprise.
 
 Le workflow est conçu pour que **rien n'écrive dans BIMData** tant que

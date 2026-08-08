@@ -1,5 +1,10 @@
 # Scope — extraction d'un runtime MCP réutilisable (D0-bis)
 
+> **Document historique.** Rédigé quand la distribution s'appelait
+> `audit-bim-i3f` ; elle se nomme **`audit-bim-mcp`** depuis la 0.11.0
+> (2026-08-08). Les noms cités ci-dessous n'ont **pas** été réécrits : ce
+> document est une trace de décision, pas une consigne courante.
+
 Cadrage de l'extraction du runtime MCP. Ce document a servi de base de décision
 à **E1**, qui est livré ; il reste la référence pour E2 et E3.
 

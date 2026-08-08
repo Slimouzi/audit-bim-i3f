@@ -1,5 +1,10 @@
 # Instruction CTO — gel #82, fin de développement, mise en production (sandbox supprimé)
 
+> **Document historique.** Rédigé quand la distribution s'appelait
+> `audit-bim-i3f` ; elle se nomme **`audit-bim-mcp`** depuis la 0.11.0
+> (2026-08-08). Les noms cités ci-dessous n'ont **pas** été réécrits : ce
+> document est une trace de décision, pas une consigne courante.
+
 Instruction de clôture du cycle de développement et de passage en production de
 `audit-bim-i3f`. État d'entrée : jalon A1 clos, **v0.7.0 releasée** (#81), dette
 overrides purgée (#83), scope `field_path` proposé en PR #82 (docs-only).

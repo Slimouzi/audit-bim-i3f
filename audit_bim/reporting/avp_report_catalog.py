@@ -23,13 +23,25 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Dossier des classeurs MOA de référence (templates). Surchargable par env pour
-# les déploiements où les exemples ne sont pas au même endroit. Les chemins
-# absolus « machine » ne sont qu'indicatifs : le tool n'expose ``template_path``
-# que si le fichier existe réellement.
-MOA_TEMPLATES_DIR = Path(
-    os.getenv("AVP_MOA_TEMPLATES_DIR", "/Users/stani/code/MCP/Documents maître d'ouvrage")
-)
+#: Variable d'environnement déclarant le dossier des classeurs MOA de référence.
+MOA_TEMPLATES_ENV = "AVP_MOA_TEMPLATES_DIR"
+
+
+def moa_templates_dir() -> Path | None:
+    """Dossier des classeurs MOA de référence, ou ``None`` s'il n'est pas déclaré.
+
+    **Absence assumée, pas de défaut « machine ».** Le code portait en dur le
+    chemin d'un poste de développement. Sur tout autre poste il ne désignait
+    rien, et le produit se comportait comme si la configuration existait — un
+    défaut faux est plus difficile à diagnostiquer qu'une absence, parce qu'il
+    ressemble à une configuration.
+
+    Déclarer ``AVP_MOA_TEMPLATES_DIR`` pour activer la résolution des
+    templates ; sans elle, ``resolved_template_path()`` renvoie ``None`` et le
+    tool n'expose simplement pas de chemin de template.
+    """
+    brut = os.getenv(MOA_TEMPLATES_ENV)
+    return Path(brut).expanduser() if brut else None
 
 
 @dataclass(frozen=True)
@@ -86,13 +98,15 @@ class ReportSpec:
     requirements: tuple[DataRequirement, ...]
 
     @property
-    def template_path(self) -> Path:
-        return MOA_TEMPLATES_DIR / self.example_filename
+    def template_path(self) -> Path | None:
+        """Chemin attendu du template, ou ``None`` si le dossier n'est pas déclaré."""
+        racine = moa_templates_dir()
+        return racine / self.example_filename if racine else None
 
     def resolved_template_path(self) -> str | None:
         """Chemin du template MOA **s'il existe** sur ce poste, sinon ``None``."""
         p = self.template_path
-        return str(p) if p.is_file() else None
+        return str(p) if p is not None and p.is_file() else None
 
     @property
     def requires_external_for_identical(self) -> bool:
