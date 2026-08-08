@@ -10,6 +10,7 @@ import re
 import unicodedata
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from ...mcp.app import mcp
 from ...mcp.phase import (
@@ -187,6 +188,53 @@ def _contract_mismatch_payload(exc) -> dict:
         "active_model_id": _State.model_id,
         "message": str(exc),
     }
+
+
+#: Origine d'un chemin de contrat. Elle est **donnée par l'appelant**, jamais
+#: redevinée : « ce n'est pas nous qui l'avons calculé » ne veut pas dire
+#: « l'appelant l'a fourni ». Un fichier détecté sur disque a déjà été corrélé
+#: au modèle actif, un fichier fourni ne l'a pas été — et c'est cette seule
+#: différence qui décide si la garde de provenance s'applique.
+ContractOrigin = Literal["parametre", "detecte", "calcule"]
+
+
+def _resolve_contract_source(
+    *,
+    path: str | Path,
+    origin: ContractOrigin,
+    param_name: str,
+) -> tuple[Path, str | None]:
+    """Sécurise un chemin de contrat et applique la politique de provenance.
+
+    Le **choix** du chemin reste chez l'appelant : ce helper reçoit un chemin
+    déjà décidé, le passe par la sandbox si son origine l'exige, puis applique
+    la règle de provenance correspondante.
+
+    - ``parametre`` — sandbox en lecture, puis **garde de provenance** qui peut
+      lever :class:`ContractModelMismatch`. C'est le seul cas où un contrat
+      étranger doit être refusé : rien n'a corrélé ce chemin au modèle actif ;
+    - ``detecte`` — sandbox en lecture, provenance seulement **informative** :
+      la corrélation a eu lieu en amont (``_envelope_json_matches_model``) ;
+    - ``calcule`` — produit dans cette exécution, donc sous ``AUDIT_OUTPUT_DIR``
+      que ``safe_input_path`` ne couvre pas nécessairement ; provenance
+      informative, le modèle est juste par construction.
+
+    Ne protège **pas** de l'absence de fichier : ``_guard_contract_provenance``
+    rend ``None`` sur un document illisible. Le refus d'un chemin absent vient
+    de ``safe_input_path`` et du lecteur de contrat, en amont — les confondre
+    retirerait le contrôle qui agit réellement.
+
+    Renvoie ``(chemin_sûr, provenance_déclarée_ou_None)``.
+    """
+    if origin == "calcule":
+        safe = Path(path)
+    else:
+        safe = safe_input_path(path, allowed_extensions={".json"})
+
+    if origin == "parametre":
+        # Peut lever ContractModelMismatch — l'appelant décide quoi en faire.
+        return safe, _guard_contract_provenance(safe, parametre=param_name)
+    return safe, _contract_source_ifc_file(safe)
 
 
 def _auto_envelope_roots() -> list[Path]:
@@ -829,27 +877,33 @@ def generate_avp_i3f_pack(
                 "message": str(exc),
             }
     if envelope_json_used:
-        # Même règle de sandbox que pour les quantités : fichier produit ici →
-        # chemin d'export ; fichier fourni → validation en lecture.
-        safe_env = (
-            Path(envelope_json_used)
-            if auto_envelope is not None
-            else safe_input_path(envelope_json_used, allowed_extensions={".json"})
-        )
+        from ...reporting.avp_autocompute import ContractModelMismatch
+
+        # L'origine est écrite noir sur blanc : trois cas, trois politiques.
+        # `detecte` échappe à la garde parce que `_auto_envelope_json` a déjà
+        # corrélé le fichier au modèle actif.
+        if auto_envelope is not None:
+            origine_env: ContractOrigin = "calcule"
+        elif envelope_json_explicite:
+            origine_env = "parametre"
+        else:
+            origine_env = "detecte"
+
         # Schéma d'abord (diagnostic le plus précis), provenance ensuite : un
         # fichier illisible doit se dire illisible, pas « d'un autre modèle ».
+        # La lecture précède donc la résolution de provenance.
+        safe_env = (
+            Path(envelope_json_used)
+            if origine_env == "calcule"
+            else safe_input_path(envelope_json_used, allowed_extensions={".json"})
+        )
         sources.enveloppe = read_envelope_json(safe_env)
-        if envelope_json_explicite:
-            from ...reporting.avp_autocompute import ContractModelMismatch
-
-            try:
-                envelope_source_ifc_file = _guard_contract_provenance(
-                    safe_env, parametre="envelope_json"
-                )
-            except ContractModelMismatch as exc:
-                return _contract_mismatch_payload(exc)
-        else:
-            envelope_source_ifc_file = _contract_source_ifc_file(safe_env)
+        try:
+            safe_env, envelope_source_ifc_file = _resolve_contract_source(
+                path=safe_env, origin=origine_env, param_name="envelope_json"
+            )
+        except ContractModelMismatch as exc:
+            return _contract_mismatch_payload(exc)
         envelope_json_used = str(safe_env)
 
     # Quantités calculées : fusion **gap-only** dans le snapshot AVANT
@@ -913,27 +967,27 @@ def generate_avp_i3f_pack(
                     "appeler ``extract_model_snapshot`` avant ``generate_avp_i3f_pack``."
                 ),
             }
+        from ...reporting.avp_autocompute import ContractModelMismatch
+
+        # Deux origines seulement ici : ce contrat ne se détecte pas sur disque.
+        origine_cq: ContractOrigin = "calcule" if auto_quantities is not None else "parametre"
+
         # Sandbox : un fichier FOURNI par l'utilisateur est validé en lecture ;
         # un fichier que NOUS venons de produire vit sous ``AUDIT_OUTPUT_DIR``,
         # que ``safe_input_path`` ne couvre pas nécessairement.
         safe_cq = (
             Path(computed_quantities_json)
-            if auto_quantities is not None
+            if origine_cq == "calcule"
             else safe_input_path(computed_quantities_json, allowed_extensions={".json"})
         )
         doc = load_computed_quantities(safe_cq)  # valide le contrat (sinon ValueError)
         # Provenance après le schéma, même raison que pour l'enveloppe.
-        if auto_quantities is None:
-            from ...reporting.avp_autocompute import ContractModelMismatch
-
-            try:
-                computed_source_ifc_file = _guard_contract_provenance(
-                    safe_cq, parametre="computed_quantities_json"
-                )
-            except ContractModelMismatch as exc:
-                return _contract_mismatch_payload(exc)
-        else:
-            computed_source_ifc_file = _contract_source_ifc_file(safe_cq)
+        try:
+            safe_cq, computed_source_ifc_file = _resolve_contract_source(
+                path=safe_cq, origin=origine_cq, param_name="computed_quantities_json"
+            )
+        except ContractModelMismatch as exc:
+            return _contract_mismatch_payload(exc)
         # Copie de travail : la fusion est gap-only, donc muter le snapshot de
         # SESSION la rendrait non rejouable — un second appel avec un JSON
         # recalculé verrait les anciennes valeurs comme « déjà présentes » et
