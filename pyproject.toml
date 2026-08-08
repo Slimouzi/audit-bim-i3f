@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audit-bim-mcp"
-version = "0.10.0"
+version = "0.11.0"
 description = "Multi-AMO MCP server for BIM model audit on BIMData.io — one active profile per process; I3F (CCH BIM V3.x) is the default, alongside BIM in Motion and Domofrance."
 readme = "README.md"
 requires-python = ">=3.10"
