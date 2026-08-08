@@ -32,6 +32,7 @@ from ..doe.models import Match
 from ..domain.write_plan import ActionResult, WritePlan, WritePlanKind
 from ..extraction.client import BIMDataClient
 from ..extraction.model_data import ModelSnapshot
+from ..provenance import ORIGINATING_SYSTEM
 from ..security.redaction import redact_secrets
 from ._apply_runtime import ApplyOutcome, run_apply
 
@@ -53,7 +54,7 @@ def _build_pset_payload(pset_name: str, props: dict[str, Any]) -> dict[str, Any]
     """Construit le payload BIMData POST /element/{uuid}/propertyset."""
     return {
         "name": pset_name,
-        "description": "Enrichissement automatique depuis DOE (audit-bim-i3f)",
+        "description": f"Enrichissement automatique depuis DOE ({ORIGINATING_SYSTEM})",
         "properties": [
             {
                 "definition": {

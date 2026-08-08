@@ -46,7 +46,7 @@ jobs:
           pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.10"
           pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.6"
           pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.7"
-          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.6"
+          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.7"
           pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.6"
           pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
           pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
@@ -117,7 +117,7 @@ jobs:
       - name: Install bim-query (tagged read-only query layer)
         run: pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.7"
       - name: Install bim-publication (tagged BCF/SmartViews builders)
-        run: pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.6"
+        run: pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.7"
       - name: Install bim-audit-engine (tagged generic audit engine core)
         run: pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.6"
       - name: Install bim-reporting (tagged generic deliverable rendering core)
@@ -169,7 +169,7 @@ jobs:
           pip install "git+https://github.com/Slimouzi/bimdata-read.git@bimdata-read-v0.1.10"
           pip install "git+https://github.com/Slimouzi/bimdata-write.git@bimdata-write-v0.1.6"
           pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.7"
-          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.6"
+          pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.7"
           pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.6"
           pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
           pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
@@ -263,7 +263,7 @@ jobs:
       - name: Install bim-query (tagged read-only query layer)
         run: pip install "git+https://github.com/Slimouzi/bim-query.git@bim-query-v0.1.7"
       - name: Install bim-publication (tagged BCF/SmartViews builders)
-        run: pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.6"
+        run: pip install "git+https://github.com/Slimouzi/bim-publication.git@bim-publication-v0.1.7"
       - name: Install bim-audit-engine (tagged generic audit engine core)
         run: pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.6"
       - name: Install bim-reporting (tagged generic deliverable rendering core)

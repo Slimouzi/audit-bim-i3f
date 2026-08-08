@@ -17,6 +17,7 @@ import xlsxwriter
 from ...audit.engine import AuditResult
 from ...audit.findings import ErrorType, Theme
 from ...extraction.model_data import ModelSnapshot
+from ...provenance import ORIGINATING_SYSTEM
 from ..avp_sources import ControleMaquettesSource, SheetTable
 from ..word_report import NOT_AVAILABLE
 from ..xlsx_annex import write_safe
@@ -468,7 +469,7 @@ def _controle_rows_for_moa(grille: SheetTable) -> list[list]:
             [
                 "",
                 point,
-                "Contrôle automatisé MCP audit-bim-i3f",
+                f"Contrôle automatisé MCP {ORIGINATING_SYSTEM}",
                 "Audit BIM / IFC OpenShell",
                 evaluation,
                 (
@@ -684,7 +685,7 @@ def _audit_controle_table(result: AuditResult | None) -> SheetTable | None:
             [
                 "",
                 name,
-                "Contrôle automatisé MCP audit-bim-i3f",
+                f"Contrôle automatisé MCP {ORIGINATING_SYSTEM}",
                 "Audit BIM / IFC OpenShell",
                 eval_value,
                 (

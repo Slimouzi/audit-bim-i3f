@@ -23,11 +23,11 @@
               "components": [
                 {
                   "ifc_guid": "W1",
-                  "originating_system": "audit-bim-i3f"
+                  "originating_system": "audit-bim-mcp"
                 },
                 {
                   "ifc_guid": "D1",
-                  "originating_system": "audit-bim-i3f"
+                  "originating_system": "audit-bim-mcp"
                 }
               ]
             },
@@ -36,7 +36,7 @@
               "components": [
                 {
                   "ifc_guid": "W1",
-                  "originating_system": "audit-bim-i3f"
+                  "originating_system": "audit-bim-mcp"
                 }
               ]
             }
@@ -44,18 +44,18 @@
           "selection": [
             {
               "ifc_guid": "W1",
-              "originating_system": "audit-bim-i3f"
+              "originating_system": "audit-bim-mcp"
             },
             {
               "ifc_guid": "D1",
-              "originating_system": "audit-bim-i3f"
+              "originating_system": "audit-bim-mcp"
             }
           ]
         },
         "models": [
           1674450
         ],
-        "originating_system": "audit-bim-i3f"
+        "originating_system": "audit-bim-mcp"
       }
     ]
   },
@@ -83,7 +83,7 @@
               "components": [
                 {
                   "ifc_guid": "W1",
-                  "originating_system": "audit-bim-i3f"
+                  "originating_system": "audit-bim-mcp"
                 }
               ]
             }
@@ -91,14 +91,14 @@
           "selection": [
             {
               "ifc_guid": "W1",
-              "originating_system": "audit-bim-i3f"
+              "originating_system": "audit-bim-mcp"
             }
           ]
         },
         "models": [
           1674450
         ],
-        "originating_system": "audit-bim-i3f"
+        "originating_system": "audit-bim-mcp"
       }
     ]
   },
@@ -126,11 +126,11 @@
               "components": [
                 {
                   "ifc_guid": "W1",
-                  "originating_system": "audit-bim-i3f"
+                  "originating_system": "audit-bim-mcp"
                 },
                 {
                   "ifc_guid": "D1",
-                  "originating_system": "audit-bim-i3f"
+                  "originating_system": "audit-bim-mcp"
                 }
               ]
             }
@@ -138,18 +138,18 @@
           "selection": [
             {
               "ifc_guid": "W1",
-              "originating_system": "audit-bim-i3f"
+              "originating_system": "audit-bim-mcp"
             },
             {
               "ifc_guid": "D1",
-              "originating_system": "audit-bim-i3f"
+              "originating_system": "audit-bim-mcp"
             }
           ]
         },
         "models": [
           1674450
         ],
-        "originating_system": "audit-bim-i3f"
+        "originating_system": "audit-bim-mcp"
       }
     ]
   }

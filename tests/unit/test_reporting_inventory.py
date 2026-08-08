@@ -34,15 +34,15 @@ def test_the_document_figures_match_the_measurement(report):
         lines[m["kind"]] += m["lines"]
 
     assert len(report["modules"]) == 23
-    assert sum(m["lines"] for m in report["modules"]) == 8216
+    assert sum(m["lines"] for m in report["modules"]) == 8217
     assert counts["façade"] == 0
-    assert counts["orchestration_i3f"] == 12 and lines["orchestration_i3f"] == 5981
+    assert counts["orchestration_i3f"] == 12 and lines["orchestration_i3f"] == 5982
     assert counts["lié_livrable_i3f"] == 9 and lines["lié_livrable_i3f"] == 2228
     assert counts["sans_attache_directe"] == 2 and lines["sans_attache_directe"] == 7
 
     text = DOC.read_text(encoding="utf-8")
     for claim in (
-        "**8 216 lignes**",
+        "**8 217 lignes**",
         "| Façade pure vers `bim-reporting` | 0 | — |",
         "| Lié au livrable I3F par ses appelants | 9 | 2 228 |",
     ):
@@ -102,8 +102,8 @@ def test_writing_modules_are_counted_as_claimed(report):
     """Le nombre de modules qui écrivent commande le coût de recette des lots."""
     writers = [m for m in report["modules"] if m["writes_files"]]
     assert len(writers) == 10
-    assert sum(m["lines"] for m in writers) == 4973
-    assert "**4 973 dans dix modules qui écrivent un fichier**" in DOC.read_text(encoding="utf-8")
+    assert sum(m["lines"] for m in writers) == 4974
+    assert "**4 974 dans dix modules qui écrivent un fichier**" in DOC.read_text(encoding="utf-8")
 
 
 def test_avp_snapshot_is_classified_by_use_not_only_by_imports(report):
