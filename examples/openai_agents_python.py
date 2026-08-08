@@ -18,7 +18,7 @@ async def main():
         params={
             "command": "python",
             "args": ["-m", "audit_bim.mcp"],
-            "cwd": "/Users/stani/code/MCP/audit-bim-i3f",
+            "cwd": "/Users/stani/code/MCP/audit-bim-mcp",
         }
     ) as mcp_server:
         agent = Agent(

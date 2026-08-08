@@ -12,7 +12,7 @@ def main():
     server_params = StdioServerParameters(
         command="python",
         args=["-m", "audit_bim.mcp"],
-        cwd="/Users/stani/code/MCP/audit-bim-i3f",
+        cwd="/Users/stani/code/MCP/audit-bim-mcp",
     )
     with MCPServerAdapter(server_params) as mcp_tools:
         auditor = Agent(

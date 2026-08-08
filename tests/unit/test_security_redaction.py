@@ -137,7 +137,7 @@ class TestSignedUrlsAndPaths:
         assert "deadbeefcafe1234" not in out
 
     def test_absolute_path_redacted(self):
-        msg = "FileNotFoundError: '/Users/stani/code/MCP/audit-bim-i3f/out/plan.json'"
+        msg = "FileNotFoundError: '/Users/stani/code/MCP/audit-bim-mcp/out/plan.json'"
         out = redact_secrets(msg)
         assert "/Users/stani" not in out
         assert "<path>" in out

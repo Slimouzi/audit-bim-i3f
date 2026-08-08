@@ -10,9 +10,8 @@ Le contrôle **dérive** le nom attendu de l'instance FastMCP elle-même. Il ne
 recopie pas une chaîne : renommer le serveur sans mettre les docs à jour fait
 donc échouer ce test, ce qui est exactement le service attendu.
 
-Ce qu'il ne contrôle **pas**, délibérément : les chemins du dossier local
-(non renommé), la distribution, les tags, et les récits historiques du
-CHANGELOG. Ce sont d'autres lots, et les confondre produirait un balayage
+Ce qu'il ne contrôle **pas**, délibérément : les chemins du dossier local,
+la distribution, les tags, et les récits historiques du CHANGELOG. Ce sont d'autres lots, et les confondre produirait un balayage
 aveugle au lieu d'un garde-fou.
 """
 
@@ -134,7 +133,7 @@ def test_the_key_guard_is_not_vacuous():
     assert [c for c in cles if c.startswith("audit-bim") and not c.startswith("audit-bim-mcp")]
 
     # Un chemin portant l'ancien nom ne doit PAS être vu comme une clé.
-    chemin = '{"cwd": "/Users/stani/code/MCP/audit-bim-i3f"}'
+    chemin = '{"cwd": "/Users/stani/code/MCP/audit-bim-mcp"}'
     assert not [c for c in re.findall(r'"([\w.-]+)"\s*:\s*\{', chemin) if c.startswith("audit-bim")]
 
 

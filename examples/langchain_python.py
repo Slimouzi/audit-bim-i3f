@@ -15,7 +15,7 @@ async def main():
             "audit-bim-mcp": {
                 "command": "python",
                 "args": ["-m", "audit_bim.mcp"],
-                "cwd": "/Users/stani/code/MCP/audit-bim-i3f",
+                "cwd": "/Users/stani/code/MCP/audit-bim-mcp",
                 "transport": "stdio",
             }
         }

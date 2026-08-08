@@ -22,8 +22,11 @@
 >
 > **Ce qui n'a pas bougé.** Le paquet Python importé reste `audit_bim` —
 > `import audit_bim` fonctionne à l'identique — de même que l'exécutable
-> `audit-bim-mcp`, le préfixe d'environnement `AUDIT_BIM_*`, les profils MCP et
-> le dossier local. La provenance inscrite dans les livrables produits (BCF,
+> `audit-bim-mcp`, le préfixe d'environnement `AUDIT_BIM_*` et les profils MCP.
+> Le dossier de travail local a été renommé lui aussi : les chemins des exemples
+> ci-dessous pointent sur `~/code/MCP/audit-bim-mcp`. Une configuration Claude
+> Desktop existante doit être mise à jour, sinon le serveur ne démarre plus.
+> La provenance inscrite dans les livrables produits (BCF,
 > XLSX, property sets poussés dans la maquette) porte désormais `audit-bim-mcp`.
 > Les fichiers déjà livrés sous l'ancienne provenance restent historiques.
 
@@ -394,9 +397,9 @@ ou `%APPDATA%\Claude\claude_desktop_config.json` (Windows), puis
 {
   "mcpServers": {
     "audit-bim-mcp": {
-      "command": "/Users/stani/code/MCP/audit-bim-i3f/.venv/bin/audit-bim-mcp",
+      "command": "/Users/stani/code/MCP/audit-bim-mcp/.venv/bin/audit-bim-mcp",
       "args": ["--transport", "stdio"],
-      "cwd": "/Users/stani/code/MCP/audit-bim-i3f"
+      "cwd": "/Users/stani/code/MCP/audit-bim-mcp"
     }
   }
 }
@@ -411,7 +414,7 @@ from agents.mcp import MCPServerStdio
 
 server = MCPServerStdio(
     params={"command": "python", "args": ["-m", "audit_bim.mcp"],
-            "cwd": "/Users/stani/code/MCP/audit-bim-i3f"},
+            "cwd": "/Users/stani/code/MCP/audit-bim-mcp"},
 )
 agent = Agent(name="AMO BIM I3F", model="gpt-4o",
               instructions="Tu es un AMO BIM senior I3F.", mcp_servers=[server])
@@ -428,7 +431,7 @@ from langgraph.prebuilt import create_react_agent
 client = MultiServerMCPClient({
     "audit-bim-mcp": {
         "command": "python", "args": ["-m", "audit_bim.mcp"],
-        "cwd": "/Users/stani/code/MCP/audit-bim-i3f", "transport": "stdio",
+        "cwd": "/Users/stani/code/MCP/audit-bim-mcp", "transport": "stdio",
     }
 })
 tools = await client.get_tools()
@@ -445,7 +448,7 @@ from mcp import StdioServerParameters
 
 server = StdioServerParameters(
     command="python", args=["-m", "audit_bim.mcp"],
-    cwd="/Users/stani/code/MCP/audit-bim-i3f",
+    cwd="/Users/stani/code/MCP/audit-bim-mcp",
 )
 with MCPServerAdapter(server) as tools:
     auditor = Agent(role="AMO BIM I3F", goal="Auditer une maquette", tools=tools,
@@ -465,7 +468,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const transport = new StdioClientTransport({
   command: "python",
   args: ["-m", "audit_bim.mcp"],
-  cwd: "/Users/stani/code/MCP/audit-bim-i3f",
+  cwd: "/Users/stani/code/MCP/audit-bim-mcp",
 });
 const client = new Client({ name: "my-app", version: "1.0.0" }, { capabilities: {} });
 await client.connect(transport);
