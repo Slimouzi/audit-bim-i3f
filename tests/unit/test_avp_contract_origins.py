@@ -257,3 +257,61 @@ def test_the_mismatch_payload_names_the_parameter_at_fault():
 
     assert charge["status"] == "error"
     assert "envelope_json" in json.dumps(charge, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# 4. Le helper lui-même : les trois origines, et le refus de toute autre.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("origine", ["typo", "paramètre", "detected", "", None, "PARAMETRE"])
+def test_an_unknown_origin_is_refused_by_the_helper(session, origine):
+    """``Literal`` ne contraint que le typage statique — pas l'exécution.
+
+    Sans branchement exhaustif, une faute de frappe tombait dans la branche
+    informative et **contournait la garde de provenance**. Un helper qui porte
+    une politique de sécurité doit échouer fermé.
+    """
+    _sess, tmp = session
+    chemin = _ecrire(tmp, "quelconque_envelope.json", _enveloppe())
+
+    with pytest.raises(ValueError, match="origine de contrat inconnue"):
+        tr._resolve_contract_source(path=chemin, origin=origine, param_name="envelope_json")
+
+
+def test_the_helper_guards_provenance_only_for_a_parameter_origin(session):
+    """Les trois origines valides, sur le helper — pas sur ses primitives."""
+    _sess, tmp = session
+    etranger = _ecrire(tmp, "etranger_envelope.json", _enveloppe(ifc_file=AUTRE_MODELE))
+
+    from audit_bim.reporting.avp_autocompute import ContractModelMismatch
+
+    # `parametre` : seule origine qui refuse un contrat d'un autre modèle.
+    with pytest.raises(ContractModelMismatch):
+        tr._resolve_contract_source(path=etranger, origin="parametre", param_name="envelope_json")
+
+    # `detecte` et `calcule` : provenance informative, aucun refus — la
+    # corrélation a eu lieu ailleurs, ou le modèle est juste par construction.
+    for origine in ("detecte", "calcule"):
+        safe, provenance = tr._resolve_contract_source(
+            path=etranger, origin=origine, param_name="envelope_json"
+        )
+        assert Path(safe).name == etranger.name, origine
+        assert provenance == AUTRE_MODELE, origine
+
+
+def test_the_helper_sandboxes_every_origin_except_the_computed_one(session):
+    """`calcule` échappe à la sandbox de lecture : le fichier vient de nous.
+
+    Non-vacuité : sans cette distinction, un contrat produit sous
+    ``AUDIT_OUTPUT_DIR`` serait refusé par ``safe_input_path``.
+    """
+    _sess, tmp = session
+    hors_sandbox = tmp / "sous-dossier"
+    hors_sandbox.mkdir()
+    produit = _ecrire(hors_sandbox, "produit_envelope.json", _enveloppe())
+
+    safe, _prov = tr._resolve_contract_source(
+        path=produit, origin="calcule", param_name="envelope_json"
+    )
+    assert Path(safe) == produit

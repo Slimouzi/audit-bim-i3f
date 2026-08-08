@@ -234,7 +234,14 @@ def _resolve_contract_source(
     if origin == "parametre":
         # Peut lever ContractModelMismatch — l'appelant décide quoi en faire.
         return safe, _guard_contract_provenance(safe, parametre=param_name)
-    return safe, _contract_source_ifc_file(safe)
+    if origin in {"detecte", "calcule"}:
+        return safe, _contract_source_ifc_file(safe)
+    # Branchement exhaustif, et refus explicite. ``Literal`` ne contraint que
+    # les vérificateurs statiques : à l'exécution, une faute de frappe
+    # (« paramètre », « detected ») tomberait sinon dans la branche
+    # informative et **contournerait la garde de provenance** — un helper de
+    # politique de sécurité doit échouer fermé, jamais ouvert.
+    raise ValueError(f"origine de contrat inconnue : {origin!r}")
 
 
 def _auto_envelope_roots() -> list[Path]:
