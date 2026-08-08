@@ -150,3 +150,111 @@ def test_an_absent_contract_is_an_empty_trace_not_a_missing_one():
         None,
         None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Comportement : le tool assemble-t-il vraiment la trace ?
+# ---------------------------------------------------------------------------
+
+
+def test_the_tool_reports_the_envelope_provenance_it_actually_used(tmp_path, monkeypatch):
+    """``envelope_source_ifc_file`` doit sortir du contrat RÉELLEMENT lu.
+
+    Les tests ci-dessus construisent une ``AvpContractTrace`` ; ils ne prouvent
+    pas que le tool l'assemble. Celui-ci appelle ``generate_avp_i3f_pack`` avec
+    une enveloppe explicite portant ``source.ifc_file``, et vérifie la clé
+    publique dans la réponse — la seule des cinq clés déplacées vers la trace
+    qui n'était couverte par aucun test de comportement.
+    """
+    import json as _json
+
+    from audit_bim.extraction.model_data import ModelSnapshot
+    from audit_bim.mcp.session import _Session, current_session
+    from audit_bim.profiles.i3f.tools_reporting import generate_avp_i3f_pack
+
+    monkeypatch.setenv("AUDIT_INPUT_DIR", str(tmp_path))
+    monkeypatch.setenv("AUDIT_OUTPUT_DIR", str(tmp_path / "out"))
+    (tmp_path / "out").mkdir()
+
+    ifc = "250613_MN_BAT.ifc"
+    contrat = tmp_path / "mn_bat_envelope.json"
+    contrat.write_text(
+        _json.dumps(
+            {
+                "schema": "envelope_quantities/v1",
+                "source": {
+                    "producer": "ifc-geometry",
+                    "tool": "extract_envelope_surfaces",
+                    "version": "0.6.1",
+                    "ifc_file": ifc,
+                },
+                # ``summary`` est requis par le contrat — lu sur le schéma réel,
+                # pas deviné : une première version de ce test l'omettait et
+                # échouait à la validation avant d'atteindre la clé visée.
+                "summary": {"superficie_facades_m2": 2071.18, "shab_m2": 2164.98},
+                "par_type": [{"type": "Mur", "net_side_area_m2": 120.0, "n": 4}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    sess = _Session()
+    sess.snapshot = ModelSnapshot(
+        project={"name": "Dieppe"},
+        model={"name": ifc},
+        # Quantités natives présentes : sans elles la QA gate refuse des
+        # livrables vides, et le test n'atteindrait jamais la clé visée.
+        spaces=[
+            {
+                "uuid": "SP1",
+                "type": "IfcSpace",
+                "name": "SEJOUR",
+                "longname": "SEJOUR",
+                "property_sets": [
+                    {
+                        "name": "Qto_SpaceBaseQuantities",
+                        "properties": [
+                            {"definition": {"name": "NetFloorArea"}, "value": 24.5},
+                            {"definition": {"name": "Height"}, "value": 2.5},
+                        ],
+                    }
+                ],
+            }
+        ],
+        elements=[
+            {
+                "uuid": "W1",
+                "type": "IfcWall",
+                "name": "Mur",
+                "layers": [{"name": "221 - MURS - Extérieurs périphériques.Exndo"}],
+                "property_sets": [
+                    {
+                        "name": "Qto_WallBaseQuantities",
+                        "properties": [{"definition": {"name": "NetSideArea"}, "value": 120.0}],
+                    }
+                ],
+            }
+        ],
+    ).index()
+    token = current_session.set(sess)
+    try:
+        res = generate_avp_i3f_pack(
+            project_name="Dieppe Chantier",
+            project_code="0546L",
+            phase="AVP",
+            auditor_name="S. Limouzi",
+            envelope_json=str(contrat),
+            # Le snapshot n'a pas de BaseQuantities : sans ça, le tool tente de
+            # les calculer et refuse faute d'``ifc_path``. Ce test porte sur la
+            # trace d'ENVELOPPE, pas sur l'auto-calcul des quantités.
+            auto_compute_quantities=False,
+            export_pdf=False,
+        )
+    finally:
+        current_session.reset(token)
+
+    assert res.get("status") != "needs_context", res
+    # La clé visée : elle vient de `source.ifc_file` du contrat lu, pas d'un
+    # paramètre ni du nom du fichier.
+    assert res["envelope_source_ifc_file"] == ifc, sorted(res)
+    assert res["envelope_json_used"] == str(contrat)
