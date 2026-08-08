@@ -11,7 +11,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from ...mcp.app import mcp
 from ...mcp.phase import (
@@ -31,6 +31,9 @@ from ...reporting.xlsx_annex import write_xlsx_annex
 from ...safe_paths import safe_export_dir, safe_export_path, safe_input_path
 
 _server_logger = logging.getLogger("audit_bim.profiles.i3f.tools_reporting")
+
+if TYPE_CHECKING:
+    from ...reporting.avp.models import AvpReportPack
 
 
 #: Libellés qui ne désignent **aucun chantier**. Trois familles, toutes vues en
@@ -514,7 +517,7 @@ class AvpIdentityContext:
     project_name: str
     project_code: str
     phase: str
-    auteur_controle: str
+    auteur_controle: str | None
     controle_src: str | None
     sources: object
 
@@ -544,6 +547,24 @@ class AvpContextCheck:
         # (ou aucun) laisserait l'appelant décider au hasard.
         if (self.identity is None) == (self.response is None):
             raise ValueError("AvpContextCheck : exactement une identité OU un refus")
+
+
+@dataclass(frozen=True)
+class AvpPackBuildResult:
+    """Résultat de génération : soit un pack produit, soit une réponse QA.
+
+    Même forme que :class:`AvpContextCheck`, appliquée au dernier bloc du tool :
+    la QA gate reste un refus explicite, mais elle n'est plus mélangée au
+    formatage du succès.
+    """
+
+    out_dir: Path
+    pack: AvpReportPack | None
+    response: dict | None
+
+    def __post_init__(self) -> None:
+        if (self.pack is None) == (self.response is None):
+            raise ValueError("AvpPackBuildResult : exactement un pack OU un refus")
 
 
 def _validate_avp_context(
@@ -774,6 +795,160 @@ def _validate_avp_context(
     )
 
 
+def _avp_qa_error_response(exc, *, out_dir: Path) -> dict:
+    """Transforme la QA gate AVP en refus MCP actionnable."""
+    # QA gate : annexe vide, ou annexe dont TOUTES les colonnes de quantités
+    # sont vides. Statut d'erreur explicite — surtout pas un livrable client
+    # faux, qui se lirait comme un résultat.
+    manque_quantites = exc.kind == "missing_quantities"
+    # Un refus ne doit rien laisser derrière lui. Le dossier a été créé en
+    # amont par la sandbox d'export ; on le retire s'il est resté vide (jamais
+    # s'il contient quoi que ce soit — on ne supprime pas de fichiers de
+    # l'utilisateur).
+    try:
+        if out_dir.is_dir() and not any(out_dir.iterdir()):
+            out_dir.rmdir()
+    except OSError:  # nettoyage best-effort, jamais bloquant
+        pass
+    _codes = {
+        "missing_quantities": "missing_quantities",
+        "external_tool_mention": "external_tool_mention",
+    }
+    payload = {
+        "status": "error",
+        "error": _codes.get(exc.kind, "empty_deliverable"),
+        "empty_deliverables": exc.empty,
+        "message": str(exc),
+    }
+    if exc.kind == "external_tool_mention":
+        payload["contaminated_deliverables"] = exc.empty
+        payload["next_step"] = (
+            "Un livrable cite encore un outil tiers (Solibri / BimCollab*) "
+            "hérité du classeur MOA de référence. Retirer la mention du "
+            "template source, ou générer sans ``controle_xlsx``."
+        )
+    if exc.kind == "empty" and "Enveloppe" in exc.empty:
+        # La maquette porte des murs d'enveloppe mais aucune source exploitable
+        # n'a produit de ligne. Dire quoi faire : sur une maquette sans calque
+        # ArchiCAD (export Revit), la sélection par défaut ne retient rien et il
+        # faut des motifs adaptés au nommage réel des types.
+        payload["needs_envelope_source"] = True
+        payload["next_step"] = (
+            "L'annexe Enveloppe est vide alors que la maquette porte des "
+            "murs d'enveloppe. Fournir ``envelope_json`` (contrat "
+            "``envelope_quantities/v1`` du MCP ifc-geometry), ou relancer "
+            "avec ``auto_compute_envelope=True`` et des motifs adaptés au "
+            "nommage de CETTE maquette (``envelope_layer_pattern`` / "
+            "``envelope_type_pattern``) — les motifs ArchiCAD I3F "
+            "(« 221|extérieurs périphériques », « ^ME[ _] ») ne retiennent "
+            "rien sur un export Revit, qui n'expose pas de calque."
+        )
+    if manque_quantites:
+        payload["needs_computed_quantities_json"] = True
+        payload["next_step"] = (
+            "Produire le JSON via ``export_computed_base_quantities`` (MCP "
+            "ifc-geometry), puis rappeler ce tool avec "
+            "``computed_quantities_json=<chemin>`` — ou relancer "
+            "``extract_model_snapshot(compute_missing_quantities=True, "
+            "computed_quantities_json=<chemin>)``."
+        )
+    return payload
+
+
+def _build_avp_pack(
+    *,
+    output_dir: str | None,
+    identity: AvpIdentityContext,
+    sources,
+    working_snapshot,
+    usages_bim: list[str] | None,
+    nombre_logements: str | None,
+    temoin_virtuel: str | None,
+    date_controle: str | None,
+    export_pdf: bool,
+) -> AvpPackBuildResult:
+    """Produit le pack AVP, ou rend le refus QA correspondant."""
+    from ...reporting.avp_i3f import AvpQaError, write_avp_i3f_report_pack
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = safe_export_dir(output_dir or f"avp_pack_{ts}")
+    try:
+        pack = write_avp_i3f_report_pack(
+            _State.result,  # peut être None : le pack se limite alors aux sources
+            out_dir,
+            sources=sources,
+            # Snapshot explicite : le repli maquette s'active même sans audit
+            # (ex. après verify_active_model seul, _State.result est None).
+            snapshot=working_snapshot,
+            # Garantis non vides par la gate d'identité ci-dessus : aucun nom
+            # générique ni d'exemple ne peut atteindre un livrable.
+            project_name=identity.project_name,
+            project_code=identity.project_code,
+            phase=identity.phase or "AVP",
+            # Auteur validé/fourni (ou repli « AMO BIM » uniquement sous
+            # confirm_context — voluntary confirmation).
+            auditor=identity.auteur_controle or NOT_AVAILABLE,
+            usages_bim=usages_bim,
+            nombre_logements=nombre_logements,
+            temoin_virtuel=temoin_virtuel,
+            date_controle=date_controle,
+            auteur_controle=identity.auteur_controle,
+            export_pdf=export_pdf,
+        )
+    except AvpQaError as exc:
+        return AvpPackBuildResult(
+            out_dir=out_dir, pack=None, response=_avp_qa_error_response(exc, out_dir=out_dir)
+        )
+    return AvpPackBuildResult(out_dir=out_dir, pack=pack, response=None)
+
+
+def _format_avp_pack_response(
+    *,
+    out_dir: Path,
+    pack: AvpReportPack,
+    identity: AvpIdentityContext,
+    controle_src: str | None,
+    envelope_json_used: str | None,
+    computed_json_used: str | None,
+    computed_coverage,
+    computed_source_ifc_file: str | None,
+    envelope_source_ifc_file: str | None,
+    auto_quantities,
+    auto_envelope,
+) -> dict:
+    """Payload de succès du tool AVP, séparé de la QA gate."""
+    return {
+        "output_dir": str(out_dir),
+        "paths": [str(p) for p in pack.paths()],
+        "analyse_docx": str(pack.analyse_docx),
+        "analyse_pdf": str(pack.analyse_pdf) if pack.analyse_pdf else None,
+        "pdf_available": pack.analyse_pdf is not None,
+        "project_name": identity.project_name,
+        "project_code": identity.project_code,
+        "phase": identity.phase,
+        "controle_xlsx_used": controle_src,
+        "envelope_json_used": envelope_json_used,
+        "computed_quantities_json_used": computed_json_used,
+        "computed_quantities_coverage": computed_coverage,
+        # Traçabilité de cible : de quel modèle et de quel .ifc sortent réellement
+        # les chiffres du pack. Sans ces champs, seul le nom de fichier des
+        # contrats trahissait la cible — un contrôle de recette impossible à
+        # faire de tête.
+        "active_cloud_id": _State.cloud_id,
+        "active_project_id": _State.project_id,
+        "active_model_id": _State.model_id,
+        "downloaded_ifc_path": (
+            str(getattr(_State, "ifc_path", None)) if getattr(_State, "ifc_path", None) else None
+        ),
+        "computed_source_ifc_file": computed_source_ifc_file,
+        "envelope_source_ifc_file": envelope_source_ifc_file,
+        "auto_computed": {
+            "quantities": auto_quantities,
+            "envelope": auto_envelope,
+        },
+    }
+
+
 @mcp.tool()
 def generate_avp_i3f_pack(
     output_dir: str | None = None,
@@ -915,7 +1090,6 @@ def generate_avp_i3f_pack(
         ``{output_dir, paths, analyse_docx, analyse_pdf, pdf_available}`` ou
         ``{status: needs_context, missing, questions}``.
     """
-    from ...reporting.avp_i3f import write_avp_i3f_report_pack
     from ...reporting.avp_sources import AvpSourcePaths, load_sources, read_envelope_json
 
     context = _validate_avp_context(
@@ -939,12 +1113,6 @@ def generate_avp_i3f_pack(
         return context.response
 
     identite = context.identity
-    eff_name = identite.project_name
-    eff_code = identite.project_code
-    eff_phase = identite.phase
-    # Un seul auteur, deux noms locaux conservés : le code aval en aval les
-    # emploie tous deux, et les renommer sortirait du périmètre de ce lot.
-    eff_auteur = eff_auditor = identite.auteur_controle
     controle_src = identite.controle_src
     sources = identite.sources
     # Enveloppe « logique MOA » : source structurée envelope.json (MCP ifc-geometry)
@@ -1133,121 +1301,32 @@ def generate_avp_i3f_pack(
         working_snapshot.computed_coverage = dict(computed_coverage)
         computed_json_used = str(safe_cq)
 
-    from ...reporting.avp_i3f import AvpQaError
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = safe_export_dir(output_dir or f"avp_pack_{ts}")
-    try:
-        pack = write_avp_i3f_report_pack(
-            _State.result,  # peut être None : le pack se limite alors aux sources
-            out_dir,
-            sources=sources,
-            # Snapshot explicite : le repli maquette s'active même sans audit
-            # (ex. après verify_active_model seul, _State.result est None).
-            snapshot=working_snapshot,
-            # Garantis non vides par la gate d'identité ci-dessus : aucun nom
-            # générique ni d'exemple ne peut atteindre un livrable.
-            project_name=eff_name,
-            project_code=eff_code,
-            phase=eff_phase or "AVP",
-            # Auteur validé/fourni (ou repli « AMO BIM » uniquement sous
-            # confirm_context — voluntary confirmation).
-            auditor=eff_auditor or NOT_AVAILABLE,
-            usages_bim=usages_bim,
-            nombre_logements=nombre_logements,
-            temoin_virtuel=temoin_virtuel,
-            date_controle=date_controle,
-            auteur_controle=eff_auteur,
-            export_pdf=export_pdf,
-        )
-    except AvpQaError as exc:
-        # QA gate : annexe vide, ou annexe dont TOUTES les colonnes de
-        # quantités sont vides. Statut d'erreur explicite — surtout pas un
-        # livrable client faux, qui se lirait comme un résultat.
-        manque_quantites = exc.kind == "missing_quantities"
-        # Un refus ne doit rien laisser derrière lui. Le dossier a été créé en
-        # amont par la sandbox d'export ; on le retire s'il est resté vide
-        # (jamais s'il contient quoi que ce soit — on ne supprime pas de
-        # fichiers de l'utilisateur).
-        try:
-            if out_dir.is_dir() and not any(out_dir.iterdir()):
-                out_dir.rmdir()
-        except OSError:  # nettoyage best-effort, jamais bloquant
-            pass
-        _codes = {
-            "missing_quantities": "missing_quantities",
-            "external_tool_mention": "external_tool_mention",
-        }
-        payload = {
-            "status": "error",
-            "error": _codes.get(exc.kind, "empty_deliverable"),
-            "empty_deliverables": exc.empty,
-            "message": str(exc),
-        }
-        if exc.kind == "external_tool_mention":
-            payload["contaminated_deliverables"] = exc.empty
-            payload["next_step"] = (
-                "Un livrable cite encore un outil tiers (Solibri / BimCollab*) "
-                "hérité du classeur MOA de référence. Retirer la mention du "
-                "template source, ou générer sans ``controle_xlsx``."
-            )
-        if exc.kind == "empty" and "Enveloppe" in exc.empty:
-            # La maquette porte des murs d'enveloppe mais aucune source
-            # exploitable n'a produit de ligne. Dire quoi faire : sur une
-            # maquette sans calque ArchiCAD (export Revit), la sélection par
-            # défaut ne retient rien et il faut des motifs adaptés au nommage
-            # réel des types.
-            payload["needs_envelope_source"] = True
-            payload["next_step"] = (
-                "L'annexe Enveloppe est vide alors que la maquette porte des "
-                "murs d'enveloppe. Fournir ``envelope_json`` (contrat "
-                "``envelope_quantities/v1`` du MCP ifc-geometry), ou relancer "
-                "avec ``auto_compute_envelope=True`` et des motifs adaptés au "
-                "nommage de CETTE maquette (``envelope_layer_pattern`` / "
-                "``envelope_type_pattern``) — les motifs ArchiCAD I3F "
-                "(« 221|extérieurs périphériques », « ^ME[ _] ») ne retiennent "
-                "rien sur un export Revit, qui n'expose pas de calque."
-            )
-        if manque_quantites:
-            payload["needs_computed_quantities_json"] = True
-            payload["next_step"] = (
-                "Produire le JSON via ``export_computed_base_quantities`` (MCP "
-                "ifc-geometry), puis rappeler ce tool avec "
-                "``computed_quantities_json=<chemin>`` — ou relancer "
-                "``extract_model_snapshot(compute_missing_quantities=True, "
-                "computed_quantities_json=<chemin>)``."
-            )
-        return payload
-    return {
-        "output_dir": str(out_dir),
-        "paths": [str(p) for p in pack.paths()],
-        "analyse_docx": str(pack.analyse_docx),
-        "analyse_pdf": str(pack.analyse_pdf) if pack.analyse_pdf else None,
-        "pdf_available": pack.analyse_pdf is not None,
-        "project_name": eff_name,
-        "project_code": eff_code,
-        "phase": eff_phase,
-        "controle_xlsx_used": controle_src,
-        "envelope_json_used": envelope_json_used,
-        "computed_quantities_json_used": computed_json_used,
-        "computed_quantities_coverage": computed_coverage,
-        # Traçabilité de cible : de quel modèle et de quel .ifc sortent réellement
-        # les chiffres du pack. Sans ces champs, seul le nom de fichier des
-        # contrats trahissait la cible — un contrôle de recette impossible à
-        # faire de tête.
-        "active_cloud_id": _State.cloud_id,
-        "active_project_id": _State.project_id,
-        "active_model_id": _State.model_id,
-        "downloaded_ifc_path": (
-            str(getattr(_State, "ifc_path", None)) if getattr(_State, "ifc_path", None) else None
-        ),
-        "computed_source_ifc_file": computed_source_ifc_file,
-        "envelope_source_ifc_file": envelope_source_ifc_file,
-        "auto_computed": {
-            "quantities": auto_quantities,
-            "envelope": auto_envelope,
-        },
-    }
+    build = _build_avp_pack(
+        output_dir=output_dir,
+        identity=identite,
+        sources=sources,
+        working_snapshot=working_snapshot,
+        usages_bim=usages_bim,
+        nombre_logements=nombre_logements,
+        temoin_virtuel=temoin_virtuel,
+        date_controle=date_controle,
+        export_pdf=export_pdf,
+    )
+    if build.response is not None:
+        return build.response
+    return _format_avp_pack_response(
+        out_dir=build.out_dir,
+        pack=build.pack,
+        identity=identite,
+        controle_src=controle_src,
+        envelope_json_used=envelope_json_used,
+        computed_json_used=computed_json_used,
+        computed_coverage=computed_coverage,
+        computed_source_ifc_file=computed_source_ifc_file,
+        envelope_source_ifc_file=envelope_source_ifc_file,
+        auto_quantities=auto_quantities,
+        auto_envelope=auto_envelope,
+    )
 
 
 @mcp.tool()
