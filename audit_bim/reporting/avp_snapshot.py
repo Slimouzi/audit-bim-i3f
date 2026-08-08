@@ -870,12 +870,19 @@ def build_menuiseries_from_snapshot(
             total += surf
             any_area = True
         ot = _object_type_or_name(w)
+        # La PROVENANCE entre dans la clé de regroupement. Sans elle, deux
+        # fenêtres de même type et mêmes dimensions — l'une native, l'autre
+        # calculée — tombaient dans le même groupe, et un unique booléen
+        # décidait pour les deux : le livrable annonçait alors une provenance
+        # fausse pour la moitié des éléments comptés sur la ligne.
+        calculee = bool(_computed_qty_names(w) & set(area_qty))
         key = (
             _ifc_component_label(w.get("type")),
             ot,
             _material(w),
             _round2(width),
             _round2(height),
+            calculee,
         )
         entry = groups.setdefault(
             key,
@@ -890,14 +897,15 @@ def build_menuiseries_from_snapshot(
         if surf is not None:
             entry["surface"] += surf
             entry["surface_found"] = True
-        if _computed_qty_names(w) & set(area_qty):
-            entry["computed"] = True
+        # ``computed`` est désormais porté par la CLÉ : tous les éléments d'un
+        # groupe partagent la même provenance, par construction.
+        entry["computed"] = calculee
 
     rows: list[list[Any]] = []
     for key, entry in sorted(
         groups.items(), key=lambda kv: tuple("" if v is None else v for v in kv[0])
     ):
-        component, ot, material, width, height = key
+        component, ot, material, width, height, _provenance = key
         excel_row = len(rows) + 2
         surface = _round2(entry["surface"]) if entry["surface_found"] else None
         # La provenance décide de la COLONNE, pas d'un libellé en bout de ligne.

@@ -71,20 +71,40 @@ def _entetes_generees() -> list[str]:
     return [m.group(1) for m in re.finditer(r'"([^"]*)"', bloc.group(1))]
 
 
-def test_the_reference_model_is_available():
-    """Sentinelle : sans le gabarit, tous les contrôles seraient vacants."""
-    assert MODELE.is_file(), f"modèle client introuvable : {MODELE}"
+#: Ce que la mesure du gabarit a donné, **figé ici**. Le fichier client vit sur
+#: le poste de l'AMO et n'est pas versionné : le tester directement rendait la
+#: CI rouge partout ailleurs. La spécification appartient donc au test ; le
+#: fichier ne sert qu'à la confronter quand il est là.
+MODELE_COLONNES = 14
+MODELE_COMPTEUR = ("C", 17, "=COUNTA(D2:D16)")
+MODELE_COMPOSANT_UNIQUE = "Fenêtre"
 
 
-def test_the_reference_model_holds_only_windows():
-    """Le gabarit ne contient QUE des fenêtres — mesuré, pas supposé."""
+def test_the_frozen_specification_is_self_consistent():
+    """Sentinelle : la spécification figée doit tenir debout seule.
+
+    Elle est ce que la CI vérifie ; le gabarit client, lui, n'y est pas.
+    """
+    assert len(ENTETES_MODELE) == MODELE_COLONNES
+    assert ENTETES_MODELE[12] is None, "colonne M vide — séparation, pas oubli"
+    assert ENTETES_MODELE[13] == "Couleur"
+
+
+@pytest.mark.skipif(not MODELE.is_file(), reason="gabarit client absent (poste AMO)")
+def test_the_reference_model_matches_the_frozen_specification():
+    """Quand le gabarit EST là, il doit confirmer la spécification figée.
+
+    C'est le seul rôle du fichier : empêcher que la constante ci-dessus dérive
+    de ce que le client attend réellement.
+    """
     openpyxl = pytest.importorskip("openpyxl")
     ws = openpyxl.load_workbook(MODELE).active
 
-    composants = {ws.cell(r, 1).value for r in range(2, 17)}
-    assert composants == {"Fenêtre"}, composants
-    assert ws.max_column == 14, ws.max_column
-    assert ws.cell(17, 3).value == "=COUNTA(D2:D16)"
+    assert ws.max_column == MODELE_COLONNES, ws.max_column
+    colonne, ligne, formule = MODELE_COMPTEUR
+    assert ws[f"{colonne}{ligne}"].value == formule
+    composants = {ws.cell(r, 1).value for r in range(2, ligne)}
+    assert composants == {MODELE_COMPOSANT_UNIQUE}, composants
 
 
 def test_the_generator_must_not_add_a_fifteenth_column():
@@ -133,3 +153,155 @@ def test_the_deliverable_perimeter_excludes_doors():
     portes = [c for c in avp_snapshot._FENETRE_CLASSES if "Door" in c]
     assert not portes, portes
     assert set(avp_snapshot._FENETRE_CLASSES) == {"IfcWindow", "IfcWindowStandardCase"}
+
+
+# ---------------------------------------------------------------------------
+# Comportement : le CLASSEUR produit, pas le code qui prétend le produire.
+# ---------------------------------------------------------------------------
+
+
+def _classeur_menuiseries(tmp_path):
+    """Génère un pack et rend l'onglet Menuiseries réellement écrit."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from audit_bim.extraction.model_data import ModelSnapshot
+    from audit_bim.reporting.avp_i3f import write_avp_i3f_report_pack
+    from audit_bim.reporting.avp_sources import AvpSources
+
+    def bq(**kv):
+        return [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": k}, "value": v} for k, v in kv.items()],
+            }
+        ]
+
+    snap = ModelSnapshot(
+        spaces=[
+            {
+                "uuid": "S1",
+                "type": "IfcSpace",
+                "name": "SEJOUR",
+                **{"property_sets": bq(NetFloorArea=24.5)},
+            }
+        ],
+        elements=[
+            {
+                "uuid": "W1",
+                "type": "IfcWindow",
+                "ObjectType": "Fenêtre 25",
+                "property_sets": bq(Width=1.2, Height=1.0),
+            },
+            {
+                "uuid": "D1",
+                "type": "IfcDoor",
+                "ObjectType": "Porte 90",
+                "property_sets": bq(Width=0.9, Height=2.1),
+            },
+        ],
+    ).index()
+
+    pack = write_avp_i3f_report_pack(
+        None,
+        tmp_path / "out",
+        sources=AvpSources(menuiseries=None),
+        snapshot=snap,
+        project_name="Chantier",
+        project_code="0546L",
+        export_pdf=False,
+    )
+    ws = openpyxl.load_workbook(pack.menuiseries_xlsx).active
+    return ws
+
+
+def test_the_written_workbook_matches_the_frozen_specification(tmp_path):
+    """Le contrôle porte sur le .xlsx ÉCRIT, pas sur le source du générateur.
+
+    Un test qui lit les en-têtes par ``inspect.getsource`` ne voit ni les
+    colonnes réellement écrites, ni les formules, ni la ligne de synthèse. Il
+    prouve une intention, pas un livrable.
+    """
+    ws = _classeur_menuiseries(tmp_path)
+    entetes = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+
+    assert len(entetes) == MODELE_COLONNES, entetes
+    assert "Source quantité" not in entetes
+    for interdit in entetes:
+        assert "solibri" not in str(interdit).lower(), interdit
+    for attendu in ("Largeur IFC OpenShell", "Hauteur IFC OpenShell", "Surface IFC OpenShell"):
+        assert attendu in entetes, attendu
+
+
+def test_the_written_workbook_holds_no_door_row(tmp_path):
+    """Périmètre réel : la porte du snapshot ne doit pas atteindre le fichier."""
+    ws = _classeur_menuiseries(tmp_path)
+    colonne_a = [ws.cell(r, 1).value for r in range(2, ws.max_row + 1)]
+
+    assert MODELE_COMPOSANT_UNIQUE in colonne_a, colonne_a
+    assert "Porte" not in colonne_a, colonne_a
+
+
+def test_the_written_counter_covers_the_real_perimeter(tmp_path):
+    """Le compteur doit borner les lignes RÉELLEMENT écrites.
+
+    Le gabarit client porte `=COUNTA(D2:D16)` parce qu'il a 15 lignes métier.
+    Le writer calcule la borne dynamiquement : le contrôle vérifie donc la
+    cohérence avec le contenu produit, pas une borne figée qui mentirait dès
+    qu'une maquette a un nombre de types différent.
+    """
+    ws = _classeur_menuiseries(tmp_path)
+    lignes_metier = [r for r in range(2, ws.max_row + 1) if ws.cell(r, 1).value == "Fenêtre"]
+    assert lignes_metier, "prémisse : au moins une ligne métier"
+
+    formules = [
+        ws.cell(r, c).value
+        for r in range(1, ws.max_row + 1)
+        for c in range(1, ws.max_column + 1)
+        if isinstance(ws.cell(r, c).value, str) and ws.cell(r, c).value.startswith("=COUNTA(")
+    ]
+    assert formules, "aucun compteur écrit"
+    assert formules[0] == f"=COUNTA(D2:D{max(lignes_metier)})", formules
+
+
+def test_a_mixed_group_is_split_by_provenance():
+    """Deux fenêtres identiques de provenances différentes font DEUX lignes.
+
+    Avant correctif, un unique booléen décidait pour tout le groupe : si l'une
+    des fenêtres avait une quantité calculée, la ligne entière basculait en
+    colonnes IFC OpenShell — y compris pour les éléments natifs qu'elle
+    comptait. Le livrable annonçait alors une provenance fausse.
+    """
+    from audit_bim.extraction.model_data import ModelSnapshot
+    from audit_bim.reporting.avp_snapshot import build_menuiseries_from_snapshot
+
+    def bq(**kv):
+        return [
+            {
+                "name": "BaseQuantities",
+                "properties": [{"definition": {"name": k}, "value": v} for k, v in kv.items()],
+            }
+        ]
+
+    identiques = [
+        {
+            "uuid": "W1",
+            "type": "IfcWindow",
+            "ObjectType": "Fenêtre 25",
+            "property_sets": bq(Width=1.2, Height=1.0),
+        },
+        {
+            "uuid": "W2",
+            "type": "IfcWindow",
+            "ObjectType": "Fenêtre 25",
+            "property_sets": bq(Width=1.2, Height=1.0),
+            "computed_base_quantities": [{"quantity": "Width"}, {"quantity": "Height"}],
+        },
+    ]
+    src, _ = build_menuiseries_from_snapshot(ModelSnapshot(elements=identiques).index())
+    lignes = src.table.rows
+
+    assert len(lignes) == 2, f"groupe mixte non scindé : {lignes}"
+    # Chaque ligne compte UN élément, et remplit une seule des deux colonnes.
+    for ligne in lignes:
+        assert ligne[6] == 1, ligne
+        assert (ligne[3] is None) != (ligne[7] is None), ligne
+    assert {l[3] is None for l in lignes} == {True, False}

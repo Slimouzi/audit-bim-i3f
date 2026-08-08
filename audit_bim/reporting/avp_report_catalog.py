@@ -157,6 +157,12 @@ class ReportAvailability:
 # ── Données réutilisées ──────────────────────────────────────────────────────
 
 _MENUISERIE_CLASSES = ("IfcWindow", "IfcWindowStandardCase", "IfcDoor", "IfcDoorStandardCase")
+
+#: Périmètre RÉEL du livrable « Fenêtres » — il doit suivre
+#: ``avp_snapshot._FENETRE_CLASSES``. Annoncer les portes ici ferait dire à
+#: ``list_avp_i3f_xls_reports`` qu'un livrable est possible grâce à des portes
+#: que le fichier généré exclut : une disponibilité vraie pour un document faux.
+_FENETRE_CLASSES = ("IfcWindow", "IfcWindowStandardCase")
 _ENVELOPE_WALL_CLASSES = ("IfcWall", "IfcWallStandardCase")
 _SLAB_CLASSES = ("IfcSlab", "IfcCovering")
 
@@ -288,7 +294,7 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
     ),
     ReportSpec(
         key="menuiseries",
-        label="export Menuiseries",
+        label="export Fenêtres",
         deliverable_key="menuiseries",
         example_filename="260130 Tarare export Menuiseries.xlsx",
         expected_sheets=("TDB 2022 05.1 - Fenêtres Ok",),
@@ -300,32 +306,32 @@ REPORT_SPECS: tuple[ReportSpec, ...] = (
             "BaseQuantities.Height",
             "Surface Natif",
             "Nombre",
-            "Largeur",
-            "Hauteur",
+            "Largeur IFC OpenShell",
+            "Hauteur IFC OpenShell",
             "Surface IFC OpenShell",
-            "Ecart de largeur",
-            "Ecart de heuteur",
+            "Ecart BaseQuantities / IFC OpenShell (largeur)",
+            "Ecart BaseQuantities / IFC OpenShell (hauteur)",
         ),
         critical_formulas=('IF(Hn-Dn=0,"",Hn-Dn)', 'IF(In-En=0,"",In-En)', "COUNTA(D2:D16)"),
         requirements=(
             DataRequirement(
                 "menuiseries",
-                "Menuiseries (IfcWindow / IfcDoor)",
+                "Fenêtres (IfcWindow)",
                 "ifc_entity",
-                _MENUISERIE_CLASSES,
+                _FENETRE_CLASSES,
             ),
             DataRequirement(
                 "BaseQuantities.Width",
                 "BaseQuantities.Width",
                 "base_quantity",
-                _MENUISERIE_CLASSES,
+                _FENETRE_CLASSES,
                 quantity="Width",
             ),
             DataRequirement(
                 "BaseQuantities.Height",
                 "BaseQuantities.Height",
                 "base_quantity",
-                _MENUISERIE_CLASSES,
+                _FENETRE_CLASSES,
                 quantity="Height",
             ),
         ),
