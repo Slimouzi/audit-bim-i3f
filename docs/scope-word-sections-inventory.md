@@ -1,5 +1,10 @@
 # Scope — inventaire structurel des sections Word (PR D0)
 
+> **Document historique.** Rédigé quand la distribution s'appelait
+> `audit-bim-i3f` ; elle se nomme **`audit-bim-mcp`** depuis la 0.11.0
+> (2026-08-08). Les noms cités ci-dessous n'ont **pas** été réécrits : ce
+> document est une trace de décision, pas une consigne courante.
+
 Cadrage de `bim-reporting` v0.2.0. **Document d'audit : aucun code modifié.**
 
 Le vocabulaire client est sorti du contrat (PR B, C1, C2). La question n'est

@@ -1,5 +1,10 @@
 # Scope — package `bim-sandbox`
 
+> **Document historique.** Rédigé quand la distribution s'appelait
+> `audit-bim-i3f` ; elle se nomme **`audit-bim-mcp`** depuis la 0.11.0
+> (2026-08-08). Les noms cités ci-dessous n'ont **pas** été réécrits : ce
+> document est une trace de décision, pas une consigne courante.
+
 > ## ⚠️ Package décommissionné (2026-08-03)
 >
 > `bim-sandbox` **n'existe plus comme dépendance**. La sandbox de chemins a été

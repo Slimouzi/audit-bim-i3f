@@ -34,15 +34,15 @@ def test_the_document_figures_match_the_measurement(report):
         lines[m["kind"]] += m["lines"]
 
     assert len(report["modules"]) == 23
-    assert sum(m["lines"] for m in report["modules"]) == 8217
+    assert sum(m["lines"] for m in report["modules"]) == 8231
     assert counts["façade"] == 0
-    assert counts["orchestration_i3f"] == 12 and lines["orchestration_i3f"] == 5982
+    assert counts["orchestration_i3f"] == 12 and lines["orchestration_i3f"] == 5996
     assert counts["lié_livrable_i3f"] == 9 and lines["lié_livrable_i3f"] == 2228
     assert counts["sans_attache_directe"] == 2 and lines["sans_attache_directe"] == 7
 
     text = DOC.read_text(encoding="utf-8")
     for claim in (
-        "**8 217 lignes**",
+        "**8 231 lignes**",
         "| Façade pure vers `bim-reporting` | 0 | — |",
         "| Lié au livrable I3F par ses appelants | 9 | 2 228 |",
     ):

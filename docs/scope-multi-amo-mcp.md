@@ -1,5 +1,10 @@
 # Scope — profils MCP multi-AMO
 
+> **Document historique.** Rédigé quand la distribution s'appelait
+> `audit-bim-i3f` ; elle se nomme **`audit-bim-mcp`** depuis la 0.11.0
+> (2026-08-08). Les noms cités ci-dessous n'ont **pas** été réécrits : ce
+> document est une trace de décision, pas une consigne courante.
+
 Objectif : faire d'`audit-bim-i3f` un MCP enfant qui compose des briques BIM
 génériques, puis préparer un prochain MCP AMO BIM in Motion sans copier la logique
 I3F.

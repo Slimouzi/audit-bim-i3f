@@ -1,5 +1,10 @@
 # Scope — package `bim-publication` (builders BCF / Smart Views)
 
+> **Document historique.** Rédigé quand la distribution s'appelait
+> `audit-bim-i3f` ; elle se nomme **`audit-bim-mcp`** depuis la 0.11.0
+> (2026-08-08). Les noms cités ci-dessous n'ont **pas** été réécrits : ce
+> document est une trace de décision, pas une consigne courante.
+
 Document d'architecture **figé avant tout code**. Il cartographie la couche
 **publication** existante d'`audit-bim-i3f` (builders BCF `audit_bim/bcf/builder.py`,
 builders Smart Views `audit_bim/smartview/builder.py`, préparation de `WritePlan`
