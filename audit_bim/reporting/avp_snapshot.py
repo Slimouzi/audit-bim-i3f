@@ -66,6 +66,13 @@ _IFC_OPEN_SHELL_PROP = "IFC OpenShell - Superficie calculée"
 # annexe Menuiseries quasi vide sans erreur.
 _MENUISERIE_CLASSES = ("IfcWindow", "IfcWindowStandardCase", "IfcDoor", "IfcDoorStandardCase")
 
+#: Périmètre du livrable « Fenêtres » (ex-« Menuiseries »). Le gabarit client
+#: ``TDB 2022 05.1 - Fenêtres Ok`` ne contient QUE des lignes ``Fenêtre`` : y
+#: ajouter des portes déplace le compteur et change le sens du document. Les
+#: portes feront l'objet d'un livrable distinct, si un gabarit client existe —
+#: on n'en invente pas la forme.
+_FENETRE_CLASSES = ("IfcWindow", "IfcWindowStandardCase")
+
 
 def _norm(s: Any) -> str:
     """Normalise pour comparaison tolérante (accents / casse / espaces)."""
@@ -543,12 +550,27 @@ def _ifc_component_label(ifc_class: str | None) -> str:
     return ifc_class or ""
 
 
+#: Valeurs de ``PredefinedType`` qui ne DÉSIGNENT rien : ce sont les énumérations
+#: IFC, pas des types métier. « WINDOW » à la place de « Fenêtre châssis double
+#: 25 » fait disparaître l'information qui structure les lignes du livrable.
+_PREDEFINED_TYPE_GENERIQUES = {"WINDOW", "DOOR", "NOTDEFINED", "USERDEFINED", ""}
+
+
 def _object_type_or_name(el: dict) -> str:
-    """Type métier affiché dans les exports MOA, avec repli sur le Name IFC."""
-    for attr in ("ObjectType", "PredefinedType", "Name"):
+    """Type métier affiché dans les exports MOA.
+
+    Ordre : ``ObjectType`` (type projet, posé par l'outil de modélisation), puis
+    ``Name``, puis ``PredefinedType`` **s'il dit quelque chose**. L'énumération
+    IFC passe en dernier et seulement si elle n'est pas générique : la préférer
+    au ``Name`` regroupait toutes les fenêtres sous « WINDOW ».
+    """
+    for attr in ("ObjectType", "Name"):
         value = _attr(el, attr)
         if value.strip():
             return value.strip()
+    predefini = _attr(el, "PredefinedType").strip()
+    if predefini and predefini.upper() not in _PREDEFINED_TYPE_GENERIQUES:
+        return predefini
     return el.get("type") or ""
 
 
@@ -794,8 +816,26 @@ def build_zones_espaces_from_snapshot(snap: ModelSnapshot) -> MultiSheetSource |
 def build_menuiseries_from_snapshot(
     snap: ModelSnapshot,
 ) -> tuple[MenuiseriesSource | None, float | None]:
-    """Export Menuiseries MOA depuis la maquette (IfcWindow + IfcDoor)."""
-    items = [el for cls in _MENUISERIE_CLASSES for el in snap.of_class(cls)]
+    """Export **Fenêtres** depuis la maquette (``IfcWindow`` seul).
+
+    Structure du gabarit client ``TDB 2022 05.1 - Fenêtres Ok`` : **14 colonnes
+    A:N**, la colonne M restant vide (séparation — la supprimer décalerait
+    N = Couleur).
+
+    Deux règles de doctrine s'appliquent ici :
+
+    - **source unique assumée** — aucun libellé « Solibri » ; les colonnes de
+      mesure disent IFC OpenShell ;
+    - **jamais de valeur recopiée pour simuler une comparaison**. Après la
+      fusion *gap-only*, une quantité est soit native, soit calculée — **jamais
+      les deux**. Écrire la même valeur en D et en H produisait un écart K
+      systématiquement vide, qui se lisait comme une concordance vérifiée alors
+      que rien ne l'avait été. On remplit donc **la colonne qui correspond à la
+      provenance**, et l'autre reste vide. C'est aussi ce qui rend inutile
+      l'ancienne 15ᵉ colonne « Source quantité », étrangère au gabarit : la
+      provenance se lit désormais à l'emplacement de la valeur.
+    """
+    items = [el for cls in _FENETRE_CLASSES for el in snap.of_class(cls)]
     if not items:
         return None, None
     headers = [
@@ -809,11 +849,10 @@ def build_menuiseries_from_snapshot(
         "Largeur IFC OpenShell",
         "Hauteur IFC OpenShell",
         "Surface IFC OpenShell",
-        "Ecart de largeur",
-        "Ecart de heuteur",
+        "Ecart BaseQuantities / IFC OpenShell (largeur)",
+        "Ecart BaseQuantities / IFC OpenShell (hauteur)",
         "",
         "Couleur",
-        "Source quantité",
     ]
     men_qty = ("Width", "Height", "OverallWidth", "OverallHeight")
     area_qty = (*men_qty, *_WINDOW_BQ_AREA)
@@ -831,12 +870,19 @@ def build_menuiseries_from_snapshot(
             total += surf
             any_area = True
         ot = _object_type_or_name(w)
+        # La PROVENANCE entre dans la clé de regroupement. Sans elle, deux
+        # fenêtres de même type et mêmes dimensions — l'une native, l'autre
+        # calculée — tombaient dans le même groupe, et un unique booléen
+        # décidait pour les deux : le livrable annonçait alors une provenance
+        # fausse pour la moitié des éléments comptés sur la ligne.
+        calculee = bool(_computed_qty_names(w) & set(area_qty))
         key = (
             _ifc_component_label(w.get("type")),
             ot,
             _material(w),
             _round2(width),
             _round2(height),
+            calculee,
         )
         entry = groups.setdefault(
             key,
@@ -851,36 +897,35 @@ def build_menuiseries_from_snapshot(
         if surf is not None:
             entry["surface"] += surf
             entry["surface_found"] = True
-        if _computed_qty_names(w) & set(area_qty):
-            entry["computed"] = True
+        # ``computed`` est désormais porté par la CLÉ : tous les éléments d'un
+        # groupe partagent la même provenance, par construction.
+        entry["computed"] = calculee
 
     rows: list[list[Any]] = []
     for key, entry in sorted(
         groups.items(), key=lambda kv: tuple("" if v is None else v for v in kv[0])
     ):
-        component, ot, material, width, height = key
+        component, ot, material, width, height, _provenance = key
         excel_row = len(rows) + 2
         surface = _round2(entry["surface"]) if entry["surface_found"] else None
-        source = _SRC_COMPUTED if entry["computed"] else _SRC_MODEL
-        if not entry["surface_found"] and width is None and height is None:
-            source = NOT_AVAILABLE
+        # La provenance décide de la COLONNE, pas d'un libellé en bout de ligne.
+        # Une valeur calculée par IFC OpenShell va en H/I/J ; une valeur native
+        # de la maquette va en D/E/F. Jamais les deux : elles ne coexistent pas.
+        calculee = entry["computed"]
+        natif = (None, None, None) if calculee else (width, height, surface)
+        openshell = (width, height, surface) if calculee else (None, None, None)
         rows.append(
             [
                 component,
                 ot,
                 material,
-                width,
-                height,
-                surface,
+                *natif,
                 entry["count"],
-                width,
-                height,
-                surface,
+                *openshell,
                 f'=IF(H{excel_row}-D{excel_row}=0,"",H{excel_row}-D{excel_row})',
                 f'=IF(I{excel_row}-E{excel_row}=0,"",I{excel_row}-E{excel_row})',
                 "",
                 "",
-                source,
             ]
         )
     table = SheetTable(title="Menuiseries", headers=headers, rows=rows)

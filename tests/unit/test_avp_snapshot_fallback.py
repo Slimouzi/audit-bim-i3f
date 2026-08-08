@@ -671,7 +671,10 @@ def test_menuiseries_standardcase_ifc4(tmp_path):
     )
     men = _all_text(pack.menuiseries_xlsx)
     assert "F-SC" in men
-    assert "P-SC" in men
+    # La PORTE ne doit PLUS apparaître : ce livrable a pour gabarit
+    # « TDB 2022 05.1 - Fenêtres Ok », qui ne contient que des fenêtres. Les
+    # portes relèvent d'un livrable distinct, non encore spécifié côté client.
+    assert "P-SC" not in men
 
 
 def test_docx_ecarts_uses_superficie_calculee_fallback(tmp_path):

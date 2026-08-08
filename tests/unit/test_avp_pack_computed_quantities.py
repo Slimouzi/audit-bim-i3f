@@ -200,7 +200,9 @@ def test_pack_with_computed_json_is_generated(session, tmp_path):
     [
         ("shab_xlsx", (24.5, 12.98)),
         ("zones_espaces_xlsx", (24.5, 12.98)),
-        ("menuiseries_xlsx", (0.6, 1.3, 0.9, 2.1)),
+        # 0.9 x 2.1 était la PORTE : ce livrable a pour gabarit
+        # « Fenêtres Ok » et ne collecte plus que des IfcWindow.
+        ("menuiseries_xlsx", (0.6, 1.3)),
         ("plancher_xlsx", (156.4,)),
     ],
 )
