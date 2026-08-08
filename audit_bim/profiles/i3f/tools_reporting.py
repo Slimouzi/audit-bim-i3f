@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import unicodedata
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -497,6 +498,282 @@ def list_avp_i3f_xls_reports(
     return out
 
 
+@dataclass(frozen=True)
+class AvpIdentityContext:
+    """Identité projet **résolue**, telle qu'elle nommera les livrables.
+
+    Ces valeurs sortent de la validation ; ``missing``, ``questions`` et
+    ``identity_missing`` n'en sortent pas — ils n'existent que pour construire
+    le refus, et les exposer inviterait à les reconstruire ailleurs.
+
+    ``auteur_controle`` porte une seule valeur : en amont, ``eff_auditor`` et
+    ``eff_auteur`` étaient deux noms de la même chose. Deux champs toujours
+    égaux seraient un piège pour qui les ferait diverger sans le vouloir.
+    """
+
+    project_name: str
+    project_code: str
+    phase: str
+    auteur_controle: str
+    controle_src: str | None
+    sources: object
+
+
+@dataclass(frozen=True)
+class AvpContextCheck:
+    """Résultat de la validation de contexte : soit une identité, soit un refus.
+
+    Pas de booléen ``ok`` : ``response is not None`` **est** la condition, et un
+    drapeau redondant peut diverger de ce qu'il résume. L'appelant écrit donc :
+
+    .. code-block:: python
+
+        context = _validate_avp_context(...)
+        if context.response is not None:
+            return context.response
+
+    C'est ce qui fait passer le refus de contexte du statut de ``return`` perdu
+    au milieu de la génération à celui de décision nommée.
+    """
+
+    identity: AvpIdentityContext | None
+    response: dict | None
+
+    def __post_init__(self) -> None:
+        # Invariant : exactement l'un des deux. Un check qui porterait les deux
+        # (ou aucun) laisserait l'appelant décider au hasard.
+        if (self.identity is None) == (self.response is None):
+            raise ValueError("AvpContextCheck : exactement une identité OU un refus")
+
+
+def _validate_avp_context(
+    *,
+    controle_xlsx: str | None,
+    shab_xlsx: str | None,
+    zones_espaces_xlsx: str | None,
+    enveloppe_xlsx: str | None,
+    menuiseries_xlsx: str | None,
+    plancher_xlsx: str | None,
+    project_name: str | None,
+    project_code: str | None,
+    phase: str | None,
+    auditor_name: str | None,
+    auteur_controle: str | None,
+    auditor: str | None,
+    confirm_context: bool,
+    AvpSourcePaths,
+    load_sources,
+) -> AvpContextCheck:
+    """Résout l'identité projet et les sources, ou refuse en demandant le contexte.
+
+    Extrait tel quel du corps de ``generate_avp_i3f_pack`` : mêmes règles, mêmes
+    messages, même ordre de priorité. Le seul changement est que le refus
+    devient une **valeur nommée** au lieu d'un ``return`` au milieu de la
+    génération.
+
+    ``AvpSourcePaths`` et ``load_sources`` sont passés en paramètres parce que
+    l'appelant les importe paresseusement — les réimporter ici dupliquerait le
+    point d'entrée du module de sources.
+    """
+    # Repliée ici depuis le corps du tool : « je n'ai pas de maquette » est un
+    # refus de CONTEXTE au même titre qu'une identité manquante. La garder
+    # dehors obligeait l'appelant à porter deux sorties pour une seule question.
+    if _State.snapshot is None and _State.result is None:
+        return AvpContextCheck(
+            identity=None,
+            response={
+                "status": "needs_context",
+                "missing": ["snapshot"],
+                "questions": [
+                    {
+                        "key": "snapshot",
+                        "question": (
+                            "Extraire la maquette active avant de générer le pack "
+                            "AVP I3F (set_active_model puis extract_model_snapshot, "
+                            "ou full_audit)."
+                        ),
+                    }
+                ],
+                "next_step": (
+                    "Appeler set_active_model(...), puis extract_model_snapshot "
+                    "ou full_audit. Relancer ensuite generate_avp_i3f_pack : les "
+                    "Excel utiliseront les données IFC/OpenShell plutôt que les "
+                    "colonnes d'outils externes des sources."
+                ),
+            },
+        )
+
+    def _src(p: str | None) -> str | None:
+        return str(safe_input_path(p, allowed_extensions={".xlsx", ".xlsm"})) if p else None
+
+    controle_xlsx_used = controle_xlsx or _auto_controle_xlsx()
+    controle_src = _src(controle_xlsx_used)
+    source_paths = AvpSourcePaths(
+        controle=controle_src,
+        shab=_src(shab_xlsx),
+        zones_espaces=_src(zones_espaces_xlsx),
+        enveloppe=_src(enveloppe_xlsx),
+        menuiseries=_src(menuiseries_xlsx),
+        plancher=_src(plancher_xlsx),
+    )
+    # Chargement unique des sources (lues aussi pour résoudre le code ESI).
+    sources = load_sources(source_paths)
+
+    # ── Résolution de l'identité projet (nom / code) ────────────────────
+    # Note : l'entête du classeur MOA n'est plus lue ici, et le helper qui la
+    # lisait a été supprimé plutôt que laissé inutilisé — un lecteur d'entête
+    # encore présent à portée de main est une invitation à le rebrancher.
+    # Ordre STRICT : **paramètre explicite → on demande**. Il n'y a pas de
+    # troisième source.
+    #
+    # Le repli sur le nom du projet BIMData a été SUPPRIMÉ. Il a livré un pack
+    # « 260803 MCP_Audit 7427L AVP - … » : ``MCP_Audit`` est un espace de
+    # travail, pas un chantier. Un nom de projet BIMData n'est pas une identité
+    # client — il est choisi par celui qui crée l'espace, souvent pour lui-même.
+    # Même traitement pour les libellés génériques (« Projet », « I3F ») et pour
+    # ``Tarare``, le chantier dont les classeurs MOA servent de gabarit.
+    #
+    # L'entête du classeur de contrôle ne fournit rien non plus — ni valeur, ni
+    # **suggestion**. Refuser une mauvaise valeur ne suffit pas s'il on continue
+    # de la proposer : une suggestion « Tarare / 0546L » finit recopiée. Et la
+    # filtrer par liste de libellés génériques ne fermerait pas le trou, puisque
+    # le gabarit du jour peut venir de n'importe quel autre chantier réel, dont
+    # le nom ne figurera dans aucune liste. La seule source de suggestion est le
+    # **nom de la maquette**, posé par l'équipe projet.
+    eff_name = (project_name or "").strip() or None
+    eff_code = (project_code or "").strip() or None
+    nom_rejete = eff_name if _is_generic_identity(eff_name) and eff_name else None
+    code_rejete = eff_code if _is_generic_identity(eff_code) and eff_code else None
+    if nom_rejete:
+        eff_name = None
+    if code_rejete:
+        eff_code = None
+    sug_name, sug_code = _model_identity_suggestion()
+
+    # Phase : paramètre explicite > phase d'audit **confirmée** > on demande.
+    #
+    # L'entête du classeur MOA est écartée ici pour la même raison que le nom et
+    # le code : la phase entre dans le nom du fichier remis au client. Un gabarit
+    # Tarare en AVP nommait « … Dieppe 7427L AVP - … » un pack en APD — le défaut
+    # est le même, simplement plus discret parce qu'une phase reste toujours
+    # plausible. ``_State.phase`` est conservée : elle a été confirmée par
+    # l'auditeur au moment de ``set_active_model``, ce n'est pas un repli.
+    eff_phase = (phase or "").strip() or None
+    if not eff_phase and _State.phase is not None:
+        eff_phase = _State.phase.value
+
+    # Auteur du contrôle : I3F attend un auteur nommé (CdP BIM / auditeur
+    # AMO). On **demande** explicitement plutôt que de retomber sur un
+    # « AMO BIM » générique.
+    #
+    # Trois noms coexistent, par ordre de priorité :
+    #   ``auditor_name``     — nom proposé/validé depuis la session (à employer) ;
+    #   ``auteur_controle``  — vocabulaire métier I3F, conservé en compat ;
+    #   ``auditor``          — paramètre historique, conservé en compat.
+    eff_auteur = (
+        (auditor_name or "").strip()
+        or (auteur_controle or "").strip()
+        or (auditor or "").strip()
+        or None
+    )
+
+    # Nom / code / phase obligatoires pour un livrable I3F fiable → sinon on
+    # demande (jamais de valeur inventée ni de défaut silencieux).
+    missing: list[str] = []
+    questions: list[dict] = []
+    if not eff_name:
+        missing.append("project_name")
+        q = {
+            "key": "project_name",
+            "question": "Quel nom de projet doit apparaître dans les livrables ?",
+        }
+        if nom_rejete:
+            q["rejected"] = nom_rejete
+            q["question"] = (
+                f"« {nom_rejete} » ne nomme pas un chantier (espace de travail, "
+                "libellé générique ou projet de référence des gabarits MOA) et ne "
+                "peut pas nommer un livrable client. Quel nom de projet doit "
+                "apparaître dans les livrables ?"
+            )
+        # Seule source de suggestion : le nom de la maquette, posé par l'équipe
+        # projet. Surtout pas l'entête du classeur MOA — voir plus haut.
+        if sug_name:
+            q["suggestion"] = sug_name
+            q["question"] += f" (le nom de la maquette suggère « {sug_name} »)"
+        questions.append(q)
+    if not eff_code:
+        missing.append("project_code")
+        q = {
+            "key": "project_code",
+            "question": (
+                "Quel code projet / ESI doit apparaître dans les livrables ? "
+                "(ex. « 7427L », visible sur le contrôle maquettes I3F)"
+            ),
+        }
+        if code_rejete:
+            q["rejected"] = code_rejete
+        if sug_code:
+            q["suggestion"] = sug_code
+            q["question"] += f" (le nom de la maquette suggère « {sug_code} »)"
+        questions.append(q)
+    if not eff_phase:
+        # Phase unique : proposée si détectée **dans la maquette**, sinon
+        # demandée — jamais défautée silencieusement sur « AVP », et jamais
+        # reprise de l'entête d'un gabarit MOA (elle nomme le fichier client).
+        missing.append("project_phase")
+        questions.append(_phase_question_dict(*_detect_snapshot_phase()))
+    if not eff_auteur:
+        # Clé alignée sur le PARAMÈTRE à employer : une question dont la clé ne
+        # correspond à aucun paramètre du tool guide vers un appel invalide.
+        missing.append("auditor_name")
+        questions.append(
+            {
+                "key": "auditor_name",
+                "question": (
+                    "Quel nom afficher comme « Auteur du contrôle » sur le pack "
+                    "AVP I3F ? (ex. le CdP BIM 3F, ou l'auditeur AMO)"
+                ),
+                "accepted_aliases": ["auteur_controle", "auditor"],
+            }
+        )
+    # Tout ce qui NOMME un fichier remis au client est incontournable : le nom,
+    # le code **et la phase**. ``confirm_context`` ne couvre que ce qui reste
+    # interne au document — ici l'auteur du contrôle.
+    identity_missing = [
+        m for m in missing if m in ("project_name", "project_code", "project_phase")
+    ]
+    if identity_missing or (missing and not confirm_context):
+        refus = {
+            "status": "needs_context",
+            "missing": missing,
+            "questions": questions,
+            "next_step": (
+                "Renseigner ``project_name`` / ``project_code`` / "
+                "``project_phase`` (=``phase``) / ``auditor_name`` puis "
+                "re-appeler ``generate_avp_i3f_pack``."
+                + (
+                    " ``project_name``, ``project_code`` et ``project_phase`` "
+                    "sont OBLIGATOIRES : ils nomment les livrables client et ne "
+                    "peuvent pas être contournés par ``confirm_context``."
+                    if identity_missing
+                    else " Pour générer malgré tout, passer ``confirm_context=True``."
+                )
+            ),
+        }
+        return AvpContextCheck(identity=None, response=refus)
+    return AvpContextCheck(
+        identity=AvpIdentityContext(
+            project_name=eff_name,
+            project_code=eff_code,
+            phase=eff_phase,
+            auteur_controle=eff_auteur,
+            controle_src=controle_src,
+            sources=sources,
+        ),
+        response=None,
+    )
+
+
 @mcp.tool()
 def generate_avp_i3f_pack(
     output_dir: str | None = None,
@@ -641,186 +918,35 @@ def generate_avp_i3f_pack(
     from ...reporting.avp_i3f import write_avp_i3f_report_pack
     from ...reporting.avp_sources import AvpSourcePaths, load_sources, read_envelope_json
 
-    if _State.snapshot is None and _State.result is None:
-        return {
-            "status": "needs_context",
-            "missing": ["snapshot"],
-            "questions": [
-                {
-                    "key": "snapshot",
-                    "question": (
-                        "Extraire la maquette active avant de générer le pack "
-                        "AVP I3F (set_active_model puis extract_model_snapshot, "
-                        "ou full_audit)."
-                    ),
-                }
-            ],
-            "next_step": (
-                "Appeler set_active_model(...), puis extract_model_snapshot "
-                "ou full_audit. Relancer ensuite generate_avp_i3f_pack : les "
-                "Excel utiliseront les données IFC/OpenShell plutôt que les "
-                "colonnes d'outils externes des sources."
-            ),
-        }
-
-    def _src(p: str | None) -> str | None:
-        return str(safe_input_path(p, allowed_extensions={".xlsx", ".xlsm"})) if p else None
-
-    controle_xlsx_used = controle_xlsx or _auto_controle_xlsx()
-    controle_src = _src(controle_xlsx_used)
-    source_paths = AvpSourcePaths(
-        controle=controle_src,
-        shab=_src(shab_xlsx),
-        zones_espaces=_src(zones_espaces_xlsx),
-        enveloppe=_src(enveloppe_xlsx),
-        menuiseries=_src(menuiseries_xlsx),
-        plancher=_src(plancher_xlsx),
+    context = _validate_avp_context(
+        controle_xlsx=controle_xlsx,
+        shab_xlsx=shab_xlsx,
+        zones_espaces_xlsx=zones_espaces_xlsx,
+        enveloppe_xlsx=enveloppe_xlsx,
+        menuiseries_xlsx=menuiseries_xlsx,
+        plancher_xlsx=plancher_xlsx,
+        project_name=project_name,
+        project_code=project_code,
+        phase=phase,
+        auditor_name=auditor_name,
+        auteur_controle=auteur_controle,
+        auditor=auditor,
+        confirm_context=confirm_context,
+        AvpSourcePaths=AvpSourcePaths,
+        load_sources=load_sources,
     )
-    # Chargement unique des sources (lues aussi pour résoudre le code ESI).
-    sources = load_sources(source_paths)
+    if context.response is not None:
+        return context.response
 
-    # ── Résolution de l'identité projet (nom / code) ────────────────────
-    # Note : l'entête du classeur MOA n'est plus lue ici, et le helper qui la
-    # lisait a été supprimé plutôt que laissé inutilisé — un lecteur d'entête
-    # encore présent à portée de main est une invitation à le rebrancher.
-    # Ordre STRICT : **paramètre explicite → on demande**. Il n'y a pas de
-    # troisième source.
-    #
-    # Le repli sur le nom du projet BIMData a été SUPPRIMÉ. Il a livré un pack
-    # « 260803 MCP_Audit 7427L AVP - … » : ``MCP_Audit`` est un espace de
-    # travail, pas un chantier. Un nom de projet BIMData n'est pas une identité
-    # client — il est choisi par celui qui crée l'espace, souvent pour lui-même.
-    # Même traitement pour les libellés génériques (« Projet », « I3F ») et pour
-    # ``Tarare``, le chantier dont les classeurs MOA servent de gabarit.
-    #
-    # L'entête du classeur de contrôle ne fournit rien non plus — ni valeur, ni
-    # **suggestion**. Refuser une mauvaise valeur ne suffit pas s'il on continue
-    # de la proposer : une suggestion « Tarare / 0546L » finit recopiée. Et la
-    # filtrer par liste de libellés génériques ne fermerait pas le trou, puisque
-    # le gabarit du jour peut venir de n'importe quel autre chantier réel, dont
-    # le nom ne figurera dans aucune liste. La seule source de suggestion est le
-    # **nom de la maquette**, posé par l'équipe projet.
-    eff_name = (project_name or "").strip() or None
-    eff_code = (project_code or "").strip() or None
-    nom_rejete = eff_name if _is_generic_identity(eff_name) and eff_name else None
-    code_rejete = eff_code if _is_generic_identity(eff_code) and eff_code else None
-    if nom_rejete:
-        eff_name = None
-    if code_rejete:
-        eff_code = None
-    sug_name, sug_code = _model_identity_suggestion()
-
-    # Phase : paramètre explicite > phase d'audit **confirmée** > on demande.
-    #
-    # L'entête du classeur MOA est écartée ici pour la même raison que le nom et
-    # le code : la phase entre dans le nom du fichier remis au client. Un gabarit
-    # Tarare en AVP nommait « … Dieppe 7427L AVP - … » un pack en APD — le défaut
-    # est le même, simplement plus discret parce qu'une phase reste toujours
-    # plausible. ``_State.phase`` est conservée : elle a été confirmée par
-    # l'auditeur au moment de ``set_active_model``, ce n'est pas un repli.
-    eff_phase = (phase or "").strip() or None
-    if not eff_phase and _State.phase is not None:
-        eff_phase = _State.phase.value
-
-    # Auteur du contrôle : I3F attend un auteur nommé (CdP BIM / auditeur
-    # AMO). On **demande** explicitement plutôt que de retomber sur un
-    # « AMO BIM » générique.
-    #
-    # Trois noms coexistent, par ordre de priorité :
-    #   ``auditor_name``     — nom proposé/validé depuis la session (à employer) ;
-    #   ``auteur_controle``  — vocabulaire métier I3F, conservé en compat ;
-    #   ``auditor``          — paramètre historique, conservé en compat.
-    eff_auteur = (
-        (auditor_name or "").strip()
-        or (auteur_controle or "").strip()
-        or (auditor or "").strip()
-        or None
-    )
-    eff_auditor = eff_auteur
-
-    # Nom / code / phase obligatoires pour un livrable I3F fiable → sinon on
-    # demande (jamais de valeur inventée ni de défaut silencieux).
-    missing: list[str] = []
-    questions: list[dict] = []
-    if not eff_name:
-        missing.append("project_name")
-        q = {
-            "key": "project_name",
-            "question": "Quel nom de projet doit apparaître dans les livrables ?",
-        }
-        if nom_rejete:
-            q["rejected"] = nom_rejete
-            q["question"] = (
-                f"« {nom_rejete} » ne nomme pas un chantier (espace de travail, "
-                "libellé générique ou projet de référence des gabarits MOA) et ne "
-                "peut pas nommer un livrable client. Quel nom de projet doit "
-                "apparaître dans les livrables ?"
-            )
-        # Seule source de suggestion : le nom de la maquette, posé par l'équipe
-        # projet. Surtout pas l'entête du classeur MOA — voir plus haut.
-        if sug_name:
-            q["suggestion"] = sug_name
-            q["question"] += f" (le nom de la maquette suggère « {sug_name} »)"
-        questions.append(q)
-    if not eff_code:
-        missing.append("project_code")
-        q = {
-            "key": "project_code",
-            "question": (
-                "Quel code projet / ESI doit apparaître dans les livrables ? "
-                "(ex. « 7427L », visible sur le contrôle maquettes I3F)"
-            ),
-        }
-        if code_rejete:
-            q["rejected"] = code_rejete
-        if sug_code:
-            q["suggestion"] = sug_code
-            q["question"] += f" (le nom de la maquette suggère « {sug_code} »)"
-        questions.append(q)
-    if not eff_phase:
-        # Phase unique : proposée si détectée **dans la maquette**, sinon
-        # demandée — jamais défautée silencieusement sur « AVP », et jamais
-        # reprise de l'entête d'un gabarit MOA (elle nomme le fichier client).
-        missing.append("project_phase")
-        questions.append(_phase_question_dict(*_detect_snapshot_phase()))
-    if not eff_auteur:
-        # Clé alignée sur le PARAMÈTRE à employer : une question dont la clé ne
-        # correspond à aucun paramètre du tool guide vers un appel invalide.
-        missing.append("auditor_name")
-        questions.append(
-            {
-                "key": "auditor_name",
-                "question": (
-                    "Quel nom afficher comme « Auteur du contrôle » sur le pack "
-                    "AVP I3F ? (ex. le CdP BIM 3F, ou l'auditeur AMO)"
-                ),
-                "accepted_aliases": ["auteur_controle", "auditor"],
-            }
-        )
-    # Tout ce qui NOMME un fichier remis au client est incontournable : le nom,
-    # le code **et la phase**. ``confirm_context`` ne couvre que ce qui reste
-    # interne au document — ici l'auteur du contrôle.
-    identity_missing = [
-        m for m in missing if m in ("project_name", "project_code", "project_phase")
-    ]
-    if identity_missing or (missing and not confirm_context):
-        return {
-            "status": "needs_context",
-            "missing": missing,
-            "questions": questions,
-            "next_step": (
-                "Renseigner ``project_name`` / ``project_code`` / "
-                "``project_phase`` (=``phase``) / ``auditor_name`` puis "
-                "re-appeler ``generate_avp_i3f_pack``."
-                + (
-                    " ``project_name``, ``project_code`` et ``project_phase`` "
-                    "sont OBLIGATOIRES : ils nomment les livrables client et ne "
-                    "peuvent pas être contournés par ``confirm_context``."
-                    if identity_missing
-                    else " Pour générer malgré tout, passer ``confirm_context=True``."
-                )
-            ),
-        }
+    identite = context.identity
+    eff_name = identite.project_name
+    eff_code = identite.project_code
+    eff_phase = identite.phase
+    # Un seul auteur, deux noms locaux conservés : le code aval en aval les
+    # emploie tous deux, et les renommer sortirait du périmètre de ce lot.
+    eff_auteur = eff_auditor = identite.auteur_controle
+    controle_src = identite.controle_src
+    sources = identite.sources
     # Enveloppe « logique MOA » : source structurée envelope.json (MCP ifc-geometry)
     # → onglet par_type (8 lignes métier), prioritaire sur le repli snapshot (484
     # murs) et sur le .xlsx source.
