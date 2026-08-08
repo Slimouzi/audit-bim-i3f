@@ -7,6 +7,29 @@ Format basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versi
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-08
+
+**Release de renommage produit.** Aucun changement fonctionnel : les surfaces
+MCP sont identiques (I3F 46 outils, BIM in Motion 8, Domofrance 8), les prompts
+et les profils ne bougent pas, `import audit_bim` fonctionne à l'identique.
+
+Ce qui change est l'**identité** du produit, à trois niveaux qui n'avaient pas
+les mêmes conséquences et ont donc été traités séparément : ce que le serveur
+**annonce** (B1), ce qui s'**installe** (B2), et ce qui est **écrit dans les
+livrables** (B3). Le nom `audit-bim-i3f` désignait le premier client alors que
+le produit sert aujourd'hui trois AMO — un livrable Domofrance s'annonçait
+« i3f ».
+
+### Changed — le serveur MCP s'annonce `audit-bim-mcp` (lot B1)
+
+- `FastMCP("audit-bim-mcp")`, messages de démarrage, docs actives et exemples
+  de configuration alignés. **Sans effet sur les configurations existantes** :
+  dans un client MCP, la *clé* de `mcpServers` est choisie par l'utilisateur.
+  L'exemple de configuration montre désormais la règle réelle — un processus
+  sert un profil, donc trois serveurs déclarés pour trois AMO.
+- Garde-fou : `tests/unit/test_server_identity_docs.py` **dérive** le nom
+  attendu de l'instance FastMCP, au lieu de le recopier.
+
 ### Changed — BREAKING (installation)
 
 - **La distribution est renommée `audit-bim-i3f` → `audit-bim-mcp`** (lot B2).
