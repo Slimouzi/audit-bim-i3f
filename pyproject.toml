@@ -137,7 +137,7 @@ bim-publication = { git = "https://github.com/Slimouzi/bim-publication.git", tag
 bim-audit-engine = { git = "https://github.com/Slimouzi/bim-audit-engine.git", tag = "bim-audit-engine-v0.1.6" }
 bim-reporting = { git = "https://github.com/Slimouzi/bim-reporting.git", tag = "bim-reporting-v0.2.0" }
 bim-mcp-runtime = { git = "https://github.com/Slimouzi/bim-mcp-runtime.git", tag = "bim-mcp-runtime-v0.1.2" }
-ifc-geometry-mcp = { git = "https://github.com/Slimouzi/ifc-geometry-mcp.git", tag = "ifc-geometry-mcp-v0.6.1" }
+ifc-geometry-mcp = { git = "https://github.com/Slimouzi/ifc-geometry-mcp.git", tag = "ifc-geometry-mcp-v0.6.2" }
 
 [tool.setuptools.packages.find]
 include = ["audit_bim*"]

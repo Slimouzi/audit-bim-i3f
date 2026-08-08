@@ -50,7 +50,7 @@ jobs:
           pip install "git+https://github.com/Slimouzi/bim-audit-engine.git@bim-audit-engine-v0.1.6"
           pip install "git+https://github.com/Slimouzi/bim-reporting.git@bim-reporting-v0.2.0"
           pip install "git+https://github.com/Slimouzi/bim-mcp-runtime.git@bim-mcp-runtime-v0.1.2"
-          pip install "git+https://github.com/Slimouzi/ifc-geometry-mcp.git@ifc-geometry-mcp-v0.6.1"
+          pip install "git+https://github.com/Slimouzi/ifc-geometry-mcp.git@ifc-geometry-mcp-v0.6.2"
           pip install -e ".[test]"
       # ``--strict-installed`` : un paquet first-party ABSENT devient une erreur.
       # Sans ce mode, une brique manquante est ignorée — et « ignoré » ressemble

@@ -15,15 +15,16 @@ classeur et un JSON. Suite de Domo-0
 | Brique | Tag | État |
 |---|---|---|
 | Contrat | `bim-core-v0.4.0` | publié, 89 tests |
-| Producteur `extract_spatial_evidence` | `ifc-geometry-mcp-v0.6.1` | publié, 101 tests |
+| Producteur `extract_spatial_evidence` | `ifc-geometry-mcp-v0.6.2` | publié, 107 tests |
 | **Consommateur `audit-bim-mcp`** | — | **adopté**, épingle `bim-core>=0.4.0,<0.5` |
 
-Le producteur est passé de `v0.6.0` à `v0.6.1` par un repin de dépendance.
+Le producteur est passé de `v0.6.0` à `v0.6.2` par deux repins successifs.
 **Les compteurs de ce document ne bougent pas** : entre les deux tags,
-`analyzers.py` n'est pas modifié — la mesure est identique, seul l'écrivain
-change (`allow_nan=False`, qui refuse d'émettre un `nan` au lieu de produire un
-JSON invalide que Python relirait sans broncher). Les chiffres ci-dessous
-restent ceux mesurés à l'origine.
+aucun fichier de `spatial_evidence` n'est modifié — vérifié par diff des tags.
+`v0.6.1` ne change que l'écrivain (`allow_nan=False`), et `v0.6.2` que
+l'analyseur d'**enveloppe** (ventilation fenêtres/portes par type de mur), qui
+ne participe pas à ce contrat. Les chiffres ci-dessous restent ceux mesurés à
+l'origine.
 
 L'adoption n'a pas été un bump : cinq paquets first-party
 (`bimdata-read`, `bim-query`, `bim-publication`, `bim-audit-engine`,
